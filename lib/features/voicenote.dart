@@ -229,9 +229,11 @@ class _RecordAudioSheetState extends ConsumerState<_RecordAudioSheet> {
                   child: Text(
                     'SAVE',
                     style: TextStyle(
-                        color: _isRecording ? textSub.withOpacity(0.5) : textMain,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600
+                      color: _isRecording
+                          ? textSub.withValues(alpha: 0.5)
+                          : textMain,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
