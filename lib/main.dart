@@ -3,27 +3,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'navbar.dart';
 
-// Modern Notifier architecture compatible with your current package dependencies
+// Modern Notifier architecture pulling persisted values straight from disk
 class ThemeNotifier extends Notifier<bool> {
   @override
   bool build() {
-    return true; // Default state: dark mode active
+    // Instantly loads saved user selection on startup (defaults to true/dark)
+    return Hive.box('rocen_settings_box').get('isDark', defaultValue: true);
   }
 
   void toggleTheme() {
     state = !state;
+    // Writes state changes to disk securely
+    Hive.box('rocen_settings_box').put('isDark', state);
   }
 }
 
-// Clean initialization using modern NotifierProvider syntax
 final themeProvider = NotifierProvider<ThemeNotifier, bool>(ThemeNotifier.new);
 
 void main() async {
-  // Ensure framework low-level binding services are attached prior to initializing storage
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Hive key-value local storage backend engine
+  // Initialize Hive engine subsystems
   await Hive.initFlutter();
+
+  // Open settings box beforehand to prevent synchronous reading race conditions
+  await Hive.openBox('rocen_settings_box');
 
   runApp(
     const ProviderScope(
@@ -52,11 +56,9 @@ class RocenApp extends ConsumerWidget {
         body: SafeArea(
           child: Column(
             children: [
-              // Dynamic Content Frame Module Viewer switching screens based on Navbar selections
               Expanded(
                 child: activeModule.screen,
               ),
-              // Persistent Baseline System Minimal Navbar Fixed Framework Row
               const MinimalNavbar(),
             ],
           ),

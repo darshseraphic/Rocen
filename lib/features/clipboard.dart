@@ -3,19 +3,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:file_picker/file_picker.dart';
 import '../core/database.dart';
 import '../main.dart';
+
+// Modern Notifier managing dynamic layout density scale variables
+class GridColumnsNotifier extends Notifier<int> {
+  @override
+  int build() => 2; // Default layout state matches your initial 'big view'
+
+  void makeItemsSmaller() {
+    if (state < 6) state++; // Caps layout compaction at 6 columns max density
+  }
+
+  void makeItemsLarger() {
+    if (state > 1) state--; // Prevents columns collapsing past single asset stream
+  }
+}
+
+final gridColumnsProvider = NotifierProvider<GridColumnsNotifier, int>(GridColumnsNotifier.new);
 
 class ClipboardScreen extends ConsumerWidget {
   const ClipboardScreen({super.key});
 
-  // FIXED: Automatically fetches the device's entire gallery without opening file picking pickers
   Future<void> _autoFetchWholeGallery(BuildContext context, WidgetRef ref) async {
-    // Queries the native platform authorization interface
     final PermissionState permission = await PhotoManager.requestPermissionExtend();
 
     if (permission.isAuth || permission.hasAccess) {
-      // Pulls matching system media folders/albums containing images
       final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
         type: RequestType.image,
       );
@@ -24,7 +38,6 @@ class ClipboardScreen extends ConsumerWidget {
 
       for (var album in albums) {
         final int count = await album.assetCountAsync;
-        // Collects all images inside the indexed storage directory locations
         final List<AssetEntity> assets = await album.getAssetListRange(start: 0, end: count);
 
         for (var asset in assets) {
@@ -39,9 +52,28 @@ class ClipboardScreen extends ConsumerWidget {
         await ref.read(localDatabaseProvider.notifier).insertMultipleItems(loadedFilePaths, 'image_clip');
       }
     } else {
-      // Fallback handling if user explicitly denies access
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GALLERY PERMISSION DENIED')),
+        const SnackBar(content: Text('GALLERY PERMISSION DENIED IN SYSTEM SETTINGS')),
+      );
+    }
+  }
+
+  Future<void> _importSelectedMedia(BuildContext context, WidgetRef ref) async {
+    try {
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: true,
+      );
+
+      if (result != null) {
+        final List<String> chosenPaths = result.paths.whereType<String>().toList();
+        if (chosenPaths.isNotEmpty) {
+          await ref.read(localDatabaseProvider.notifier).insertMultipleItems(chosenPaths, 'image_clip');
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('IMPORT ERROR: ${e.toString().toUpperCase()}')),
       );
     }
   }
@@ -68,7 +100,7 @@ class ClipboardScreen extends ConsumerWidget {
                 border: Border.all(color: borderColor, width: 0.8),
               ),
               child: Column(
-                mainAxisSize: MainAxisSize.min, // Forces aspect ratio alignment bounding boxes
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Flexible(
                     child: Padding(
@@ -129,6 +161,7 @@ class ClipboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = ref.watch(themeProvider);
+    final columns = ref.watch(gridColumnsProvider); // Monitors ongoing grid sizing requests
     final items = ref.watch(localDatabaseProvider)
         .where((e) => e.type == 'clip' || e.type == 'image_clip')
         .toList();
@@ -143,9 +176,43 @@ class ClipboardScreen extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'CLIPBOARD REGISTRY',
-            style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'CLIPBOARD REGISTRY',
+                style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
+              ),
+
+              // MINIMAL DENSITY TOGGLE BLOCK
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsLarger(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: borderColor, width: 0.8),
+                        color: containerBg,
+                      ),
+                      child: Text('+', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsSmaller(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: borderColor, width: 0.8),
+                        color: containerBg,
+                      ),
+                      child: Text('-', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              )
+            ],
           ),
           const SizedBox(height: 16),
 
@@ -171,7 +238,7 @@ class ClipboardScreen extends ConsumerWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: InkWell(
-                  onTap: () => _autoFetchWholeGallery(context, ref), // Synced to process identically as expected
+                  onTap: () => _importSelectedMedia(context, ref),
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
@@ -200,9 +267,9 @@ class ClipboardScreen extends ConsumerWidget {
               ),
             )
                 : MasonryGridView.count(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
+              crossAxisCount: columns, // Dynamically maps structure bounds on calculation change
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
               itemCount: items.length,
               itemBuilder: (context, index) {
                 final item = items[index];
@@ -222,38 +289,41 @@ class ClipboardScreen extends ConsumerWidget {
                           Image.file(
                             File(item.content),
                             fit: BoxFit.cover,
+                            cacheWidth: 280,
                             errorBuilder: (context, error, stackTrace) {
                               return Container(
                                 padding: const EdgeInsets.all(12),
-                                child: Text('MEDIA REF BROKEN', style: TextStyle(color: Colors.red[400], fontSize: 11)),
+                                child: Text('MEDIA REF BROKEN', style: TextStyle(color: Colors.red[400], fontSize: 9)),
                               );
                             },
                           ),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(8.0),
-                            decoration: BoxDecoration(
-                              border: Border(top: BorderSide(color: borderColor, width: 0.8)),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    item.content.split(Platform.pathSeparator).last,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(color: textSub, fontSize: 10),
+                          // Hide specific labeling tags when grid view drops to high density states
+                          if (columns <= 2)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(8.0),
+                              decoration: BoxDecoration(
+                                border: Border(top: BorderSide(color: borderColor, width: 0.8)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      item.content.split(Platform.pathSeparator).last,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: textSub, fontSize: 10),
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                GestureDetector(
-                                  onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
-                                  child: Icon(Icons.close, color: textSub, size: 12),
-                                )
-                              ],
+                                  const SizedBox(width: 4),
+                                  GestureDetector(
+                                    onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
+                                    child: Icon(Icons.close, color: textSub, size: 12),
+                                  )
+                                ],
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
