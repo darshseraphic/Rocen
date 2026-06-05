@@ -5,7 +5,7 @@ import '../main.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  // CUSTOM ROUTE BUILDER FOR THE RIGHT-TO-LEFT SMOOTH TAB SLIDE EFFECT (NO SHADOWS)
+  // CUSTOM ROUTE BUILDER FOR THE RIGHT-TO-LEFT SMOOTH TAB SLIDE EFFECT (100% FULL PAGE)
   void _showSlidingPanel(BuildContext context, String title, List<Widget> children, bool isDark) {
     Navigator.of(context).push(
       PageRouteBuilder(
@@ -17,8 +17,7 @@ class SettingsScreen extends ConsumerWidget {
           final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
           return Scaffold(
-            // Removed opacity/shadow background tint for a perfectly clean entry
-            backgroundColor: Colors.transparent,
+            backgroundColor: Colors.transparent, // Flat aesthetic, no shadow background overlay
             body: Stack(
               children: [
                 GestureDetector(
@@ -28,12 +27,11 @@ class SettingsScreen extends ConsumerWidget {
                 Align(
                   alignment: Alignment.centerRight,
                   child: FractionallySizedBox(
-                    widthFactor: 0.85,
+                    widthFactor: 1.0, // FIX: Set to 1.0 to ensure it claims 100% of the screen width
                     heightFactor: 1.0,
                     child: Container(
                       decoration: BoxDecoration(
                         color: panelBg,
-                        border: Border(left: BorderSide(color: borderColor, width: 1.0)),
                       ),
                       child: SafeArea(
                         child: Column(
@@ -69,7 +67,7 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                             Divider(color: borderColor, height: 1, thickness: 0.8),
 
-                            // SCROLLABLE BODY LOGIC
+                            // SCROLLABLE PANEL CONTENT BLOCK
                             Expanded(
                               child: ListView(
                                 physics: const BouncingScrollPhysics(),
@@ -156,7 +154,7 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  // FACTORY METHOD FOR REUSABLE STRUCTURAL SYSTEM TILES
+  // REUSABLE STRUCTURAL TILES FACTORY
   Widget _buildMenuTile({
     required String title,
     required String subtitle,
@@ -243,7 +241,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
 
-            // DARK MODE SETTING CARD CONTAINER
+            // SYSTEM SYSTEM-WIDE DARK THEME CONFIG
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
