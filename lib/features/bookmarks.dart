@@ -231,7 +231,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                                   duration: const Duration(milliseconds: 200),
                                   style: TextStyle(
                                     color: item.isCompleted ? textSub : textMain,
-                                    fontSize: 14, // Matches 'BOOKMARKS' title text size exactly
+                                    fontSize: 13, // Matches 'BOOKMARKS' title text size exactly
                                     fontWeight: FontWeight.w600,
                                     letterSpacing: -0.01,
                                   ),

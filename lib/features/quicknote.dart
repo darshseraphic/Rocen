@@ -14,8 +14,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   final TextEditingController _noteController = TextEditingController();
 
   void _saveNote() {
-    if (_noteController.text.trim().isNotEmpty) {
-      ref.read(localDatabaseProvider.notifier).addItem(_noteController.text, 'note');
+    final String text = _noteController.text.trim();
+    if (text.isNotEmpty) {
+      ref.read(localDatabaseProvider.notifier).insertMultipleItems([text], 'note');
       _noteController.clear();
     }
   }
@@ -36,7 +37,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
     final containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
 
-    // FIXED: Strict high-contrast color values for the click interactions
     final splashColor = isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06);
     final hoverColor = isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03);
 
@@ -72,7 +72,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                     maxLines: 4,
                     style: TextStyle(color: textMain, fontSize: 13, height: 1.4),
                     decoration: InputDecoration(
-                      hintText: 'WRITE CRITICAL LOGS HERE...',
+                      hintText: 'FIRST LINE IS TITLE...\nSUBSEQUENT LINES ARE DETAILS...',
                       hintStyle: TextStyle(color: textSub, fontSize: 12, letterSpacing: 0.05),
                       contentPadding: const EdgeInsets.all(16),
                       border: InputBorder.none,
@@ -86,13 +86,11 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      // FIXED: Forced CustomBorder configuration to eliminate violet circle artifact
                       InkWell(
                         onTap: _saveNote,
                         splashColor: splashColor,
                         highlightColor: splashColor,
                         hoverColor: hoverColor,
-                        // 👈 This forces the splash and highlight shapes to remain perfectly square
                         customBorder: const RoundedRectangleBorder(
                           borderRadius: BorderRadius.zero,
                         ),
@@ -113,7 +111,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
 
           Divider(color: borderColor, height: 32, thickness: 0.8),
 
-          // PERSISTED RECORDS LIST
+          // RESTORED OLD UI RECORDS LIST
           Expanded(
             child: items.isEmpty
                 ? Center(
@@ -126,35 +124,60 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
               itemCount: items.length,
               itemBuilder: (context, index) {
                 final item = items[index];
+
+                final List<String> lines = item.content.split('\n');
+                final String title = lines.first.trim();
+                final String description = lines.length > 1 ? lines.sublist(1).join('\n').trim() : '';
+
+                // Re-implemented old structured panel block layout
                 return Container(
                   margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: containerBg,
                     border: Border.all(color: borderColor, width: 0.8),
                   ),
-                  child: Row(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          item.content,
-                          style: TextStyle(color: textMain, fontSize: 13, height: 1.4),
+                      // Header Bar Block containing the Title & Trash action
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border(bottom: BorderSide(color: borderColor, width: 0.8)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title.toUpperCase(),
+                                style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.02),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            GestureDetector(
+                              onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
+                              behavior: HitTestBehavior.opaque,
+                              child: Icon(
+                                Icons.delete_outline,
+                                color: textSub,
+                                size: 22, // Retained: Noticeable trash size adjustment
+                              ),
+                            )
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      GestureDetector(
-                        onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
-                        behavior: HitTestBehavior.opaque,
-                        child: Padding(
-                          padding: const EdgeInsets.all(4.0),
-                          child: Icon(
-                            Icons.delete_outline,
-                            color: textSub,
-                            size: 18,
+                      // Details Body Block (Only rendered if subsequent lines exist)
+                      if (description.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text(
+                            description,
+                            style: TextStyle(color: textMain, fontSize: 13, height: 1.45),
                           ),
                         ),
-                      )
                     ],
                   ),
                 );
