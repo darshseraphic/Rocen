@@ -12,7 +12,7 @@ enum CaptureModule {
   quickNote('NOTE', QuickNoteScreen()),
   clipboard('CLIP', ClipboardScreen()),
   bookmark('BOOK', BookmarksScreen()),
-  ideaInbox('IDEA', IdeaInboxScreen()),
+  ideaInbox('YEAR', IdeaInboxScreen()),
   settings('SET', SettingsScreen()); // Shifted to the absolute right side
 
   final String label;

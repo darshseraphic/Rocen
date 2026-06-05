@@ -70,23 +70,23 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
 
             Divider(color: ruleBorder, height: 1, thickness: 0.8),
 
-            // FREE-FLOWING 15-COLUMN MATRIX EXPANSION
+            // FREE-FLOWING 13-COLUMN MATRIX EXPANSION
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    // Calculates standard square spacing boundaries across 15 columns
-                    final double totalSpacing = 5.0 * 14; // 14 gaps between 15 elements
-                    final double boxWidth = (constraints.maxWidth - totalSpacing) / 15;
+                    // Calculates standard square spacing boundaries across 13 columns
+                    final double totalSpacing = 6.0 * 12; // 12 gaps between 13 elements
+                    final double boxWidth = (constraints.maxWidth - totalSpacing) / 13;
 
                     return GridView.builder(
                       physics: const BouncingScrollPhysics(),
                       itemCount: totalDaysInYear,
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 15, // Adjusted to 15 squares per line
-                        crossAxisSpacing: 5.0, // Tighter gap matrix spacing
-                        mainAxisSpacing: 5.0,
+                        crossAxisCount: 13, // Fixed at your choice of 13 columns
+                        crossAxisSpacing: 6.0,
+                        mainAxisSpacing: 6.0,
                         childAspectRatio: 1.0,
                       ),
                       itemBuilder: (context, index) {
