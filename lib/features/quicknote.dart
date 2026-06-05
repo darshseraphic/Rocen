@@ -11,88 +11,19 @@ class QuickNoteScreen extends ConsumerStatefulWidget {
 }
 
 class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _bodyController;
+  final TextEditingController _noteController = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    _titleController = TextEditingController();
-    _bodyController = TextEditingController();
+  void _saveNote() {
+    if (_noteController.text.trim().isNotEmpty) {
+      ref.read(localDatabaseProvider.notifier).addItem(_noteController.text, 'note');
+      _noteController.clear();
+    }
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _bodyController.dispose();
+    _noteController.dispose();
     super.dispose();
-  }
-
-  void _showDeleteConfirmation(BuildContext context, String id) {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      transitionDuration: const Duration(milliseconds: 100),
-      pageBuilder: (context, anim1, anim2) {
-        return Consumer(
-          builder: (context, ref, child) {
-            final isDark = ref.watch(themeProvider);
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 260,
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF121212) : Colors.white,
-                    border: Border.all(color: isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5), width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(20.0),
-                        child: Text('PURGE THIS DATA SEGMENT?',
-                            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 11, fontWeight: FontWeight.w500, letterSpacing: 0.02)),
-                      ),
-                      Container(height: 0.8, color: isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5)),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                height: 40,
-                                alignment: Alignment.center,
-                                child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF737373) : const Color(0xFF888888), fontSize: 10, fontWeight: FontWeight.w600)),
-                              ),
-                            ),
-                          ),
-                          Container(width: 0.8, height: 40, color: isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5)),
-                          Expanded(
-                            child: InkWell(
-                              onTap: () {
-                                ref.read(localDatabaseProvider.notifier).deleteItem(id);
-                                Navigator.pop(context);
-                              },
-                              child: Container(
-                                height: 40,
-                                alignment: Alignment.center,
-                                child: const Text('DELETE', style: TextStyle(color: Color(0xFFEF4444), fontSize: 10, fontWeight: FontWeight.w600)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 
   @override
@@ -101,108 +32,127 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final items = ref.watch(localDatabaseProvider).where((e) => e.type == 'note').toList();
 
     final textMain = isDark ? Colors.white : Colors.black;
-    final textSub = isDark ? const Color(0xFF737373) : const Color(0xFF888888);
-    final ruleBorder = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
+    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
+
+    // FIXED: Strict high-contrast color values for the click interactions
+    final splashColor = isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06);
+    final hoverColor = isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03);
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('QUICK NOTES', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
+          Text(
+            'QUICKNOTE REGISTRY',
+            style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
+          ),
           const SizedBox(height: 16),
 
-          Flexible(
-            child: SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: _titleController,
-                    style: TextStyle(color: textMain, fontSize: 14, fontWeight: FontWeight.w600),
-                    cursorColor: textMain,
+          // INPUT MODULE
+          Container(
+            decoration: BoxDecoration(
+              color: containerBg,
+              border: Border.all(color: borderColor, width: 0.8),
+            ),
+            child: Column(
+              children: [
+                Theme(
+                  data: Theme.of(context).copyWith(
+                    textSelectionTheme: TextSelectionThemeData(
+                      cursorColor: textMain,
+                      selectionColor: textMain.withOpacity(0.15),
+                      selectionHandleColor: textMain,
+                    ),
+                  ),
+                  child: TextField(
+                    controller: _noteController,
+                    maxLines: 4,
+                    style: TextStyle(color: textMain, fontSize: 13, height: 1.4),
                     decoration: InputDecoration(
-                      hintText: 'Note title...',
-                      hintStyle: TextStyle(color: textSub, fontWeight: FontWeight.w400),
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.only(bottom: 6),
+                      hintText: 'WRITE CRITICAL LOGS HERE...',
+                      hintStyle: TextStyle(color: textSub, fontSize: 12, letterSpacing: 0.05),
+                      contentPadding: const EdgeInsets.all(16),
+                      border: InputBorder.none,
                     ),
                   ),
-                  TextField(
-                    controller: _bodyController,
-                    style: TextStyle(color: textMain, fontSize: 13),
-                    maxLines: null,
-                    cursorColor: textMain,
-                    decoration: InputDecoration(
-                      hintText: 'Type text entry description...',
-                      hintStyle: TextStyle(color: textSub),
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                    ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: borderColor, width: 0.8)),
                   ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        if (_bodyController.text.trim().isNotEmpty) {
-                          ref.read(localDatabaseProvider.notifier).insertItem(
-                            _bodyController.text.trim(),
-                            'note',
-                            title: _titleController.text.trim(),
-                          );
-                          _titleController.clear();
-                          _bodyController.clear();
-                        }
-                      },
-                      child: Text('COMMIT', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600)),
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // FIXED: Forced CustomBorder configuration to eliminate violet circle artifact
+                      InkWell(
+                        onTap: _saveNote,
+                        splashColor: splashColor,
+                        highlightColor: splashColor,
+                        hoverColor: hoverColor,
+                        // 👈 This forces the splash and highlight shapes to remain perfectly square
+                        customBorder: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          child: Text(
+                            'COMMIT',
+                            style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.05),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                )
+              ],
             ),
           ),
 
-          Divider(color: ruleBorder, height: 16, thickness: 0.8),
+          Divider(color: borderColor, height: 32, thickness: 0.8),
 
+          // PERSISTED RECORDS LIST
           Expanded(
-            child: ListView.builder(
+            child: items.isEmpty
+                ? Center(
+              child: Text(
+                'NO ENTRIES LOGGED',
+                style: TextStyle(color: textSub, fontSize: 11, letterSpacing: 0.05),
+              ),
+            )
+                : ListView.builder(
               itemCount: items.length,
               itemBuilder: (context, index) {
                 final item = items[index];
                 return Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    border: Border(bottom: BorderSide(color: ruleBorder, width: 0.8)),
+                    color: containerBg,
+                    border: Border.all(color: borderColor, width: 0.8),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (item.title.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 2),
-                                child: Text(item.title.toUpperCase(),
-                                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.02)),
-                              ),
-                            Text(item.content, style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF404040), fontSize: 13)),
-                          ],
+                        child: Text(
+                          item.content,
+                          style: TextStyle(color: textMain, fontSize: 13, height: 1.4),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 16),
                       GestureDetector(
-                        onTap: () => _showDeleteConfirmation(context, item.id),
+                        onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
+                        behavior: HitTestBehavior.opaque,
                         child: Padding(
                           padding: const EdgeInsets.all(4.0),
-                          child: Icon(Icons.delete_outline_rounded, color: textSub, size: 14),
+                          child: Icon(
+                            Icons.delete_outline,
+                            color: textSub,
+                            size: 18,
+                          ),
                         ),
                       )
                     ],
@@ -210,7 +160,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                 );
               },
             ),
-          )
+          ),
         ],
       ),
     );

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../main.dart'; // Ensure this points to where themeProvider is located
+import '../main.dart';
 
 // --- 1. DATA MODEL ---
 class TodoItem {
@@ -36,7 +36,7 @@ class TodoItem {
   }
 }
 
-// --- 2. STATE NOTIFIER (With Auto-Hive Persistence) ---
+// --- 2. STATE NOTIFIER ---
 class TodoNotifier extends Notifier<List<TodoItem>> {
   static const String _boxName = 'rocen_todos_box';
 
@@ -137,7 +137,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
 
           // TASK INPUT BAR
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
             decoration: BoxDecoration(
               color: containerBg,
               border: Border.all(color: borderColor, width: 0.8),
@@ -147,7 +147,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                 Expanded(
                   child: TextField(
                     controller: _taskController,
-                    style: TextStyle(color: textMain, fontSize: 12),
+                    style: TextStyle(color: textMain, fontSize: 13),
                     cursorColor: textMain,
                     decoration: InputDecoration(
                       hintText: 'ADD NEW TASK...',
@@ -157,9 +157,22 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                     onSubmitted: (_) => _submitTask(),
                   ),
                 ),
+                // INCREASED ADD BUTTON SIZE
                 GestureDetector(
                   onTap: _submitTask,
-                  child: Text('+', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.bold)),
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    child: Text(
+                      '+',
+                      style: TextStyle(
+                        color: textMain,
+                        fontSize: 22, // Size bumped up from 16 to be prominently noticed
+                        fontWeight: FontWeight.w700, // Thicker geometry alignment
+                        height: 1.0,
+                      ),
+                    ),
+                  ),
                 )
               ],
             ),
@@ -181,33 +194,32 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
               itemBuilder: (context, index) {
                 final item = tasks[index];
 
-                // Theme-specific logic for the square checkbox
                 final boxBorderColor = isDark ? const Color(0xFFCCCCCC) : Colors.black;
                 final boxFillColor = item.isCompleted
-                    ? (isDark ? Colors.white : Colors.black) // High contrast fill on complete
-                    : Colors.transparent; // App background inside when incomplete
+                    ? (isDark ? Colors.white : Colors.black)
+                    : Colors.transparent;
 
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 16.0),
+                  padding: const EdgeInsets.only(bottom: 18.0),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // CUSTOM ANIMATED SQUARE TOGGLE
+                      // CUSTOM ANIMATED SQUARE TOGGLE (Slightly adjusted dimensions to look balanced alongside larger text)
                       GestureDetector(
                         onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
-                          width: 18,
-                          height: 18,
+                          width: 20,
+                          height: 20,
                           decoration: BoxDecoration(
                             color: boxFillColor,
-                            border: Border.all(color: boxBorderColor, width: 1.2),
+                            border: Border.all(color: boxBorderColor, width: 1.4),
                           ),
                         ),
                       ),
                       const SizedBox(width: 16),
 
-                      // TEXT WITH SMOOTH STRIKETHROUGH ANIMATION
+                      // TASK TITLE TEXT WITH ENHANCED FONT SIZING
                       Expanded(
                         child: GestureDetector(
                           onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
@@ -219,12 +231,13 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                                   duration: const Duration(milliseconds: 200),
                                   style: TextStyle(
                                     color: item.isCompleted ? textSub : textMain,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14, // Matches 'BOOKMARKS' title text size exactly
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.01,
                                   ),
                                   child: Text(item.text),
                                 ),
-                                // The actual strikethrough line dynamically scaling its width
+                                // Custom horizontal strike engine
                                 Positioned.fill(
                                   child: Align(
                                     alignment: Alignment.centerLeft,
@@ -234,7 +247,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                                       alignment: Alignment.centerLeft,
                                       widthFactor: item.isCompleted ? 1.0 : 0.0,
                                       child: Container(
-                                        height: 1.2,
+                                        height: 1.5, // Thickened slightly to cut across larger characters seamlessly
                                         color: textSub,
                                       ),
                                     ),
@@ -246,10 +259,13 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                         ),
                       ),
 
-                      // DELETE BUTTON
+                      // ROW ITEM TERMINATOR
                       GestureDetector(
                         onTap: () => ref.read(todoProvider.notifier).deleteTask(item.id),
-                        child: Icon(Icons.close, color: textSub, size: 14),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: Icon(Icons.close, color: textSub, size: 16),
+                        ),
                       )
                     ],
                   ),

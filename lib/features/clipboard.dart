@@ -4,36 +4,69 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../core/database.dart';
 import '../main.dart';
 
-// Modern Notifier managing dynamic layout density scale variables
+// --- PERSISTED DENSITY STATE NOTIFIER ---
 class GridColumnsNotifier extends Notifier<int> {
+  static const String _boxName = 'rocen_settings_box';
+
   @override
-  int build() => 2; // Default layout state matches your initial 'big view'
+  int build() {
+    // Reads saved density layout parameter directly on engine initialization (Defaults to 2)
+    return Hive.box(_boxName).get('grid_columns', defaultValue: 2);
+  }
 
   void makeItemsSmaller() {
-    if (state < 6) state++; // Caps layout compaction at 6 columns max density
+    if (state < 6) {
+      state++;
+      Hive.box(_boxName).put('grid_columns', state); // Commits state to disk instantly
+    }
   }
 
   void makeItemsLarger() {
-    if (state > 1) state--; // Prevents columns collapsing past single asset stream
+    if (state > 1) {
+      state--;
+      Hive.box(_boxName).put('grid_columns', state); // Commits state to disk instantly
+    }
   }
 }
 
 final gridColumnsProvider = NotifierProvider<GridColumnsNotifier, int>(GridColumnsNotifier.new);
 
-class ClipboardScreen extends ConsumerWidget {
+// --- MAIN INTERFACE WORKSPACE ---
+class ClipboardScreen extends ConsumerStatefulWidget {
   const ClipboardScreen({super.key});
 
-  Future<void> _autoFetchWholeGallery(BuildContext context, WidgetRef ref) async {
+  @override
+  ConsumerState<ClipboardScreen> createState() => _ClipboardScreenState();
+}
+
+class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
+  final PageController _pageController = PageController(initialPage: 0);
+  int _activePageIndex = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _switchTab(int index) {
+    setState(() => _activePageIndex = index);
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _autoFetchWholeGallery() async {
     final PermissionState permission = await PhotoManager.requestPermissionExtend();
 
     if (permission.isAuth || permission.hasAccess) {
-      final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
-        type: RequestType.image,
-      );
-
+      final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(type: RequestType.image);
       final List<String> loadedFilePaths = [];
 
       for (var album in albums) {
@@ -42,47 +75,38 @@ class ClipboardScreen extends ConsumerWidget {
 
         for (var asset in assets) {
           final File? file = await asset.file;
-          if (file != null) {
-            loadedFilePaths.add(file.path);
-          }
+          if (file != null) loadedFilePaths.add(file.path);
         }
       }
 
       if (loadedFilePaths.isNotEmpty) {
-        await ref.read(localDatabaseProvider.notifier).insertMultipleItems(loadedFilePaths, 'image_clip');
+        await ref.read(localDatabaseProvider.notifier).insertMultipleItems(loadedFilePaths, 'gallery_clip');
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GALLERY PERMISSION DENIED IN SYSTEM SETTINGS')),
-      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PERMISSION DENIED')));
     }
   }
 
-  Future<void> _importSelectedMedia(BuildContext context, WidgetRef ref) async {
+  Future<void> _importSelectedMedia() async {
     try {
-      final FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: true,
-      );
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: true);
 
       if (result != null) {
         final List<String> chosenPaths = result.paths.whereType<String>().toList();
         if (chosenPaths.isNotEmpty) {
-          await ref.read(localDatabaseProvider.notifier).insertMultipleItems(chosenPaths, 'image_clip');
+          await ref.read(localDatabaseProvider.notifier).insertMultipleItems(chosenPaths, 'imported_clip');
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('IMPORT ERROR: ${e.toString().toUpperCase()}')),
-      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ERROR: ${e.toString().toUpperCase()}')));
     }
   }
 
-  void _showImagePreview(BuildContext context, String filePath, bool isDark, Color borderColor) {
+  void _showImagePreview(String filePath, bool isDark, Color borderColor) {
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
-      barrierLabel: 'Dismiss Preview',
+      barrierLabel: 'Dismiss',
       barrierColor: Colors.black.withOpacity(isDark ? 0.85 : 0.6),
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (context, anim1, anim2) {
@@ -105,10 +129,7 @@ class ClipboardScreen extends ConsumerWidget {
                   Flexible(
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
-                      child: Image.file(
-                        File(filePath),
-                        fit: BoxFit.contain,
-                      ),
+                      child: Image.file(File(filePath), fit: BoxFit.contain),
                     ),
                   ),
                   Container(
@@ -124,27 +145,13 @@ class ClipboardScreen extends ConsumerWidget {
                         Expanded(
                           child: Text(
                             filePath.split(Platform.pathSeparator).last.toUpperCase(),
-                            style: TextStyle(
-                              color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: 0.05,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.w500),
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         InkWell(
                           onTap: () => Navigator.pop(context),
-                          child: Text(
-                            'CLOSE',
-                            style: TextStyle(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.05,
-                            ),
-                          ),
+                          child: Text('CLOSE', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 10, fontWeight: FontWeight.w600)),
                         ),
                       ],
                     ),
@@ -158,13 +165,78 @@ class ClipboardScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildGrid(List<CaptureItem> items, int columns, bool isDark, Color borderColor, Color containerBg, Color textSub) {
+    if (items.isEmpty) {
+      return Center(
+        child: Text(
+          'NO MEDIA FOUND IN THIS CATEGORY',
+          style: TextStyle(color: textSub, fontSize: 11, letterSpacing: 0.05),
+        ),
+      );
+    }
+
+    return MasonryGridView.count(
+      crossAxisCount: columns,
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return GestureDetector(
+          onTap: () => _showImagePreview(item.content, isDark, borderColor),
+          child: Container(
+            decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.file(
+                  File(item.content),
+                  fit: BoxFit.cover,
+                  cacheWidth: 280,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(padding: const EdgeInsets.all(12), child: Text('BROKEN REF', style: TextStyle(color: Colors.red[400], fontSize: 9)));
+                  },
+                ),
+                if (columns <= 2)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8.0),
+                    decoration: BoxDecoration(border: Border(top: BorderSide(color: borderColor, width: 0.8))),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.content.split(Platform.pathSeparator).last,
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: textSub, fontSize: 10),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
+                          child: Icon(Icons.close, color: textSub, size: 12),
+                        )
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final isDark = ref.watch(themeProvider);
-    final columns = ref.watch(gridColumnsProvider); // Monitors ongoing grid sizing requests
-    final items = ref.watch(localDatabaseProvider)
-        .where((e) => e.type == 'clip' || e.type == 'image_clip')
-        .toList();
+    final columns = ref.watch(gridColumnsProvider);
+    final allItems = ref.watch(localDatabaseProvider);
+
+    final galleryItems = allItems.where((e) => e.type == 'gallery_clip').toList();
+    final importedItems = allItems.where((e) => e.type == 'imported_clip').toList();
 
     final textMain = isDark ? Colors.white : Colors.black;
     final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
@@ -180,21 +252,26 @@ class ClipboardScreen extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'CLIPBOARD REGISTRY',
+                'MEDIA REGISTRY',
                 style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
               ),
 
-              // MINIMAL DENSITY TOGGLE BLOCK
               Row(
                 children: [
+                  GestureDetector(
+                    onTap: () => _activePageIndex == 0 ? _autoFetchWholeGallery() : _importSelectedMedia(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: isDark ? Colors.white : Colors.black),
+                      child: Text('FETCH', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   GestureDetector(
                     onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsLarger(),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: borderColor, width: 0.8),
-                        color: containerBg,
-                      ),
+                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
                       child: Text('+', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                   ),
@@ -203,10 +280,7 @@ class ClipboardScreen extends ConsumerWidget {
                     onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsSmaller(),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: borderColor, width: 0.8),
-                        color: containerBg,
-                      ),
+                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
                       child: Text('-', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                   ),
@@ -220,17 +294,18 @@ class ClipboardScreen extends ConsumerWidget {
             children: [
               Expanded(
                 child: InkWell(
-                  onTap: () => _autoFetchWholeGallery(context, ref),
-                  child: Container(
+                  onTap: () => _switchTab(0),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
-                      border: Border.all(color: borderColor, width: 0.8),
-                      color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F9F9),
+                      border: Border.all(color: _activePageIndex == 0 ? textMain : borderColor, width: _activePageIndex == 0 ? 1.5 : 0.8),
+                      color: _activePageIndex == 0 ? containerBg : Colors.transparent,
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       'ACCESS GALLERY',
-                      style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                      style: TextStyle(color: _activePageIndex == 0 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
                     ),
                   ),
                 ),
@@ -238,17 +313,18 @@ class ClipboardScreen extends ConsumerWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: InkWell(
-                  onTap: () => _importSelectedMedia(context, ref),
-                  child: Container(
+                  onTap: () => _switchTab(1),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
-                      border: Border.all(color: borderColor, width: 0.8),
-                      color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F9F9),
+                      border: Border.all(color: _activePageIndex == 1 ? textMain : borderColor, width: _activePageIndex == 1 ? 1.5 : 0.8),
+                      color: _activePageIndex == 1 ? containerBg : Colors.transparent,
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       'IMPORT MEDIA',
-                      style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                      style: TextStyle(color: _activePageIndex == 1 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
                     ),
                   ),
                 ),
@@ -259,99 +335,13 @@ class ClipboardScreen extends ConsumerWidget {
           Divider(color: borderColor, height: 32, thickness: 0.8),
 
           Expanded(
-            child: items.isEmpty
-                ? Center(
-              child: Text(
-                'NO CAPTURES INSTANTIATED',
-                style: TextStyle(color: textSub, fontSize: 11, letterSpacing: 0.05),
-              ),
-            )
-                : MasonryGridView.count(
-              crossAxisCount: columns, // Dynamically maps structure bounds on calculation change
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final item = items[index];
-
-                if (item.type == 'image_clip') {
-                  return GestureDetector(
-                    onTap: () => _showImagePreview(context, item.content, isDark, borderColor),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: borderColor, width: 0.8),
-                        color: containerBg,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Image.file(
-                            File(item.content),
-                            fit: BoxFit.cover,
-                            cacheWidth: 280,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                padding: const EdgeInsets.all(12),
-                                child: Text('MEDIA REF BROKEN', style: TextStyle(color: Colors.red[400], fontSize: 9)),
-                              );
-                            },
-                          ),
-                          // Hide specific labeling tags when grid view drops to high density states
-                          if (columns <= 2)
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(8.0),
-                              decoration: BoxDecoration(
-                                border: Border(top: BorderSide(color: borderColor, width: 0.8)),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      item.content.split(Platform.pathSeparator).last,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: textSub, fontSize: 10),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  GestureDetector(
-                                    onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
-                                    child: Icon(Icons.close, color: textSub, size: 12),
-                                  )
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  color: containerBg,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.content,
-                          style: TextStyle(color: textSub, fontSize: 12),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      GestureDetector(
-                        onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
-                        child: Icon(Icons.close, color: textSub, size: 12),
-                      )
-                    ],
-                  ),
-                );
-              },
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (index) => setState(() => _activePageIndex = index),
+              children: [
+                _buildGrid(galleryItems, columns, isDark, borderColor, containerBg, textSub),
+                _buildGrid(importedItems, columns, isDark, borderColor, containerBg, textSub),
+              ],
             ),
           )
         ],
