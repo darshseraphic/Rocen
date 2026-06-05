@@ -137,7 +137,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                   // 1px Horizontal Line Insertion
                   Container(
                     height: 1.0,
-                    color: const Color(0xFFCCCCCC),
+                    color: const Color(0xFFa6a6a6),
                   ),
                   const SizedBox(height: 8), // Padding before the body text block
 
