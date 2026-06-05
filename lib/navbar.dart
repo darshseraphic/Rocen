@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart'; // Retained legacy StateProvider hooks
+import 'package:flutter_riverpod/flutter_riverpod.dart'; // Retained legacy StateProvider hooks
 import 'features/settings.dart';
 import 'features/quicknote.dart';
 import 'features/clipboard.dart';

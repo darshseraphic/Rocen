@@ -7,7 +7,7 @@ void main() {
     // Build our app under a ProviderScope and trigger a frame.
     await tester.pumpWidget(
       const ProviderScope(
-        child: CaptureApp(),
+        child: RocenApp(),
       ),
     );
 

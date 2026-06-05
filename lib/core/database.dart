@@ -1,10 +1,11 @@
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 class CaptureItem {
   final String id;
   final String title;
-  final String content; // Handles plain text copies OR local desktop image file paths
-  final String type;    // 'clip' or 'image_clip'
+  final String content;
+  final String type;
   final DateTime timestamp;
 
   CaptureItem({
@@ -36,28 +37,57 @@ class CaptureItem {
   }
 }
 
-class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
-  DatabaseNotifier() : super([]) {
-    loadItems();
+class DatabaseNotifier extends Notifier<List<CaptureItem>> {
+  static const String _boxName = 'rocen_captures_box';
+
+  @override
+  List<CaptureItem> build() {
+    _initAndLoad();
+    return [];
   }
 
-  void loadItems() {
-    state = [
-      CaptureItem(
+  Future<void> _initAndLoad() async {
+    final box = await Hive.openBox(_boxName);
+    final List<dynamic>? storedRaw = box.get('items');
+
+    if (storedRaw != null && storedRaw.isNotEmpty) {
+      state = storedRaw
+          .map((item) => CaptureItem.fromMap(Map<String, dynamic>.from(item)))
+          .toList();
+    } else {
+      final initialItem = CaptureItem(
         id: '1',
         title: 'WELCOME',
         content: 'Rocen minimal capture engine active.',
         type: 'clip',
         timestamp: DateTime.now(),
-      ),
-    ];
+      );
+      state = [initialItem];
+      await box.put('items', state.map((e) => e.toMap()).toList());
+    }
   }
 
-  Future<void> insertItem(
-      String content,
-      String type, {
-        String title = '',
-      }) async {
+  // FIXED: Optimized batch insertion handling high-volume automatic asset additions
+  Future<void> insertMultipleItems(List<String> filePaths, String type) async {
+    final int baseTimestamp = DateTime.now().microsecondsSinceEpoch;
+
+    final List<CaptureItem> newItems = filePaths.asMap().entries.map((entry) {
+      return CaptureItem(
+        id: (baseTimestamp + entry.key).toString(),
+        title: '',
+        content: entry.value,
+        type: type,
+        timestamp: DateTime.now(),
+      );
+    }).toList();
+
+    state = [...newItems, ...state];
+
+    final box = Hive.box(_boxName);
+    await box.put('items', state.map((e) => e.toMap()).toList());
+  }
+
+  Future<void> insertItem(String content, String type, {String title = ''}) async {
     final newItem = CaptureItem(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       title: title,
@@ -67,14 +97,16 @@ class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
     );
 
     state = [newItem, ...state];
+
+    final box = Hive.box(_boxName);
+    await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
   Future<void> deleteItem(String id) async {
     state = state.where((item) => item.id != id).toList();
+    final box = Hive.box(_boxName);
+    await box.put('items', state.map((e) => e.toMap()).toList());
   }
 }
 
-final localDatabaseProvider =
-StateNotifierProvider<DatabaseNotifier, List<CaptureItem>>((ref) {
-  return DatabaseNotifier();
-});
+final localDatabaseProvider = NotifierProvider<DatabaseNotifier, List<CaptureItem>>(DatabaseNotifier.new);

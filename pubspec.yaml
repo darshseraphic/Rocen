@@ -1,27 +1,32 @@
 name: rocen
-description: "A new Flutter project."
+description: "A minimal workspace capture engine."
 publish_to: 'none'
 
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.12.1
+  sdk: '>=3.2.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  flutter_riverpod: ^3.3.1
-  state_notifier: ^1.0.0
+
+  # State Management
+  flutter_riverpod: ^2.4.9
+
+  # Persistent Disk Storage Subsystems
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-  flutter_staggered_grid_view: ^0.7.0  # Added for Pinterest architecture
-  file_picker: ^8.0.0                  # Added for Windows Desktop file importing
+
+  # Native UI Layout Kits
+  flutter_staggered_grid_view: ^0.7.0
+  file_picker: ^8.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
+  # Add asset declarations here if your layout references local iconography assets

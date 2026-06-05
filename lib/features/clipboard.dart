@@ -2,25 +2,47 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:photo_manager/photo_manager.dart';
 import '../core/database.dart';
 import '../main.dart';
 
 class ClipboardScreen extends ConsumerWidget {
   const ClipboardScreen({super.key});
 
-  Future<void> _accessGallery(WidgetRef ref) async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: true,
-    );
+  // FIXED: Automatically fetches the device's entire gallery without opening file picking pickers
+  Future<void> _autoFetchWholeGallery(BuildContext context, WidgetRef ref) async {
+    // Queries the native platform authorization interface
+    final PermissionState permission = await PhotoManager.requestPermissionExtend();
 
-    if (result != null) {
-      for (var file in result.files) {
-        if (file.path != null) {
-          ref.read(localDatabaseProvider.notifier).insertItem(file.path!, 'image_clip');
+    if (permission.isAuth || permission.hasAccess) {
+      // Pulls matching system media folders/albums containing images
+      final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
+        type: RequestType.image,
+      );
+
+      final List<String> loadedFilePaths = [];
+
+      for (var album in albums) {
+        final int count = await album.assetCountAsync;
+        // Collects all images inside the indexed storage directory locations
+        final List<AssetEntity> assets = await album.getAssetListRange(start: 0, end: count);
+
+        for (var asset in assets) {
+          final File? file = await asset.file;
+          if (file != null) {
+            loadedFilePaths.add(file.path);
+          }
         }
       }
+
+      if (loadedFilePaths.isNotEmpty) {
+        await ref.read(localDatabaseProvider.notifier).insertMultipleItems(loadedFilePaths, 'image_clip');
+      }
+    } else {
+      // Fallback handling if user explicitly denies access
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GALLERY PERMISSION DENIED')),
+      );
     }
   }
 
@@ -46,7 +68,7 @@ class ClipboardScreen extends ConsumerWidget {
                 border: Border.all(color: borderColor, width: 0.8),
               ),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min, // Forces aspect ratio alignment bounding boxes
                 children: [
                   Flexible(
                     child: Padding(
@@ -127,22 +149,44 @@ class ClipboardScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
 
-          InkWell(
-            onTap: () => _accessGallery(ref),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              // FIXED: The border parameter is now correctly inside BoxDecoration
-              decoration: BoxDecoration(
-                border: Border.all(color: borderColor, width: 0.8),
-                color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F9F9),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => _autoFetchWholeGallery(context, ref),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: borderColor, width: 0.8),
+                      color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F9F9),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'ACCESS GALLERY',
+                      style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                    ),
+                  ),
+                ),
               ),
-              alignment: Alignment.center,
-              child: Text(
-                'ACCESS GALLERY SYSTEM',
-                style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InkWell(
+                  onTap: () => _autoFetchWholeGallery(context, ref), // Synced to process identically as expected
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: borderColor, width: 0.8),
+                      color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F9F9),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'IMPORT MEDIA',
+                      style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                    ),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
 
           Divider(color: borderColor, height: 32, thickness: 0.8),

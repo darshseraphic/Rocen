@@ -23,12 +23,3 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
-
-// Fixed compile SDK override block for Kotlin Gradle Script (.kts)
-subprojects {
-    plugins.withType<com.android.build.gradle.api.AndroidBasePlugin> {
-        configure<com.android.build.gradle.BaseExtension> {
-            compileSdkVersion(36)
-        }
-    }
-}
