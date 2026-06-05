@@ -1,9 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'storage_service.dart';
 
 class CaptureItem {
   final String id;
-  final String title;    // Added Title Field
+  final String title;
   final String content;
   final String type;
   final DateTime timestamp;
@@ -15,12 +16,52 @@ class CaptureItem {
     required this.type,
     required this.timestamp,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'content': content,
+      'type': type,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+
+  factory CaptureItem.fromMap(Map<String, dynamic> map) {
+    return CaptureItem(
+      id: map['id'] ?? '',
+      title: map['title'] ?? '',
+      content: map['content'] ?? '',
+      type: map['type'] ?? '',
+      timestamp: DateTime.tryParse(map['timestamp'] ?? '') ?? DateTime.now(),
+    );
+  }
 }
 
 class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
-  DatabaseNotifier() : super([]);
+  DatabaseNotifier() : super([]) {
+    loadItems();
+  }
 
-  void insertItem(String content, String type, {String title = ''}) {
+  void loadItems() {
+    final data = StorageService.box.values
+        .map(
+          (e) => CaptureItem.fromMap(
+        Map<String, dynamic>.from(e as Map),
+      ),
+    )
+        .toList();
+
+    data.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    state = data;
+  }
+
+  Future<void> insertItem(
+      String content,
+      String type, {
+        String title = '',
+      }) async {
     final newItem = CaptureItem(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       title: title,
@@ -28,14 +69,28 @@ class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
       type: type,
       timestamp: DateTime.now(),
     );
+
+    await StorageService.box.put(
+      newItem.id,
+      newItem.toMap(),
+    );
+
     state = [newItem, ...state];
   }
 
-  void deleteItem(String id) {
+  Future<void> deleteItem(String id) async {
+    await StorageService.box.delete(id);
+
     state = state.where((item) => item.id != id).toList();
+  }
+
+  Future<void> clearAll() async {
+    await StorageService.box.clear();
+    state = [];
   }
 }
 
-final localDatabaseProvider = StateNotifierProvider<DatabaseNotifier, List<CaptureItem>>((ref) {
-  return DatabaseNotifier();
-});
+final localDatabaseProvider =
+StateNotifierProvider<DatabaseNotifier, List<CaptureItem>>(
+      (ref) => DatabaseNotifier(),
+);
