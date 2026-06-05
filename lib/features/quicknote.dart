@@ -28,73 +28,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     super.dispose();
   }
 
-  void _showSettingsOverlay(BuildContext context) {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      transitionDuration: const Duration(milliseconds: 150),
-      pageBuilder: (context, anim1, anim2) {
-        return Consumer(
-          builder: (context, ref, child) {
-            final isDark = ref.watch(themeProvider);
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 280,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF121212) : Colors.white,
-                    border: Border.all(color: isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5), width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('SETTINGS', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.05)),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('DARK ARCHITECTURE', style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 11)),
-                          GestureDetector(
-                            onTap: () => ref.read(themeProvider.notifier).state = !isDark,
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 500), // Adjusted to 500ms
-                              curve: Curves.easeInOut,
-                              width: 36,
-                              height: 20,
-                              padding: const EdgeInsets.all(2),
-                              decoration: BoxDecoration(
-                                border: Border.all(color: isDark ? Colors.white : const Color(0xFF737373), width: 0.8),
-                                color: isDark ? Colors.black : const Color(0xFFE5E5E5),
-                              ),
-                              child: AnimatedAlign(
-                                duration: const Duration(milliseconds: 500), // Adjusted to 500ms
-                                curve: Curves.easeInOut,
-                                alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
-                                child: Container(
-                                  width: 14,
-                                  height: 14,
-                                  color: isDark ? Colors.white : const Color(0xFF171717),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   void _showDeleteConfirmation(BuildContext context, String id) {
     showGeneralDialog(
       context: context,
@@ -176,20 +109,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('QUICK NOTES', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined, color: Color(0xFFCACACA), size: 19), // Set hex color to #cacaca
-                onPressed: () => _showSettingsOverlay(context),
-                splashRadius: 18,
-              ),
-            ],
-          ),
+          Text('QUICK NOTES', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
           const SizedBox(height: 16),
 
-          // Input module layout boundary
           Flexible(
             child: SingleChildScrollView(
               physics: const ClampingScrollPhysics(),

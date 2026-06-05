@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-import 'features/bookmarks.dart';
+import 'features/settings.dart';
 import 'features/quicknote.dart';
-import 'features/voicenote.dart';
 import 'features/clipboard.dart';
+import 'features/bookmarks.dart';
 import 'features/ideainbox.dart';
-import 'main.dart'; // Imported to access themeProvider
+import 'main.dart';
 
 enum CaptureModule {
   quickNote('NOTE', QuickNoteScreen()),
-  voiceNote('VOICE', VoiceNoteScreen()),
   clipboard('CLIP', ClipboardScreen()),
   bookmark('BOOK', BookmarksScreen()),
-  ideaInbox('IDEA', IdeaInboxScreen());
+  ideaInbox('IDEA', IdeaInboxScreen()),
+  settings('SET', SettingsScreen()); // Moved to the absolute right side
 
   final String label;
   final Widget screen;
@@ -28,9 +28,8 @@ class MinimalNavbar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeModule = ref.watch(navigationProvider);
-    final isDark = ref.watch(themeProvider); // Listening to theme changes
+    final isDark = ref.watch(themeProvider);
 
-    // Clean rule border tweak for Light vs Dark theme
     final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
     return Container(
@@ -45,7 +44,6 @@ class MinimalNavbar extends ConsumerWidget {
         children: CaptureModule.values.map((module) {
           final isSelected = activeModule == module;
 
-          // Dynamic color logic based on selection state AND theme architecture
           final textColor = isDark
               ? (isSelected ? Colors.white : const Color(0xFFCCCCCC))
               : (isSelected ? Colors.black : const Color(0xFF4D4D4D));

@@ -1,16 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-import 'core/storage_service.dart';
 import 'navbar.dart';
 
 final themeProvider = StateProvider<bool>((ref) => true);
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await StorageService.init();
-
   runApp(
     const ProviderScope(
       child: CaptureApp(),
@@ -54,7 +50,10 @@ class MainNavigationShell extends ConsumerWidget {
             Expanded(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 150),
-                child: currentView.screen,
+                child: KeyedSubtree(
+                  key: ValueKey(currentView),
+                  child: currentView.screen,
+                ),
               ),
             ),
             const MinimalNavbar(),

@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/legacy.dart';
-import 'storage_service.dart';
 
 class CaptureItem {
   final String id;
@@ -43,17 +42,16 @@ class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
   }
 
   void loadItems() {
-    final data = StorageService.box.values
-        .map(
-          (e) => CaptureItem.fromMap(
-        Map<String, dynamic>.from(e as Map),
+    // Initial minimalist mock data to prevent an empty screen experience on first launch
+    state = [
+      CaptureItem(
+        id: '1',
+        title: 'WELCOME',
+        content: 'Rocen minimal capture engine active.',
+        type: 'idea',
+        timestamp: DateTime.now(),
       ),
-    )
-        .toList();
-
-    data.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-    state = data;
+    ];
   }
 
   Future<void> insertItem(
@@ -69,27 +67,16 @@ class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
       timestamp: DateTime.now(),
     );
 
-    await StorageService.box.put(
-      newItem.id,
-      newItem.toMap(),
-    );
-
+    // Update the UI state explicitly without persistent storage hooks
     state = [newItem, ...state];
   }
 
   Future<void> deleteItem(String id) async {
-    await StorageService.box.delete(id);
-
     state = state.where((item) => item.id != id).toList();
-  }
-
-  Future<void> clearAll() async {
-    await StorageService.box.clear();
-    state = [];
   }
 }
 
 final localDatabaseProvider =
-StateNotifierProvider<DatabaseNotifier, List<CaptureItem>>(
-      (ref) => DatabaseNotifier(),
-);
+StateNotifierProvider<DatabaseNotifier, List<CaptureItem>>((ref) {
+  return DatabaseNotifier();
+});
