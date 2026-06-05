@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/legacy.dart'; // Retained legacy StateProvider hooks
 import 'features/settings.dart';
 import 'features/quicknote.dart';
 import 'features/clipboard.dart';
@@ -13,7 +13,7 @@ enum CaptureModule {
   clipboard('CLIP', ClipboardScreen()),
   bookmark('BOOK', BookmarksScreen()),
   ideaInbox('IDEA', IdeaInboxScreen()),
-  settings('SET', SettingsScreen()); // Moved to the absolute right side
+  settings('SET', SettingsScreen()); // Shifted to the absolute right side
 
   final String label;
   final Widget screen;

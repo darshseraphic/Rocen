@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/legacy.dart';
 class CaptureItem {
   final String id;
   final String title;
-  final String content;
-  final String type;
+  final String content; // Handles plain text copies OR local desktop image file paths
+  final String type;    // 'clip' or 'image_clip'
   final DateTime timestamp;
 
   CaptureItem({
@@ -42,13 +42,12 @@ class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
   }
 
   void loadItems() {
-    // Initial minimalist mock data to prevent an empty screen experience on first launch
     state = [
       CaptureItem(
         id: '1',
         title: 'WELCOME',
         content: 'Rocen minimal capture engine active.',
-        type: 'idea',
+        type: 'clip',
         timestamp: DateTime.now(),
       ),
     ];
@@ -67,7 +66,6 @@ class DatabaseNotifier extends StateNotifier<List<CaptureItem>> {
       timestamp: DateTime.now(),
     );
 
-    // Update the UI state explicitly without persistent storage hooks
     state = [newItem, ...state];
   }
 

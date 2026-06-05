@@ -31,7 +31,7 @@ class SettingsScreen extends ConsumerWidget {
               GestureDetector(
                 onTap: () => ref.read(themeProvider.notifier).state = !isDark,
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
+                  duration: const Duration(milliseconds: 300),
                   curve: Curves.easeInOut,
                   width: 36,
                   height: 20,
@@ -41,7 +41,7 @@ class SettingsScreen extends ConsumerWidget {
                     color: isDark ? Colors.black : const Color(0xFFE5E5E5),
                   ),
                   child: AnimatedAlign(
-                    duration: const Duration(milliseconds: 500),
+                    duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
                     alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
                     child: Container(

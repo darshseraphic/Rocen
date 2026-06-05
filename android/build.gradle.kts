@@ -15,10 +15,20 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+
 subprojects {
     project.evaluationDependsOn(":app")
 }
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
+}
+
+// Fixed compile SDK override block for Kotlin Gradle Script (.kts)
+subprojects {
+    plugins.withType<com.android.build.gradle.api.AndroidBasePlugin> {
+        configure<com.android.build.gradle.BaseExtension> {
+            compileSdkVersion(36)
+        }
+    }
 }
