@@ -112,74 +112,57 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
           Text('QUICK NOTES', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
           const SizedBox(height: 16),
 
-          Flexible(
-            child: SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Title Input Block
-                  TextField(
-                    controller: _titleController,
-                    style: TextStyle(color: textMain, fontSize: 14, fontWeight: FontWeight.w600),
-                    cursorColor: textMain,
-                    decoration: InputDecoration(
-                      hintText: 'Title',
-                      hintStyle: TextStyle(color: textSub, fontWeight: FontWeight.w400),
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.only(bottom: 8), // Adjusted slightly for breathing room
-                    ),
-                  ),
-
-                  // 1px Horizontal Line Insertion
-                  Container(
-                    height: 1.0,
-                    color: const Color(0xFFa6a6a6),
-                  ),
-                  const SizedBox(height: 8), // Padding before the body text block
-
-                  // Body Story Input Block
-                  TextField(
-                    controller: _bodyController,
-                    style: TextStyle(color: textMain, fontSize: 13),
-                    maxLines: null,
-                    cursorColor: textMain,
-                    decoration: InputDecoration(
-                      hintText: 'Tell me your story',
-                      hintStyle: TextStyle(color: textSub),
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        if (_bodyController.text.trim().isNotEmpty) {
-                          ref.read(localDatabaseProvider.notifier).insertItem(
-                            _bodyController.text.trim(),
-                            'note',
-                            title: _titleController.text.trim(),
-                          );
-                          _titleController.clear();
-                          _bodyController.clear();
-                        }
-                      },
-                      child: Text('COMMIT', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                ],
-              ),
+          // Input section — natural height, no Flexible stealing space
+          TextField(
+            controller: _titleController,
+            style: TextStyle(color: textMain, fontSize: 14, fontWeight: FontWeight.w600),
+            cursorColor: textMain,
+            decoration: InputDecoration(
+              hintText: 'Title',
+              hintStyle: TextStyle(color: textSub, fontWeight: FontWeight.w400),
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              isDense: true,
+              contentPadding: const EdgeInsets.only(bottom: 8),
+            ),
+          ),
+          Container(height: 1.0, color: const Color(0xFFa6a6a6)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _bodyController,
+            style: TextStyle(color: textMain, fontSize: 13),
+            maxLines: 4,
+            cursorColor: textMain,
+            decoration: InputDecoration(
+              hintText: 'Tell me your story',
+              hintStyle: TextStyle(color: textSub),
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 4),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () {
+                if (_bodyController.text.trim().isNotEmpty) {
+                  ref.read(localDatabaseProvider.notifier).insertItem(
+                    _bodyController.text.trim(),
+                    'note',
+                    title: _titleController.text.trim(),
+                  );
+                  _titleController.clear();
+                  _bodyController.clear();
+                }
+              },
+              child: Text('COMMIT', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600)),
             ),
           ),
 
           Divider(color: ruleBorder, height: 16, thickness: 0.8),
 
+          // List gets all remaining space
           Expanded(
             child: ListView.builder(
               itemCount: items.length,

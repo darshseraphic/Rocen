@@ -31,6 +31,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+
+# Code Coverage reports
 /coverage/
 
 # Symbolication related
@@ -39,7 +41,12 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# Android Studio local build artifacts
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local Storage Database / Cache (Hive Engine Sandboxes)
+# Ensures local user sandbox boxes never accidentally leak to GitHub
+*.hive
+*.lock

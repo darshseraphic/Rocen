@@ -4,7 +4,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'navbar.dart';
 import 'features/splashscreen.dart';
 
-// Modern Notifier architecture pulling persisted values straight from disk
 class ThemeNotifier extends Notifier<bool> {
   @override
   bool build() {
@@ -50,6 +49,7 @@ class RocenApp extends ConsumerWidget {
       ),
       home: AnimatedSplashScreen(
         child: Scaffold(
+          resizeToAvoidBottomInset: true,
           body: SafeArea(
             child: Column(
               children: [

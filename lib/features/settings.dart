@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
+
+  // CORE LAUNCH ENGINE FOR OUTWARD LINKS
+  Future<void> _launchWebsiteUrl() async {
+    final Uri url = Uri.parse('https://rocen.lovable.app/');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      debugPrint('System Error: Could not execute route handshake to $url');
+    }
+  }
 
   // CUSTOM ROUTE BUILDER FOR THE RIGHT-TO-LEFT SMOOTH TAB SLIDE EFFECT (100% FULL PAGE)
   void _showSlidingPanel(BuildContext context, String title, List<Widget> children, bool isDark) {
@@ -431,14 +440,14 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
 
-            // [04] WEBSITE
+            // [04] WEBSITE - WIRED UP DIRECTLY TO YOUR WEB PORTAL
             _buildMenuTile(
               title: 'WEBSITE',
               subtitle: 'Access outward system project portals',
               textMain: textMain,
               textSub: textSub,
               borderColor: borderColor,
-              onTap: () => _showComingSoonDialog(context, 'PROJECT PORTAL WEBPAGE', isDark),
+              onTap: _launchWebsiteUrl,
             ),
 
             // [05] FEEDBACK

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart'; // Retained legacy StateProvider hooks
 import 'features/settings.dart';
 import 'features/quicknote.dart';
 import 'features/clipboard.dart';
@@ -13,7 +12,7 @@ enum CaptureModule {
   clipboard('CLIP', ClipboardScreen()),
   bookmark('TODO', BookmarksScreen()),
   ideaInbox('YEAR', IdeaInboxScreen()),
-  settings('SET', SettingsScreen()); // Shifted to the absolute right side
+  settings('SET', SettingsScreen());
 
   final String label;
   final Widget screen;
@@ -31,10 +30,12 @@ class MinimalNavbar extends ConsumerWidget {
     final isDark = ref.watch(themeProvider);
 
     final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final bgColor = isDark ? Colors.black : Colors.white;
 
     return Container(
       height: 64,
       decoration: BoxDecoration(
+        color: bgColor,
         border: Border(
           top: BorderSide(color: borderColor, width: 0.8),
         ),
