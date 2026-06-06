@@ -412,7 +412,7 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   _buildInfoSection(
                       '02 // SYSTEM AUTHOR',
-                      'Developed entirely by Darshvici.',
+                      'Developed entirely by Darshseraohic.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
