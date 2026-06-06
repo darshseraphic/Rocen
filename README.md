@@ -842,3 +842,15 @@ Before pushing the codebase updates out to target devices, your build pipeline s
 ```
 
 By adhering strictly to these engineering parameters, Rocen remains an uncompromised tool for maximum text capture and time tracking efficiency. This documentation layout provides a transparent, end-to-end view of the platform's features, data structures, and overall design philosophy.
+
+## License
+
+Copyright (c) 2026 darshseraphic. All Rights Reserved.
+
+This project is proprietary software. Viewing the source is permitted for
+educational reference only. No rights are granted to use, copy, modify,
+or distribute. See [LICENSE](./LICENSE) for full terms.
+
+<p align="center">
+DEVELOPED BY <b>DARSHSERAPHIC</b>
+</p>
