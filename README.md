@@ -10,6 +10,21 @@
 
 
 ### 01 // SYSTEM OVERVIEW & THE INTENTIONAL MANIFESTO
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/7e232f53-4ff3-4ec1-bc3c-158d79baf6ca" alt="quicknote - light" width="19%" />
+  <img src="https://github.com/user-attachments/assets/1fb1defa-bf9b-47dd-bc71-6e7d241da2fa" alt="clip - light" width="19%" />
+  <img src="https://github.com/user-attachments/assets/ce9ec23a-12eb-415f-8394-ce8f7a0e8d3d" alt="todo - light" width="19%" />
+  <img src="https://github.com/user-attachments/assets/b876993c-28ec-4930-b195-1b7cf126fb76" alt="365 - light" width="19%" />
+  <img src="https://github.com/user-attachments/assets/780b278d-d3a0-48b1-8405-65dc5c9f9abe" alt="setting - light" width="19%" />
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/b9a3b125-a58e-45d6-a762-a9e3861131c8" alt="quicknote - dark" width="19%" />
+  <img src="https://github.com/user-attachments/assets/b4d4cfcf-db62-4393-9779-755bdf61d477" alt="clip - dark" width="19%" />
+  <img src="https://github.com/user-attachments/assets/0fd6e9a7-fca0-4ccc-a853-809af6643b91" alt="todo - dark" width="19%" />
+  <img src="https://github.com/user-attachments/assets/eed15c3f-85c7-4ee0-aaf8-82c0a6641a8c" alt="365 - dark" width="19%" />
+  <img src="https://github.com/user-attachments/assets/599a3f40-5613-467a-b9fa-0944bc83cf0c" alt="setting - dark" width="19%" />
+</p>
 
 #### 1.1 The Problem Statement
 
@@ -603,7 +618,7 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   _buildInfoSection(
                     '02 // SYSTEM AUTHOR', 
-                    'Developed entirely by Darshvici.', 
+                    'Developed entirely by Darshseraphic.', 
                     textMain, textSub
                   ),
                   _buildInfoSection(
