@@ -11,7 +11,7 @@ import 'main.dart';
 enum CaptureModule {
   quickNote('NOTE', QuickNoteScreen()),
   clipboard('CLIP', ClipboardScreen()),
-  bookmark('BOOK', BookmarksScreen()),
+  bookmark('TODO', BookmarksScreen()),
   ideaInbox('YEAR', IdeaInboxScreen()),
   settings('SET', SettingsScreen()); // Shifted to the absolute right side
 

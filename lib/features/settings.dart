@@ -13,11 +13,10 @@ class SettingsScreen extends ConsumerWidget {
         pageBuilder: (context, animation, secondaryAnimation) {
           final panelBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
           final textMain = isDark ? Colors.white : Colors.black;
-          final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
           final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
           return Scaffold(
-            backgroundColor: Colors.transparent, // Flat aesthetic, no shadow background overlay
+            backgroundColor: Colors.transparent,
             body: Stack(
               children: [
                 GestureDetector(
@@ -27,7 +26,7 @@ class SettingsScreen extends ConsumerWidget {
                 Align(
                   alignment: Alignment.centerRight,
                   child: FractionallySizedBox(
-                    widthFactor: 1.0, // FIX: Set to 1.0 to ensure it claims 100% of the screen width
+                    widthFactor: 1.0,
                     heightFactor: 1.0,
                     child: Container(
                       decoration: BoxDecoration(
@@ -241,7 +240,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
 
-            // SYSTEM SYSTEM-WIDE DARK THEME CONFIG
+            // SYSTEM-WIDE DARK THEME CONFIG
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -310,9 +309,36 @@ class SettingsScreen extends ConsumerWidget {
                 context,
                 'USER GUIDE',
                 [
-                  _buildInfoSection('MATRIX TIMELINE TAB', 'Displays a fixed 13-column calendar matrix tracking all 365 days of the year simultaneously. Filled cells reflect elapsed time; open cells reveal year runtime remaining.', textMain, textSub),
-                  _buildInfoSection('NOTES DECK MODULE', 'An integrated sandbox allowing frictionless capturing of plaintext headers and structured layout variables instantly.', textMain, textSub),
-                  _buildInfoSection('THEME REGULATION', 'Dynamic high-contrast color values override interface attributes instantly with inversion controls.', textMain, textSub),
+                  _buildInfoSection(
+                      '01 // SYSTEM ROOT ENGINE',
+                      'Initializes state tracking and dynamic configuration variables via Riverpod. Sets up persistent disk storage boxes via Hive locally with absolute zero background network pollution or tracker threads. Contains an active corruption bypass pipeline to prevent app thread hangs.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '02 // GATEWAY LAYER (SPLASH SCREEN)',
+                      'Intercepts platform load phases. Executes a sequential 2-second opacity mapping (Fade-In -> Visual Hold -> Fade-Out) that updates background hexes to light or dark instantly depending on your previous system selection to kill boot flashes. Destroys itself from device memory once done.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '03 // STRUCTURAL HUB NAVIGATION',
+                      'A minimal, low-fatigue typography navigation track managing screen selections. Enforces absolute scaffold layout parameter overrides that allow keyboard assemblies to slide in cleanly as structural overlays instead of physically compressing navigation bars or breaking view alignments.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '04 // MATRIX TIMELINE COMPONENT',
+                      'Renders an expansive 13-column structural timeline array mapping out all 365 calendar segments simultaneously. Shaded block indicators illustrate elapsed timelines, while open blocks map operational capacity limits left in the active calendar phase.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '05 // QUICKNOTE SANDBOX MODULE',
+                      'Features an advanced anti-collapse text scroll viewport framework (using explicit Expanded boundaries and SingleChildScrollView parameters). This forces text input metrics to dynamically scale and stay safely visible inside remaining boundaries when system keyboards push bottom navigation paths up.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '06 // INTERFACE REGULATION CONTROLS',
+                      'Manages immediate UI inversion variables. Hooks sub-sheets into dedicated right-to-left animation pipelines locked at a 1.0 width Factor constraint to seamlessly map panels across 100% of the display boundaries, blocking out background layouts and dropping heavy dropshadow rendering tasks completely.',
+                      textMain, textSub
+                  ),
                 ],
                 isDark,
               ),
@@ -329,9 +355,31 @@ class SettingsScreen extends ConsumerWidget {
                 context,
                 'DATA SECURITY',
                 [
-                  _buildInfoSection('STORAGE PIPELINE', '100% of internal state configurations and notes data map locally straight onto device storage blocks. No server handshakes occur.', textMain, textSub),
-                  _buildInfoSection('PERMISSIONS OUTLINE', 'Network tracking access and dynamic cross-application telemetry bridges are entirely omitted from compile manifests.', textMain, textSub),
-                  _buildInfoSection('IMAGE FETCHING LAYER', 'Asset buffers and media paths resolve entirely on hardware caches, fetching indices cleanly from isolated device paths without mirror processes.', textMain, textSub),
+                  _buildInfoSection(
+                      '01 // STORAGE PIPELINE (NOSQL ENGINE)',
+                      'Rocen bypasses heavy, slow relational SQL frameworks completely. The system utilizes a lightweight NoSQL key-value database engine called Hive. Data maps directly into flat binary blocks written strictly onto internal device hardware partitions. Cloud synchronization pipelines, servers, and telemetry relays are 100% omitted from the application code.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '02 // BOX CONTAINER MATRIX',
+                      'Instead of complex relational SQL tables, records are organized into isolated data compartments called "Boxes" (e.g., system_settings). Rows and columns are replaced by lightning-fast, schemaless key-value indexes. This allows seamless framework growth without the threat of database schema crashes.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '03 // MEMORY-FIRST PIPELINE',
+                      'To optimize interface speed, boxes are buffered entirely inside the device\'s active RAM memory on boot. Queries and data reads execute with absolute zero disk delay. Writes update the memory registry instantly for immediate UI rendering, then lazily flush the changes down to physical binary disk partitions in the background.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '04 // CORRUPTION REPAIR FAILSAFE',
+                      'If a data commit sequence gets interrupted (such as a sudden device shutdown), a custom try-catch engine monitors the handshake during the next boot phase. If file corruption is detected, the broken block is instantly isolated, purged from the disk, and a fresh data box is initialized to safeguard the core application runtime.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '05 // APPLICATION PERMISSIONS OUTLINE',
+                      'Network traffic tracking descriptors, background web scraping handshakes, and third-party tracking assets are strictly excluded from compile manifests to preserve full data isolation.',
+                      textMain, textSub
+                  ),
                 ],
                 isDark,
               ),
@@ -348,10 +396,36 @@ class SettingsScreen extends ConsumerWidget {
                 context,
                 'PRIVACY POLICY',
                 [
-                  _buildInfoSection('APPLICATION DESCRIPTION', 'Rocen is an integrated, low-fi brutalist system blueprint built to run high-utility tools without backend pollution or network bloat.', textMain, textSub),
-                  _buildInfoSection('SYSTEM AUTHOR', 'Developed entirely by Darshvici.', textMain, textSub),
-                  _buildInfoSection('PURPOSE & NEED', 'Engineered to defeat visual fatigue by utilizing stark, clean interfaces and intentional data layouts.', textMain, textSub),
-                  _buildInfoSection('DEVELOPMENT MATRIX', 'Initial platform conceptualization to complete assembly overhaul completed in a pure 24-hour rapid deployment sequence.', textMain, textSub),
+                  _buildInfoSection(
+                      '01 // APPLICATION DESCRIPTION',
+                      'Rocen is an integrated, low-fi brutalist system blueprint built to run high-utility tools without backend pollution or network bloat.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '02 // SYSTEM AUTHOR',
+                      'Developed entirely by Darshvici.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '03 // PURPOSE & NEED',
+                      'Engineered to defeat visual fatigue by utilizing stark, clean interfaces and intentional data layouts.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '04 // DEVELOPMENT MATRIX',
+                      'Initial platform conceptualization to complete assembly overhaul completed in a pure 24-hour rapid deployment sequence.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '05 // ABSOLUTE ZERO DATA COLLECTION',
+                      'The workspace architecture maintains a strict zero-collection manifest. The source framework is built with no telemetry tracking scripts, analytical tokens, crash report transmitters, or third-party background scraper threads. User data never leaves your hardware.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '06 // AIR-GAPPED NETWORK ISOLATION',
+                      'Rocen operates under a complete air-gapped data methodology. Because no network permission structures or communication handlers are compiled into the operational database layer, user inputs are strictly safe, immutable, and 100% locked within the offline secure sandbox directory of the local device.',
+                      textMain, textSub
+                  ),
                 ],
                 isDark,
               ),
@@ -376,6 +450,22 @@ class SettingsScreen extends ConsumerWidget {
               borderColor: borderColor,
               onTap: () => _showComingSoonDialog(context, 'FEEDBACK PIPELINE INTERFACE', isDark),
             ),
+
+            const SizedBox(height: 48),
+
+            // THE SYSTEM SIGNATURE STAMP
+            Center(
+              child: Text(
+                'BUILD BY DARSHSERPHIC',
+                style: TextStyle(
+                  color: textSub.withOpacity(0.5),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
           ],
         ),
       ),

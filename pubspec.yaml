@@ -44,4 +44,4 @@ flutter:
 
   # STATIC ASSETS DECLARED MATRIX FOR INTERNAL SYSTEM UTILITIES
   assets:
-    - assets/logo/app_logo.png
+    - assets/logo.png

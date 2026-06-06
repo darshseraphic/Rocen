@@ -130,7 +130,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'BOOKMARKS',
+            'TO-DO LIST',
             style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
           ),
           const SizedBox(height: 16),
