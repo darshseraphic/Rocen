@@ -54,6 +54,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   bool _isLoadingGallery = false;
   AssetPathEntity? _currentAlbum;
 
+  // HIGH PERFORMANCE PERSISTENT MEMORY CACHE CONTAINERS
+  final Map<String, Uint8List> _thumbnailCache = {};
+  final Set<String> _loadingIds = {};
+
   @override
   void initState() {
     super.initState();
@@ -75,7 +79,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // CORE INFINITE SCROLL RUNTIME ENGINE
+  // UPDATED: ALL-AT-ONCE RUNTIME ALLOCATION PIPELINE
   Future<void> _fetchGalleryPage() async {
     if (_isLoadingGallery || !_hasMoreGallery) return;
     setState(() => _isLoadingGallery = true);
@@ -96,16 +100,22 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       }
 
       if (_currentAlbum != null) {
-        final List<AssetEntity> pageAssets = await _currentAlbum!.getAssetListPaged(
-          page: _currentGalleryPage,
-          size: 60, // Local window buffer chunk limit
+        // Query the complete allocation mapping of device files up front
+        final int totalAssetsCount = await _currentAlbum!.assetCountAsync;
+
+        final List<AssetEntity> allAssets = await _currentAlbum!.getAssetListRange(
+          start: 0,
+          end: totalAssetsCount,
         );
 
         setState(() {
-          _galleryAssets.addAll(pageAssets);
-          _currentGalleryPage++;
-          _hasMoreGallery = pageAssets.length == 60;
+          _galleryAssets.clear();
+          _galleryAssets.addAll(allAssets);
+          _hasMoreGallery = false; // Directly convert runtime indexing to virtual loops
         });
+
+        // Trigger asynchronous safe background thumbnail allocation
+        _preloadTopThumbnails(allAssets);
       }
     } catch (e) {
       debugPrint('Media layer allocation exception: $e');
@@ -114,9 +124,36 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     }
   }
 
+  // Pre-load top screen arrays to achieve instant display status on open
+  void _preloadTopThumbnails(List<AssetEntity> assets) {
+    final int targetCount = assets.length > 120 ? 120 : assets.length;
+    for (int i = 0; i < targetCount; i++) {
+      _loadSingleThumbnail(assets[i]);
+    }
+  }
+
+  // Safely threads data processing to secure memory allocations without UI stutter
+  void _loadSingleThumbnail(AssetEntity asset) {
+    if (_thumbnailCache.containsKey(asset.id) || _loadingIds.contains(asset.id)) return;
+    _loadingIds.add(asset.id);
+
+    asset.thumbnailDataWithSize(const ThumbnailSize(280, 280)).then((data) {
+      if (data != null && mounted) {
+        setState(() {
+          _thumbnailCache[asset.id] = data;
+        });
+      }
+      _loadingIds.remove(asset.id);
+    }).catchError((_) {
+      _loadingIds.remove(asset.id);
+    });
+  }
+
   Future<void> _refreshGallery() async {
     setState(() {
       _galleryAssets.clear();
+      _thumbnailCache.clear();
+      _loadingIds.clear();
       _currentGalleryPage = 0;
       _hasMoreGallery = true;
       _currentAlbum = null;
@@ -139,7 +176,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     }
   }
 
-  // SYSTEM ASSET DETAILED MODAL PREVIEWER
+  // SYSTEM ASSET DETAILED MODAL PREVIEWER (WITH LOW-RES TRANSITIONAL FILLER)
   void _showGalleryImagePreview(AssetEntity asset, bool isDark, Color borderColor) {
     showGeneralDialog(
       context: context,
@@ -148,6 +185,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       barrierColor: Colors.black.withOpacity(isDark ? 0.85 : 0.6),
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (context, anim1, anim2) {
+        final lowResPlaceholder = _thumbnailCache[asset.id];
         return Center(
           child: Material(
             color: Colors.transparent,
@@ -172,6 +210,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                         builder: (context, snapshot) {
                           if (snapshot.connectionState == ConnectionState.done && snapshot.data != null) {
                             return Image.file(snapshot.data!, fit: BoxFit.contain);
+                          }
+                          // Uses cached background bytes to show image instantly while file mounts
+                          if (lowResPlaceholder != null) {
+                            return Image.memory(lowResPlaceholder, fit: BoxFit.contain);
                           }
                           return Center(
                             child: CircularProgressIndicator(
@@ -280,7 +322,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // DIRECT ACCESS GALLERY CONTROLLER GRID VIEW (INFINITE SCROLL)
+  // ULTRA PERFORMANCE RENDERING LAYER
   Widget _buildGalleryGrid({
     required List<AssetEntity> assets,
     required int columns,
@@ -289,6 +331,15 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     required Color containerBg,
     required Color textSub,
   }) {
+    if (assets.isEmpty && _isLoadingGallery) {
+      return Center(
+        child: CircularProgressIndicator(
+          strokeWidth: 1.5,
+          valueColor: AlwaysStoppedAnimation<Color>(isDark ? Colors.white : Colors.black),
+        ),
+      );
+    }
+
     if (assets.isEmpty && !_isLoadingGallery) {
       return Center(
         child: Text(
@@ -298,88 +349,58 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       );
     }
 
-    return NotificationListener<ScrollNotification>(
-      onNotification: (ScrollNotification scrollInfo) {
-        // Automatically request next pagination segment when 300px from the bottom limit
-        if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 300) {
-          _fetchGalleryPage();
-        }
-        return false;
-      },
-      child: MasonryGridView.count(
-        crossAxisCount: columns,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-        itemCount: assets.length + (_hasMoreGallery ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index == assets.length) {
-            return Container(
-              height: 50,
-              alignment: Alignment.center,
-              child: SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 1.2,
-                  valueColor: AlwaysStoppedAnimation<Color>(isDark ? Colors.white : Colors.black),
-                ),
-              ),
-            );
-          }
+    return MasonryGridView.count(
+      crossAxisCount: columns,
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+      physics: const ClampingScrollPhysics(), // Solid, jitter-free physics control links
+      itemCount: assets.isEmpty ? 0 : assets.length * 5000, // Seamless infinite tracker track length
+      itemBuilder: (context, index) {
+        final asset = assets[index % assets.length];
+        final cachedBytes = _thumbnailCache[asset.id];
 
-          final asset = assets[index];
-          return GestureDetector(
-            onTap: () => _showGalleryImagePreview(asset, isDark, borderColor),
-            child: Container(
-              decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FutureBuilder<Uint8List?>(
-                    future: asset.thumbnailDataWithSize(const ThumbnailSize(280, 280)),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.done && snapshot.data != null) {
-                        return Image.memory(
-                          snapshot.data!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                        );
-                      }
-                      return AspectRatio(
-                        aspectRatio: 1,
-                        child: Container(
-                          color: containerBg,
-                          alignment: Alignment.center,
-                          child: SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.0,
-                              valueColor: AlwaysStoppedAnimation<Color>(textSub),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+        // If missing from cache state, lazy fire thread and safely hold payload
+        if (cachedBytes == null) {
+          _loadSingleThumbnail(asset);
+        }
+
+        return GestureDetector(
+          onTap: () => _showGalleryImagePreview(asset, isDark, borderColor),
+          child: Container(
+            decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AspectRatio(
+                  aspectRatio: 1,
+                  child: cachedBytes != null
+                      ? Image.memory(
+                    cachedBytes,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    gaplessPlayback: true, // Prevents layout pop shifts when matching memory maps
+                  )
+                      : Container(
+                    color: containerBg, // Smooth flat base architecture container
                   ),
-                  if (columns <= 2)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(8.0),
-                      decoration: BoxDecoration(border: Border(top: BorderSide(color: borderColor, width: 0.8))),
-                      child: Text(
-                        asset.title ?? 'IMG',
-                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: textSub, fontSize: 10),
-                      ),
+                ),
+                if (columns <= 2)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8.0),
+                    decoration: BoxDecoration(border: Border(top: BorderSide(color: borderColor, width: 0.8))),
+                    child: Text(
+                      asset.title ?? 'IMG',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: textSub, fontSize: 10),
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -437,6 +458,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       crossAxisCount: columns,
       mainAxisSpacing: 8,
       crossAxisSpacing: 8,
+      physics: const ClampingScrollPhysics(),
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
