@@ -152,6 +152,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
     final TextEditingController pinVerifyController = TextEditingController();
 
+    // local tracking of failure state sequence
+    bool hasPinFailed = false;
+
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -175,8 +178,13 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                          'ENTER 6-DIGIT PIN',
-                          style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05)
+                          hasPinFailed ? 'INVALID KEY PIN - TRY AGAIN' : 'ENTER 6-DIGIT PIN',
+                          style: TextStyle(
+                              color: hasPinFailed ? const Color(0xFFEF4444) : textMain,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.05
+                          )
                       ),
                       const SizedBox(height: 20),
 
@@ -192,7 +200,12 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                               maxLength: 6,
                               autofocus: true,
                               onChanged: (val) {
-                                setDialogState(() {});
+                                setDialogState(() {
+                                  // Clean fault immediately on subsequent character type operations
+                                  if (hasPinFailed) {
+                                    hasPinFailed = false;
+                                  }
+                                });
                               },
                               decoration: const InputDecoration(
                                 counterText: '',
@@ -209,24 +222,30 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                 bool isFilled = text.length > index;
                                 bool isCurrentFocus = text.length == index;
 
+                                Color currentBoxBorderColor;
+                                if (hasPinFailed) {
+                                  currentBoxBorderColor = const Color(0xFFEF4444);
+                                } else if (isCurrentFocus) {
+                                  currentBoxBorderColor = textMain;
+                                } else {
+                                  currentBoxBorderColor = isFilled ? textMain.withOpacity(0.6) : borderColor;
+                                }
+
                                 return Container(
                                   width: 40,
                                   height: 44,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
-                                    // Crisp square borders without circular corners
                                     border: Border.all(
-                                      color: isCurrentFocus
-                                          ? textMain
-                                          : (isFilled ? textMain.withOpacity(0.6) : borderColor),
-                                      width: isCurrentFocus ? 1.2 : 0.8,
+                                      color: currentBoxBorderColor,
+                                      width: isCurrentFocus || hasPinFailed ? 1.2 : 0.8,
                                     ),
                                   ),
                                   child: Text(
                                     isFilled ? '●' : '',
                                     style: TextStyle(
-                                      color: textMain,
+                                      color: hasPinFailed ? const Color(0xFFEF4444) : textMain,
                                       fontSize: 10,
                                     ),
                                   ),
@@ -274,8 +293,11 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   _revealEncryptedNotePayload(item, globalPin, isDark);
                                 }
                               } else {
-                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ACCESS DENIED: INVALID KEY PIN')));
-                                Navigator.pop(context);
+                                // Instead of exiting via pop, trigger validation layout flags
+                                setDialogState(() {
+                                  hasPinFailed = true;
+                                  pinVerifyController.clear();
+                                });
                               }
                             },
                             child: Container(

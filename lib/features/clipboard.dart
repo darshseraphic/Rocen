@@ -77,7 +77,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // CORE ENGINE: FETCH ALL FILE POINTERS AT ONCE
+  // CORE ENGINE: FETCH ALL FILE POINTERS AT ONCE (SORTED NEWEST FIRST)
   Future<void> _fetchEntireGalleryAllAtOnce() async {
     if (_isLoadingGallery) return;
     setState(() => _isLoadingGallery = true);
@@ -86,7 +86,15 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       if (_currentAlbum == null) {
         final PermissionState permission = await PhotoManager.requestPermissionExtend();
         if (permission.isAuth || permission.hasAccess) {
-          final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(type: RequestType.image);
+          // Explicitly passing FilterOptionGroup to force New-to-Old native queries
+          final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
+            type: RequestType.image,
+            filterOption: FilterOptionGroup(
+              orders: [
+                const OrderOption(type: OrderOptionType.createDate, asc: false),
+              ],
+            ),
+          );
           if (albums.isNotEmpty) {
             _currentAlbum = albums.first;
           }
@@ -510,7 +518,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     final columns = ref.watch(gridColumnsProvider);
     final allItems = ref.watch(localDatabaseProvider);
 
-    final importedItems = allItems.where((e) => e.type == 'imported_clip').toList();
+    // Reversed list here so that new imports show up first in order
+    final importedItems = allItems.where((e) => e.type == 'imported_clip').toList().reversed.toList();
 
     final textMain = isDark ? Colors.white : Colors.black;
     final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);

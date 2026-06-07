@@ -2,10 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../core/database.dart';
 import '../main.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  static const String _boxName = 'rocen_settings_box';
 
   // CORE LAUNCH ENGINE FOR OUTWARD LINKS
   Future<void> _launchWebsiteUrl() async {
@@ -15,29 +23,184 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  // MINIMAL 6-DIGIT ENCRYPTION PIN SETUP TERMINAL UI
-  void _showPinSetupDialog(BuildContext context, bool isDark) {
+  // >>> ADD THIS NEW METHOD HERE <<<
+  // SYSTEM ENGINE FOR OUTWARD FEEDBACK REDIRECT PIPELINE
+  Future<void> _launchFeedbackUrl() async {
+    final Uri url = Uri.parse('https://rocen.lovable.app/feedback');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      debugPrint('System Error: Could not execute route handshake to $url');
+    }
+  }
+  // ==========================================
+  // FLOW 1 & 2: 6-DIGIT PIN CREATION ENGINE
+  // ==========================================
+  void _showCreatePinDialog(BuildContext context, {String initialValue = ''}) {
+    final isDark = ref.read(themeProvider);
     final textMain = isDark ? Colors.white : Colors.black;
-    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
     final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
 
-    final box = Hive.box('rocen_settings_box');
-    final currentPin = box.get('system_crypto_pin', defaultValue: '') as String;
-    final TextEditingController pinController = TextEditingController(text: currentPin);
+    final TextEditingController pinController = TextEditingController(text: initialValue);
 
     showGeneralDialog(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.7),
+      barrierColor: Colors.black.withOpacity(0.75),
+      pageBuilder: (context, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Center(
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 320,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: dialogBg,
+                    border: Border.all(color: borderColor, width: 0.8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'SETUP CRYPTOGRAPHY PIN',
+                        style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // SEGMENTED HOOK ARCHITECTURE MATCHING QUICKNOTE
+                      Stack(
+                        children: [
+                          Opacity(
+                            opacity: 0.0,
+                            child: TextField(
+                              controller: pinController,
+                              keyboardType: TextInputType.number,
+                              maxLength: 6,
+                              autofocus: true,
+                              onChanged: (val) => setDialogState(() {}),
+                              decoration: const InputDecoration(
+                                counterText: '',
+                                border: InputBorder.none,
+                              ),
+                            ),
+                          ),
+                          IgnorePointer(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: List.generate(6, (index) {
+                                final String text = pinController.text;
+                                bool isFilled = text.length > index;
+                                bool isCurrentFocus = text.length == index;
+
+                                Color currentBoxBorderColor = isCurrentFocus
+                                    ? textMain
+                                    : (isFilled ? textMain.withOpacity(0.6) : borderColor);
+
+                                return Container(
+                                  width: 40,
+                                  height: 44,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: Colors.transparent,
+                                    border: Border.all(
+                                      color: currentBoxBorderColor,
+                                      width: isCurrentFocus ? 1.2 : 0.8,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    isFilled ? '●' : '',
+                                    style: TextStyle(color: textMain, fontSize: 10),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          InkWell(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: borderColor, width: 0.8),
+                              ),
+                              child: Text(
+                                'CANCEL',
+                                style: TextStyle(
+                                  color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: pinController.text.length < 6
+                                ? null
+                                : () {
+                              final typedPin = pinController.text;
+                              // Interface Gone (Dismiss current entry view)
+                              Navigator.pop(context);
+                              // Trigger Confirmation Stage
+                              _showAreYouSureDialog(context, typedPin);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: pinController.text.length == 6 ? textMain : textMain.withOpacity(0.2),
+                              ),
+                              child: Text(
+                                'CONFIRM',
+                                style: TextStyle(
+                                  color: isDark ? Colors.black : Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ==========================================
+  // FLOW 2: DOUBLE-CHECK MUTATION INTERCEPTOR
+  // ==========================================
+  void _showAreYouSureDialog(BuildContext context, String typedPin) {
+    final isDark = ref.read(themeProvider);
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.75),
       pageBuilder: (context, anim1, anim2) {
         return Center(
           child: Material(
             color: Colors.transparent,
             child: Container(
               width: 290,
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color: dialogBg,
                 border: Border.all(color: borderColor, width: 0.8),
@@ -47,70 +210,229 @@ class SettingsScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'SYSTEM CRYPTO PIN',
+                    'SECURITY VERIFICATION',
                     style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    currentPin.isEmpty ? 'STATUS: UNCONFIGURED (UNSAFE)' : 'STATUS: OPERATIONAL (ENCRYPTION ACTIVE)',
-                    style: TextStyle(
-                      color: currentPin.isEmpty ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                      fontSize: 9,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: pinController,
-                    obscureText: true,
-                    maxLength: 6,
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(color: textMain, fontSize: 14, letterSpacing: 8, fontFamily: 'Courier'),
-                    decoration: InputDecoration(
-                      counterText: '',
-                      hintText: '******',
-                      hintStyle: const TextStyle(color: Color(0xFF555555)),
-                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: borderColor)),
-                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMain)),
-                    ),
+                  Text(
+                    'ARE YOU SURE TO ADD THIS PASSWORD?',
+                    style: TextStyle(color: textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      if (currentPin.isNotEmpty)
-                        TextButton(
-                          onPressed: () {
-                            box.delete('system_crypto_pin');
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('CRYPTO PIN PURGED FROM SYSTEM REGISTRY')),
-                            );
-                          },
-                          child: const Text('CLEAR', style: TextStyle(color: Color(0xFFEF4444), fontSize: 10, fontWeight: FontWeight.bold)),
+                      InkWell(
+                        onTap: () {
+                          Navigator.pop(context);
+                          // Re-route processing array directly back to password workspace engine
+                          _showCreatePinDialog(context, initialValue: typedPin);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: borderColor, width: 0.8),
+                          ),
+                          child: Text(
+                            'CANCEL',
+                            style: TextStyle(
+                              color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text('CANCEL', style: TextStyle(color: textSub, fontSize: 10, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () {
-                          final newPin = pinController.text.trim();
-                          if (newPin.length == 6 && int.tryParse(newPin) != null) {
-                            box.put('system_crypto_pin', newPin);
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('SYSTEM CRYPTO PIN REGISTERED SUCCESSFULLY')),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('ERROR: PIN MUST BE EXACTLY 6 DIGITS')),
-                            );
+                      InkWell(
+                        onTap: () async {
+                          Navigator.pop(context);
+
+                          final settingsBox = Hive.box(_boxName);
+                          await settingsBox.put('system_crypto_pin', typedPin);
+                          await settingsBox.put('last_active_crypto_pin_snapshot', typedPin);
+
+                          if (context.mounted) {
+                            // Instantly chain sequence to structural requirement 3
+                            _showForgotWarningDialog(context);
                           }
                         },
-                        child: Text('SAVE', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(color: textMain),
+                          child: Text(
+                            'CONFIRM',
+                            style: TextStyle(
+                              color: isDark ? Colors.black : Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ==========================================
+  // FLOW 3: LOST ACCESS PIPELINE ADVISORY
+  // ==========================================
+  void _showForgotWarningDialog(BuildContext context) {
+    final isDark = ref.read(themeProvider);
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.75),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CRITICAL NOTICE',
+                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'IF YOU FORGOT THE PASSWORD YOU HAVE TO TAP THE CLEAR',
+                    style: TextStyle(color: textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                  ),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(color: textMain),
+                        child: Text(
+                          'ACKNOWLEDGE',
+                          style: TextStyle(
+                            color: isDark ? Colors.black : Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ==========================================
+  // FLOW 4: IRREVERSIBLE PURGE CONFIRMATION
+  // ==========================================
+  void _showClearConfirmationDialog(BuildContext context) {
+    final isDark = ref.read(themeProvider);
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.8),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 310,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'SYSTEM DESTRUCTION WARN',
+                    style: TextStyle(color: Color(0xFFEF4444), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'THIS PROCESS IN NOT REVERSABLE, ALL ENCRYPTED FILE WILL REMOVED',
+                    style: TextStyle(color: textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      InkWell(
+                        onTap: () => Navigator.pop(context), // Undo the process cleanly
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: borderColor, width: 0.8),
+                          ),
+                          child: Text(
+                            'NO',
+                            style: TextStyle(
+                              color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () async {
+                          Navigator.pop(context); // Clear configuration warning overlay
+
+                          // Execution Block: Pull and isolate local data arrays
+                          final currentItems = ref.read(localDatabaseProvider);
+                          final targetsToPurge = currentItems.where((item) => item.type == 'encrypted_note').toList();
+
+                          // Execute full sequential physical workspace reference sweep
+                          for (var target in targetsToPurge) {
+                            await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
+                          }
+
+                          // Clear keys from global preferences
+                          final settingsBox = Hive.box(_boxName);
+                          await settingsBox.delete('system_crypto_pin');
+                          await settingsBox.delete('last_active_crypto_pin_snapshot');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          decoration: const BoxDecoration(color: Color(0xFFEF4444)),
+                          child: const Text(
+                            'YES',
+                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       ),
                     ],
                   )
@@ -337,7 +659,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final isDark = ref.watch(themeProvider);
 
     final textMain = isDark ? Colors.white : Colors.black;
@@ -417,9 +739,10 @@ class SettingsScreen extends ConsumerWidget {
 
             // CRYPTOGRAPHIC ACCESS PIN INTERACTIVE CONTROLLER
             ValueListenableBuilder(
-              valueListenable: Hive.box('rocen_settings_box').listenable(keys: ['system_crypto_pin']),
+              valueListenable: Hive.box(_boxName).listenable(keys: ['system_crypto_pin']),
               builder: (context, Box box, _) {
                 final String currentPin = box.get('system_crypto_pin', defaultValue: '');
+
                 return _buildMenuTile(
                   title: 'CRYPTOGRAPHIC ACCESS PIN',
                   subtitle: currentPin.isEmpty
@@ -428,7 +751,13 @@ class SettingsScreen extends ConsumerWidget {
                   textMain: textMain,
                   textSub: currentPin.isEmpty ? const Color(0xFFEF4444) : textSub,
                   borderColor: borderColor,
-                  onTap: () => _showPinSetupDialog(context, isDark),
+                  onTap: () {
+                    if (currentPin.isEmpty) {
+                      _showCreatePinDialog(context);
+                    } else {
+                      _showClearConfirmationDialog(context);
+                    }
+                  },
                 );
               },
             ),
@@ -577,15 +906,14 @@ class SettingsScreen extends ConsumerWidget {
               borderColor: borderColor,
               onTap: _launchWebsiteUrl,
             ),
-
-            // [05] FEEDBACK
+// [05] FEEDBACK - RE-ROUTED DIRECTLY TO YOUR SECURE URL ENDPOINT
             _buildMenuTile(
               title: 'FEEDBACK',
               subtitle: 'Report pipeline anomalies or system logs',
               textMain: textMain,
               textSub: textSub,
               borderColor: borderColor,
-              onTap: () => _showComingSoonDialog(context, 'FEEDBACK PIPELINE INTERFACE', isDark),
+              onTap: _launchFeedbackUrl, // <-- Point directly to the new launcher function
             ),
 
             const SizedBox(height: 48),
