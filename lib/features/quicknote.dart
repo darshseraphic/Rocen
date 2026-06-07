@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../core/database.dart';
+import '../core/crypto_engine.dart';
 import '../main.dart';
 
 class QuickNoteScreen extends ConsumerStatefulWidget {
@@ -14,6 +16,7 @@ class QuickNoteScreen extends ConsumerStatefulWidget {
 class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   late final TextEditingController _titleController;
   late final TextEditingController _bodyController;
+  bool _isNoteLocked = false; // Tracks security pipeline toggle prior to commit execution
 
   @override
   void initState() {
@@ -27,6 +30,214 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
+  }
+
+  // CORE COMPILATION AND SAFE HANDSHAKE SAVE ROUTINE
+  Future<void> _compileAndSaveNote() async {
+    final String cleanBody = _bodyController.text.trim();
+    final String cleanTitle = _titleController.text.trim();
+    if (cleanBody.isEmpty) return;
+
+    String finalPayload = cleanBody;
+
+    if (_isNoteLocked) {
+      // Safely check if the system registry has a cryptographic PIN configuration
+      final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
+
+      if (globalPin == null || globalPin.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('SET UP A 6-DIGIT PIN IN SETTINGS BEFORE LOCKING NOTES')),
+        );
+        return;
+      }
+
+      // Pass clean text through local XOR encryption engine matrix
+      finalPayload = CryptoEngine.xorProcess(cleanBody, globalPin);
+    }
+
+    // Insert note into local unified storage layer
+    await ref.read(localDatabaseProvider.notifier).insertItem(
+      finalPayload,
+      _isNoteLocked ? 'encrypted_note' : 'note',
+      title: cleanTitle,
+    );
+
+    // Clear buffer text controllers and reset state toggles
+    _titleController.clear();
+    _bodyController.clear();
+    setState(() => _isNoteLocked = false);
+    FocusScope.of(context).unfocus();
+  }
+
+  // SECURE CRYPTO MODAL PROMPT TO CHALLENGE USER ACCESS USING A PIN
+  void _promptForPinChallenge(CaptureItem item, bool isDark) {
+    final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
+
+    if (globalPin == null || globalPin.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('NO SECURITY PIN CONFIGURED IN THE SYSTEM REGISTRY')),
+      );
+      return;
+    }
+
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final TextEditingController pinVerifyController = TextEditingController();
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.7),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 280,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('ENTER 6-DIGIT PIN', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: pinVerifyController,
+                    obscureText: true,
+                    maxLength: 6,
+                    keyboardType: TextInputType.number,
+                    style: TextStyle(color: textMain, fontSize: 14, letterSpacing: 8, fontFamily: 'Courier'),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      hintText: '******',
+                      hintStyle: const TextStyle(color: Color(0xFF555555)),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: borderColor)),
+                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMain)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () {
+                          if (pinVerifyController.text == globalPin) {
+                            Navigator.pop(context);
+                            _revealEncryptedNotePayload(item, globalPin, isDark);
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ACCESS DENIED: INVALID KEY PIN')));
+                            Navigator.pop(context);
+                          }
+                        },
+                        child: Text('VERIFY', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // VISUAL DECRYPTION OVERLAY TERMINAL SHEET
+  void _revealEncryptedNotePayload(CaptureItem item, String pin, bool isDark) {
+    String decryptedContent = '';
+    try {
+      decryptedContent = CryptoEngine.xorProcess(item.content, pin);
+    } catch (e) {
+      decryptedContent = 'DECRYPTION FAULT';
+    }
+
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final formattedDate = _formatCustomDate(item.timestamp);
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.85),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.all(32),
+              padding: const EdgeInsets.all(24),
+              width: double.infinity,
+              constraints: const BoxConstraints(maxWidth: 400),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.lock_open, color: textMain, size: 13),
+                          const SizedBox(width: 8),
+                          Text(
+                            item.title.isNotEmpty ? item.title.toUpperCase() : 'UNLOCKED CRYPTO BLOCK',
+                            style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        formattedDate,
+                        style: TextStyle(color: isDark ? const Color(0xFF666666) : const Color(0xFF888888), fontSize: 9, fontFamily: 'Courier'),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24, thickness: 0.8),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Text(
+                        decryptedContent,
+                        style: TextStyle(color: textMain, fontSize: 13, height: 1.5, letterSpacing: 0.02),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: borderColor, width: 0.8),
+                        ),
+                        child: Text('CLOSE RUNTIME', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showDeleteConfirmation(BuildContext context, String id) {
@@ -128,7 +339,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = ref.watch(themeProvider);
-    final items = ref.watch(localDatabaseProvider).where((e) => e.type == 'note').toList();
+
+    // Filter feed array for both standard notes and newly encrypted block structures
+    final items = ref.watch(localDatabaseProvider).where((e) => e.type == 'note' || e.type == 'encrypted_note').toList();
 
     final textMain = isDark ? Colors.white : Colors.black;
     final textSub = isDark ? const Color(0xFF737373) : const Color(0xFF888888);
@@ -171,36 +384,68 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
               contentPadding: const EdgeInsets.symmetric(vertical: 4),
             ),
           ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () {
-                if (_bodyController.text.trim().isNotEmpty) {
-                  ref.read(localDatabaseProvider.notifier).insertItem(
-                    _bodyController.text.trim(),
-                    'note',
-                    title: _titleController.text.trim(),
-                  );
-                  _titleController.clear();
-                  _bodyController.clear();
-                  FocusScope.of(context).unfocus();
-                }
-              },
-              child: Text('COMMIT', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600)),
-            ),
+
+          // RECONSTRUCTED BOTTOM LOG BAR WITH ACTIVE LOCK ENGINE SELECTION
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              GestureDetector(
+                onTap: () {
+                  setState(() => _isNoteLocked = !_isNoteLocked);
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    Icon(
+                      _isNoteLocked ? Icons.lock : Icons.lock_open,
+                      size: 14,
+                      color: _isNoteLocked ? Colors.amber[600] : textSub,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _isNoteLocked ? 'ENCRYPTED LOG PIPELINE ACTIVE' : 'STANDARD TEXT DEPLOYMENT',
+                      style: TextStyle(
+                        color: _isNoteLocked ? Colors.amber[600] : textSub,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.02,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: _compileAndSaveNote,
+                child: Text('COMMIT', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600)),
+              ),
+            ],
           ),
 
           Divider(color: ruleBorder, height: 16, thickness: 0.8),
 
           Expanded(
-            child: ListView.builder(
+            child: items.isEmpty
+                ? Center(
+              child: Text(
+                'NO ACTIVE NOTE REGISTRIES CURRENTLY SAVED',
+                style: TextStyle(color: textSub, fontSize: 11, letterSpacing: 0.05),
+              ),
+            )
+                : ListView.builder(
               itemCount: items.length,
               itemBuilder: (context, index) {
                 final item = items[index];
+                final bool isEncrypted = item.type == 'encrypted_note';
                 final formattedDate = _formatCustomDate(item.timestamp);
 
                 return GestureDetector(
-                  onTap: () => _navigateToEdit(context, item),
+                  onTap: () {
+                    if (isEncrypted) {
+                      _promptForPinChallenge(item, isDark);
+                    } else {
+                      _navigateToEdit(context, item);
+                    }
+                  },
                   behavior: HitTestBehavior.opaque,
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 12),
@@ -219,10 +464,19 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                 child: RichText(
                                   text: TextSpan(
                                     children: [
+                                      WidgetSpan(
+                                        alignment: PlaceholderAlignment.middle,
+                                        child: isEncrypted
+                                            ? Padding(
+                                          padding: const EdgeInsets.only(right: 6.0),
+                                          child: Icon(Icons.lock, size: 11, color: Colors.amber[600]),
+                                        )
+                                            : const SizedBox.shrink(),
+                                      ),
                                       TextSpan(
                                         text: item.title.isNotEmpty ? '${item.title.toUpperCase()}  ' : 'UNTITLED  ',
                                         style: TextStyle(
-                                          color: textMain,
+                                          color: isEncrypted ? Colors.amber[600] : textMain,
                                           fontSize: 11,
                                           fontWeight: FontWeight.w600,
                                           letterSpacing: 0.02,
@@ -240,7 +494,12 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   ),
                                 ),
                               ),
-                              AnimatedClampedText(
+                              isEncrypted
+                                  ? Text(
+                                '● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ●',
+                                style: TextStyle(color: isDark ? const Color(0xFF333333) : const Color(0xFFCCCCCC), fontSize: 10, letterSpacing: 1.2),
+                              )
+                                  : AnimatedClampedText(
                                 text: item.content,
                                 style: TextStyle(
                                   color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF404040),
@@ -256,14 +515,16 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            GestureDetector(
-                              onTap: () => _navigateToEdit(context, item),
-                              child: Padding(
-                                padding: const EdgeInsets.all(4.0),
-                                child: Icon(Icons.edit_outlined, color: textSub, size: 18),
+                            if (!isEncrypted) ...[
+                              GestureDetector(
+                                onTap: () => _navigateToEdit(context, item),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4.0),
+                                  child: Icon(Icons.edit_outlined, color: textSub, size: 18),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 4),
+                              const SizedBox(width: 4),
+                            ],
                             GestureDetector(
                               onTap: () => _showDeleteConfirmation(context, item.id),
                               child: Padding(
@@ -342,6 +603,7 @@ class _AnimatedClampedTextState extends State<AnimatedClampedText> {
         }
 
         return Column(
+          // FIXED: Typo removed
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(

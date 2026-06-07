@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 
@@ -12,6 +13,114 @@ class SettingsScreen extends ConsumerWidget {
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       debugPrint('System Error: Could not execute route handshake to $url');
     }
+  }
+
+  // MINIMAL 6-DIGIT ENCRYPTION PIN SETUP TERMINAL UI
+  void _showPinSetupDialog(BuildContext context, bool isDark) {
+    final textMain = isDark ? Colors.white : Colors.black;
+    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
+    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+
+    final box = Hive.box('rocen_settings_box');
+    final currentPin = box.get('system_crypto_pin', defaultValue: '') as String;
+    final TextEditingController pinController = TextEditingController(text: currentPin);
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.7),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 290,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'SYSTEM CRYPTO PIN',
+                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    currentPin.isEmpty ? 'STATUS: UNCONFIGURED (UNSAFE)' : 'STATUS: OPERATIONAL (ENCRYPTION ACTIVE)',
+                    style: TextStyle(
+                      color: currentPin.isEmpty ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: pinController,
+                    obscureText: true,
+                    maxLength: 6,
+                    keyboardType: TextInputType.number,
+                    style: TextStyle(color: textMain, fontSize: 14, letterSpacing: 8, fontFamily: 'Courier'),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      hintText: '******',
+                      hintStyle: const TextStyle(color: Color(0xFF555555)),
+                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: borderColor)),
+                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMain)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (currentPin.isNotEmpty)
+                        TextButton(
+                          onPressed: () {
+                            box.delete('system_crypto_pin');
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('CRYPTO PIN PURGED FROM SYSTEM REGISTRY')),
+                            );
+                          },
+                          child: const Text('CLEAR', style: TextStyle(color: Color(0xFFEF4444), fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('CANCEL', style: TextStyle(color: textSub, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () {
+                          final newPin = pinController.text.trim();
+                          if (newPin.length == 6 && int.tryParse(newPin) != null) {
+                            box.put('system_crypto_pin', newPin);
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('SYSTEM CRYPTO PIN REGISTERED SUCCESSFULLY')),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('ERROR: PIN MUST BE EXACTLY 6 DIGITS')),
+                            );
+                          }
+                        },
+                        child: Text('SAVE', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   // CUSTOM ROUTE BUILDER FOR THE RIGHT-TO-LEFT SMOOTH TAB SLIDE EFFECT (100% FULL PAGE)
@@ -305,6 +414,25 @@ class SettingsScreen extends ConsumerWidget {
             ),
 
             const SizedBox(height: 12),
+
+            // CRYPTOGRAPHIC ACCESS PIN INTERACTIVE CONTROLLER
+            ValueListenableBuilder(
+              valueListenable: Hive.box('rocen_settings_box').listenable(keys: ['system_crypto_pin']),
+              builder: (context, Box box, _) {
+                final String currentPin = box.get('system_crypto_pin', defaultValue: '');
+                return _buildMenuTile(
+                  title: 'CRYPTOGRAPHIC ACCESS PIN',
+                  subtitle: currentPin.isEmpty
+                      ? 'SETUP REQUIRED // 6-DIGIT SECURITY KEY'
+                      : 'ACTIVE // MODIFY SECURE TERMINAL DEPLOYMENT KEY',
+                  textMain: textMain,
+                  textSub: currentPin.isEmpty ? const Color(0xFFEF4444) : textSub,
+                  borderColor: borderColor,
+                  onTap: () => _showPinSetupDialog(context, isDark),
+                );
+              },
+            ),
+
             Divider(color: borderColor, thickness: 0.8),
 
             // [01] USER GUIDE
