@@ -118,6 +118,13 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     );
   }
 
+  String _formatCustomDate(DateTime dateTime) {
+    final day = dateTime.day.toString().padLeft(2, '0');
+    final month = dateTime.month.toString().padLeft(2, '0');
+    final year = (dateTime.year % 100).toString().padLeft(2, '0');
+    return '$day/$month/$year';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = ref.watch(themeProvider);
@@ -190,6 +197,8 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
               itemCount: items.length,
               itemBuilder: (context, index) {
                 final item = items[index];
+                final formattedDate = _formatCustomDate(item.timestamp);
+
                 return GestureDetector(
                   onTap: () => _navigateToEdit(context, item),
                   behavior: HitTestBehavior.opaque,
@@ -205,12 +214,32 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (item.title.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 2),
-                                  child: Text(item.title.toUpperCase(),
-                                      style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.02)),
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: item.title.isNotEmpty ? '${item.title.toUpperCase()}  ' : 'UNTITLED  ',
+                                        style: TextStyle(
+                                          color: textMain,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0.02,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: formattedDate,
+                                        style: TextStyle(
+                                          color: textSub,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                              ),
                               AnimatedClampedText(
                                 text: item.content,
                                 style: TextStyle(
@@ -276,14 +305,11 @@ class AnimatedClampedText extends StatefulWidget {
 class _AnimatedClampedTextState extends State<AnimatedClampedText> {
   late Timer _timer;
   int _dotIndex = 0;
-
-  // Smooth loop timeline: nothing -> . -> .. -> ... -> .. -> . -> repeat
   final List<String> _dotFrames = ['', '.', '..', '...', '..', '.'];
 
   @override
   void initState() {
     super.initState();
-    // Swapped to 450ms intervals for a calmer, less mechanical cycle speed
     _timer = Timer.periodic(const Duration(milliseconds: 450), (timer) {
       if (mounted) {
         setState(() {
@@ -324,7 +350,6 @@ class _AnimatedClampedTextState extends State<AnimatedClampedText> {
               overflow: TextOverflow.clip,
               style: widget.style,
             ),
-            // Dedicated spacing container keeps heights matching when string frame is clean/empty
             Container(
               height: 20,
               alignment: Alignment.bottomLeft,
