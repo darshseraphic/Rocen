@@ -35,7 +35,7 @@ class GridColumnsNotifier extends Notifier<int> {
 
 final gridColumnsProvider = NotifierProvider<GridColumnsNotifier, int>(GridColumnsNotifier.new);
 
-// --- MAIN INTERFACE WORKSPACE ---
+// --- MAIN INTERSPACE WORKSPACE ---
 class ClipboardScreen extends ConsumerStatefulWidget {
   const ClipboardScreen({super.key});
 
@@ -47,10 +47,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   final PageController _pageController = PageController(initialPage: 0);
   int _activePageIndex = 0;
 
-  // INFINITE SCROLL SYSTEM VARIABLE TARGETS
+  // SYSTEM MEDIA ARRAY HOLDERS
   final List<AssetEntity> _galleryAssets = [];
-  int _currentGalleryPage = 0;
-  bool _hasMoreGallery = true;
   bool _isLoadingGallery = false;
   AssetPathEntity? _currentAlbum;
 
@@ -61,7 +59,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchGalleryPage(); // Automatically initialize data collection stream on start up
+    _fetchEntireGalleryAllAtOnce(); // Instantly pull all storage metadata on screen startup
   }
 
   @override
@@ -79,9 +77,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // UPDATED: ALL-AT-ONCE RUNTIME ALLOCATION PIPELINE
-  Future<void> _fetchGalleryPage() async {
-    if (_isLoadingGallery || !_hasMoreGallery) return;
+  // CORE ENGINE: FETCH ALL FILE POINTERS AT ONCE
+  Future<void> _fetchEntireGalleryAllAtOnce() async {
+    if (_isLoadingGallery) return;
     setState(() => _isLoadingGallery = true);
 
     try {
@@ -100,9 +98,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       }
 
       if (_currentAlbum != null) {
-        // Query the complete allocation mapping of device files up front
+        // Query the complete asset count of the native device storage album
         final int totalAssetsCount = await _currentAlbum!.assetCountAsync;
 
+        // Fetch the entire metadata pointer array instantly in one operational sweep
         final List<AssetEntity> allAssets = await _currentAlbum!.getAssetListRange(
           start: 0,
           end: totalAssetsCount,
@@ -111,33 +110,32 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         setState(() {
           _galleryAssets.clear();
           _galleryAssets.addAll(allAssets);
-          _hasMoreGallery = false; // Directly convert runtime indexing to virtual loops
         });
 
-        // Trigger asynchronous safe background thumbnail allocation
+        // Trigger aggressive non-blocking async background processing pipeline
         _preloadTopThumbnails(allAssets);
       }
     } catch (e) {
-      debugPrint('Media layer allocation exception: $e');
+      debugPrint('Media registry processing exception: $e');
     } finally {
       setState(() => _isLoadingGallery = false);
     }
   }
 
-  // Pre-load top screen arrays to achieve instant display status on open
+  // Pre-renders assets immediately into hardware RAM to make scrolling perfectly smooth
   void _preloadTopThumbnails(List<AssetEntity> assets) {
-    final int targetCount = assets.length > 120 ? 120 : assets.length;
-    for (int i = 0; i < targetCount; i++) {
+    final int targetPreloadCount = assets.length > 150 ? 150 : assets.length;
+    for (int i = 0; i < targetPreloadCount; i++) {
       _loadSingleThumbnail(assets[i]);
     }
   }
 
-  // Safely threads data processing to secure memory allocations without UI stutter
+  // Thread safe binary pipeline worker
   void _loadSingleThumbnail(AssetEntity asset) {
     if (_thumbnailCache.containsKey(asset.id) || _loadingIds.contains(asset.id)) return;
     _loadingIds.add(asset.id);
 
-    asset.thumbnailDataWithSize(const ThumbnailSize(280, 280)).then((data) {
+    asset.thumbnailDataWithSize(const ThumbnailSize(360, 360)).then((data) {
       if (data != null && mounted) {
         setState(() {
           _thumbnailCache[asset.id] = data;
@@ -154,11 +152,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       _galleryAssets.clear();
       _thumbnailCache.clear();
       _loadingIds.clear();
-      _currentGalleryPage = 0;
-      _hasMoreGallery = true;
       _currentAlbum = null;
     });
-    await _fetchGalleryPage();
+    await _fetchEntireGalleryAllAtOnce();
   }
 
   Future<void> _importSelectedMedia() async {
@@ -176,7 +172,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     }
   }
 
-  // SYSTEM ASSET DETAILED MODAL PREVIEWER (WITH LOW-RES TRANSITIONAL FILLER)
+  // SYSTEM ASSET DETAILED MODAL PREVIEWER (USES MEMORY AS STABLE LOW-RES BASE)
   void _showGalleryImagePreview(AssetEntity asset, bool isDark, Color borderColor) {
     showGeneralDialog(
       context: context,
@@ -211,7 +207,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                           if (snapshot.connectionState == ConnectionState.done && snapshot.data != null) {
                             return Image.file(snapshot.data!, fit: BoxFit.contain);
                           }
-                          // Uses cached background bytes to show image instantly while file mounts
                           if (lowResPlaceholder != null) {
                             return Image.memory(lowResPlaceholder, fit: BoxFit.contain);
                           }
@@ -322,7 +317,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // ULTRA PERFORMANCE RENDERING LAYER
+  // ULTRA PERFORMANCE PINTEREST-STYLE STAGGERED GRID ENGINE
   Widget _buildGalleryGrid({
     required List<AssetEntity> assets,
     required int columns,
@@ -351,15 +346,20 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
 
     return MasonryGridView.count(
       crossAxisCount: columns,
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
-      physics: const ClampingScrollPhysics(), // Solid, jitter-free physics control links
-      itemCount: assets.isEmpty ? 0 : assets.length * 5000, // Seamless infinite tracker track length
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      physics: const ClampingScrollPhysics(), // High response rigid scrolling mechanics
+      itemCount: assets.length,
       itemBuilder: (context, index) {
-        final asset = assets[index % assets.length];
+        final asset = assets[index];
         final cachedBytes = _thumbnailCache[asset.id];
 
-        // If missing from cache state, lazy fire thread and safely hold payload
+        // Read physical file bounds directly to lock the structural aspect ratio safely
+        final double nativeWidth = asset.width.toDouble();
+        final double nativeHeight = asset.height.toDouble();
+        final double calculatedRatio = (nativeWidth > 0 && nativeHeight > 0) ? (nativeWidth / nativeHeight) : 1.0;
+
+        // If data isn't cached in current frame run, request background worker instantly
         if (cachedBytes == null) {
           _loadSingleThumbnail(asset);
         }
@@ -367,22 +367,26 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         return GestureDetector(
           onTap: () => _showGalleryImagePreview(asset, isDark, borderColor),
           child: Container(
-            decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+            decoration: BoxDecoration(
+              border: Border.all(color: borderColor, width: 0.8),
+              color: containerBg,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // PINNED CANVAS ASPECT RATIO: Blocks jumping layout changes entirely
                 AspectRatio(
-                  aspectRatio: 1,
+                  aspectRatio: calculatedRatio,
                   child: cachedBytes != null
                       ? Image.memory(
                     cachedBytes,
                     fit: BoxFit.cover,
                     width: double.infinity,
-                    gaplessPlayback: true, // Prevents layout pop shifts when matching memory maps
+                    gaplessPlayback: true, // Guarantees zero flickering during updates
                   )
                       : Container(
-                    color: containerBg, // Smooth flat base architecture container
+                    color: containerBg, // Matches base frame color exactly
                   ),
                 ),
                 if (columns <= 2)
@@ -404,7 +408,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // --- RENDERS SPECIFICALLY SELECTED IMPORTED ITEMS ---
+  // RENDERS SELECTED IMPORTED SYSTEM REFS WITH ORIGINAL PINTEREST FLOW
   Widget _buildImportedGrid({
     required List<CaptureItem> items,
     required int columns,
@@ -426,12 +430,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
               Text(
                 'IMPORT SPECIFIC ASSETS HERE TO ISOLATE THEM FOR INSTANT WORKSPACE ACCESS, ELIMINATING THE NEED TO SEARCH THROUGH THE ENTIRE GALLERY DEVICE STORAGE.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: textSub,
-                  fontSize: 11.5,
-                  height: 1.6,
-                  letterSpacing: 0.03,
-                ),
+                style: TextStyle(color: textSub, fontSize: 11.5, height: 1.6, letterSpacing: 0.03),
               ),
               const SizedBox(height: 24),
               GestureDetector(
@@ -440,10 +439,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 child: Container(
                   width: 42,
                   height: 42,
-                  decoration: BoxDecoration(
-                    color: containerBg,
-                    border: Border.all(color: textMain, width: 0.8),
-                  ),
+                  decoration: BoxDecoration(color: containerBg, border: Border.all(color: textMain, width: 0.8)),
                   alignment: Alignment.center,
                   child: Icon(Icons.add, color: textMain, size: 16),
                 ),
@@ -456,8 +452,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
 
     return MasonryGridView.count(
       crossAxisCount: columns,
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
       physics: const ClampingScrollPhysics(),
       itemCount: items.length,
       itemBuilder: (context, index) {
@@ -473,7 +469,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 Image.file(
                   File(item.content),
                   fit: BoxFit.cover,
-                  cacheWidth: 280,
                   errorBuilder: (context, error, stackTrace) {
                     return Container(padding: const EdgeInsets.all(12), child: Text('BROKEN REF', style: TextStyle(color: Colors.red[400], fontSize: 9)));
                   },
