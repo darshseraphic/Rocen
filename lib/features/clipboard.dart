@@ -14,21 +14,20 @@ class GridColumnsNotifier extends Notifier<int> {
 
   @override
   int build() {
-    // Reads saved density layout parameter directly on engine initialization (Defaults to 2)
     return Hive.box(_boxName).get('grid_columns', defaultValue: 2);
   }
 
   void makeItemsSmaller() {
     if (state < 6) {
       state++;
-      Hive.box(_boxName).put('grid_columns', state); // Commits state to disk instantly
+      Hive.box(_boxName).put('grid_columns', state);
     }
   }
 
   void makeItemsLarger() {
     if (state > 1) {
       state--;
-      Hive.box(_boxName).put('grid_columns', state); // Commits state to disk instantly
+      Hive.box(_boxName).put('grid_columns', state);
     }
   }
 }
@@ -165,8 +164,52 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  Widget _buildGrid(List<CaptureItem> items, int columns, bool isDark, Color borderColor, Color containerBg, Color textSub) {
+  Widget _buildGrid({
+    required List<CaptureItem> items,
+    required int columns,
+    required bool isDark,
+    required Color borderColor,
+    required Color containerBg,
+    required Color textSub,
+    VoidCallback? onEmptyActionTap,
+  }) {
     if (items.isEmpty) {
+      if (onEmptyActionTap != null) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'IMPORT SPECIFIC ASSETS HERE TO ISOLATE THEM FOR INSTANT WORKSPACE ACCESS, ELIMINATING THE NEED TO SEARCH THROUGH THE ENTIRE GALLERY DEVICE STORAGE.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: textSub,
+                    fontSize: 11.5,
+                    height: 1.6,
+                    letterSpacing: 0.03,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                GestureDetector(
+                  onTap: onEmptyActionTap,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: containerBg,
+                      border: Border.all(color: borderColor, width: 0.8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
       return Center(
         child: Text(
           'NO MEDIA FOUND IN THIS CATEGORY',
@@ -339,8 +382,23 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
               controller: _pageController,
               onPageChanged: (index) => setState(() => _activePageIndex = index),
               children: [
-                _buildGrid(galleryItems, columns, isDark, borderColor, containerBg, textSub),
-                _buildGrid(importedItems, columns, isDark, borderColor, containerBg, textSub),
+                _buildGrid(
+                  items: galleryItems,
+                  columns: columns,
+                  isDark: isDark,
+                  borderColor: borderColor,
+                  containerBg: containerBg,
+                  textSub: textSub,
+                ),
+                _buildGrid(
+                  items: importedItems,
+                  columns: columns,
+                  isDark: isDark,
+                  borderColor: borderColor,
+                  containerBg: containerBg,
+                  textSub: textSub,
+                  onEmptyActionTap: _importSelectedMedia,
+                ),
               ],
             ),
           )
