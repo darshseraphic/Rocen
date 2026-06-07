@@ -135,9 +135,9 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
           ),
           const SizedBox(height: 16),
 
-          // TASK INPUT BAR
+          // TASK INPUT BAR (COMPACT AND SHORTENED)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
             decoration: BoxDecoration(
               color: containerBg,
               border: Border.all(color: borderColor, width: 0.8),
@@ -153,22 +153,23 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                       hintText: 'ADD NEW TASK...',
                       hintStyle: TextStyle(color: textSub, fontSize: 12, letterSpacing: 0.05),
                       border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                     onSubmitted: (_) => _submitTask(),
                   ),
                 ),
-                // INCREASED ADD BUTTON SIZE
                 GestureDetector(
                   onTap: _submitTask,
                   behavior: HitTestBehavior.opaque,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                     child: Text(
                       '+',
                       style: TextStyle(
                         color: textMain,
-                        fontSize: 22, // Size bumped up from 16 to be prominently noticed
-                        fontWeight: FontWeight.w700, // Thicker geometry alignment
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
                         height: 1.0,
                       ),
                     ),
@@ -202,15 +203,16 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 18.0),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start, // Changed to start for multi-line text alignment
                     children: [
-                      // CUSTOM ANIMATED SQUARE TOGGLE (Slightly adjusted dimensions to look balanced alongside larger text)
+                      // CUSTOM ANIMATED SQUARE TOGGLE
                       GestureDetector(
                         onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
                         child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
+                          duration: const Duration(milliseconds: 350),
                           width: 20,
                           height: 20,
+                          margin: const EdgeInsets.only(top: 1), // Minor tweak to align box visually with first line
                           decoration: BoxDecoration(
                             color: boxFillColor,
                             border: Border.all(color: boxBorderColor, width: 1.4),
@@ -219,45 +221,54 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                       ),
                       const SizedBox(width: 16),
 
-                      // TASK TITLE TEXT WITH ENHANCED FONT SIZING
+                      // TASK TITLE WITH SMOOTH LEFT-TO-RIGHT WIPE ENGINE
                       Expanded(
                         child: GestureDetector(
                           onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
-                          child: IntrinsicWidth(
-                            child: Stack(
-                              alignment: Alignment.centerLeft,
-                              children: [
-                                AnimatedDefaultTextStyle(
-                                  duration: const Duration(milliseconds: 200),
-                                  style: TextStyle(
-                                    color: item.isCompleted ? textSub : textMain,
-                                    fontSize: 13, // Matches 'BOOKMARKS' title text size exactly
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: -0.01,
-                                  ),
-                                  child: Text(item.text),
+                          child: Stack(
+                            children: [
+                              // 1. BASE TEXT: Uncompleted state (Always visible underneath)
+                              Text(
+                                item.text,
+                                style: TextStyle(
+                                  color: textMain,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.01,
                                 ),
-                                // Custom horizontal strike engine
-                                Positioned.fill(
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: AnimatedFractionallySizedBox(
-                                      duration: const Duration(milliseconds: 250),
-                                      curve: Curves.easeOutCubic,
+                              ),
+                              // 2. OVERLAY TEXT: Completed state that smoothly wipes in
+                              TweenAnimationBuilder<double>(
+                                tween: Tween<double>(begin: 0.0, end: item.isCompleted ? 1.0 : 0.0),
+                                // Highly smooth, relaxed duration for that physical "drawing" feel
+                                duration: const Duration(milliseconds: 600),
+                                curve: Curves.easeOutQuart,
+                                builder: (context, value, child) {
+                                  return ClipRect(
+                                    child: Align(
                                       alignment: Alignment.centerLeft,
-                                      widthFactor: item.isCompleted ? 1.0 : 0.0,
-                                      child: Container(
-                                        height: 1.5, // Thickened slightly to cut across larger characters seamlessly
-                                        color: textSub,
+                                      widthFactor: value, // Clips the text from left to right as value goes 0 -> 1
+                                      child: Text(
+                                        item.text,
+                                        style: TextStyle(
+                                          color: textSub,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: -0.01,
+                                          decoration: TextDecoration.lineThrough,
+                                          decorationColor: textSub,
+                                          decorationThickness: 1.5,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
                         ),
                       ),
+                      const SizedBox(width: 12),
 
                       // ROW ITEM TERMINATOR
                       GestureDetector(
