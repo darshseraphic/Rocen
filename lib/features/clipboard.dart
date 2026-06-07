@@ -170,16 +170,18 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     required bool isDark,
     required Color borderColor,
     required Color containerBg,
+    required Color textMain,
     required Color textSub,
-    VoidCallback? onEmptyActionTap,
+    bool showEmptyActionLayout = false,
   }) {
     if (items.isEmpty) {
-      if (onEmptyActionTap != null) {
+      if (showEmptyActionLayout) {
         return Center(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center, // FIXED: Corrected parameter name here
               children: [
                 Text(
                   'IMPORT SPECIFIC ASSETS HERE TO ISOLATE THEM FOR INSTANT WORKSPACE ACCESS, ELIMINATING THE NEED TO SEARCH THROUGH THE ENTIRE GALLERY DEVICE STORAGE.',
@@ -191,17 +193,31 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                     letterSpacing: 0.03,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
+
+                Text(
+                  'ADD MEDIA',
+                  style: TextStyle(
+                    fontFamily: 'Courier',
+                    color: textMain,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.08,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
                 GestureDetector(
-                  onTap: onEmptyActionTap,
-                  behavior: HitTestBehavior.opaque,
+                  onTap: _importSelectedMedia,
                   child: Container(
-                    width: 42,
-                    height: 42,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: containerBg,
-                      border: Border.all(color: borderColor, width: 0.8),
+                      border: Border.all(color: textMain, width: 0.8),
                     ),
+                    alignment: Alignment.center,
+                    child: Icon(Icons.add, color: textMain, size: 20),
                   ),
                 ),
               ],
@@ -286,123 +302,128 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
     final containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
 
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'MEDIA REGISTRY',
-                style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
-              ),
-
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => _activePageIndex == 0 ? _autoFetchWholeGallery() : _importSelectedMedia(),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: isDark ? Colors.white : Colors.black),
-                      child: Text('FETCH', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  GestureDetector(
-                    onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsLarger(),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
-                      child: Text('+', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  GestureDetector(
-                    onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsSmaller(),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
-                      child: Text('-', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              )
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          Row(
-            children: [
-              Expanded(
-                child: InkWell(
-                  onTap: () => _switchTab(0),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: _activePageIndex == 0 ? textMain : borderColor, width: _activePageIndex == 0 ? 1.5 : 0.8),
-                      color: _activePageIndex == 0 ? containerBg : Colors.transparent,
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      'ACCESS GALLERY',
-                      style: TextStyle(color: _activePageIndex == 0 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: InkWell(
-                  onTap: () => _switchTab(1),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: _activePageIndex == 1 ? textMain : borderColor, width: _activePageIndex == 1 ? 1.5 : 0.8),
-                      color: _activePageIndex == 1 ? containerBg : Colors.transparent,
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      'IMPORT MEDIA',
-                      style: TextStyle(color: _activePageIndex == 1 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          Divider(color: borderColor, height: 32, thickness: 0.8),
-
-          Expanded(
-            child: PageView(
-              controller: _pageController,
-              onPageChanged: (index) => setState(() => _activePageIndex = index),
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildGrid(
-                  items: galleryItems,
-                  columns: columns,
-                  isDark: isDark,
-                  borderColor: borderColor,
-                  containerBg: containerBg,
-                  textSub: textSub,
+                Text(
+                  'MEDIA REGISTRY',
+                  style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
                 ),
-                _buildGrid(
-                  items: importedItems,
-                  columns: columns,
-                  isDark: isDark,
-                  borderColor: borderColor,
-                  containerBg: containerBg,
-                  textSub: textSub,
-                  onEmptyActionTap: _importSelectedMedia,
+
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => _activePageIndex == 0 ? _autoFetchWholeGallery() : _importSelectedMedia(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: isDark ? Colors.white : Colors.black),
+                        child: Text('FETCH', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    GestureDetector(
+                      onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsLarger(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+                        child: Text('+', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: () => ref.read(gridColumnsProvider.notifier).makeItemsSmaller(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+                        decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+                        child: Text('-', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _switchTab(0),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: _activePageIndex == 0 ? textMain : borderColor, width: _activePageIndex == 0 ? 1.5 : 0.8),
+                        color: _activePageIndex == 0 ? containerBg : Colors.transparent,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        'ACCESS GALLERY',
+                        style: TextStyle(color: _activePageIndex == 0 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _switchTab(1),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: _activePageIndex == 1 ? textMain : borderColor, width: _activePageIndex == 1 ? 1.5 : 0.8),
+                        color: _activePageIndex == 1 ? containerBg : Colors.transparent,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        'IMPORT MEDIA',
+                        style: TextStyle(color: _activePageIndex == 1 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
-          )
-        ],
+
+            Divider(color: borderColor, height: 32, thickness: 0.8),
+
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: (index) => setState(() => _activePageIndex = index),
+                children: [
+                  _buildGrid(
+                    items: galleryItems,
+                    columns: columns,
+                    isDark: isDark,
+                    borderColor: borderColor,
+                    containerBg: containerBg,
+                    textMain: textMain,
+                    textSub: textSub,
+                  ),
+                  _buildGrid(
+                    items: importedItems,
+                    columns: columns,
+                    isDark: isDark,
+                    borderColor: borderColor,
+                    containerBg: containerBg,
+                    textMain: textMain,
+                    textSub: textSub,
+                    showEmptyActionLayout: true,
+                  ),
+                ],
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
