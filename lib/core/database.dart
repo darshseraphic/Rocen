@@ -102,6 +102,25 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
+  Future<void> updateItem(String id, String newContent, {String? title}) async {
+    state = [
+      for (final item in state)
+        if (item.id == id)
+          CaptureItem(
+            id: item.id,
+            title: title ?? item.title,
+            content: newContent,
+            type: item.type,
+            timestamp: item.timestamp,
+          )
+        else
+          item,
+    ];
+
+    final box = Hive.box(_boxName);
+    await box.put('items', state.map((e) => e.toMap()).toList());
+  }
+
   Future<void> deleteItem(String id) async {
     state = state.where((item) => item.id != id).toList();
     final box = Hive.box(_boxName);
