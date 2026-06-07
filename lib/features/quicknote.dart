@@ -33,9 +33,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     super.dispose();
   }
 
-  /// Verifies if the local registry contains a mismatched key signatures frame.
-  /// If a new key rotation is introduced, historical items encrypted with the
-  /// legacy configuration are auto-purged to maintain absolute consistency.
   void _enforceKeyRotationPurge() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final settingsBox = Hive.box('rocen_settings_box');
@@ -49,7 +46,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         for (var target in targetsToPurge) {
           ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
         }
-        // Sync snapshot tracking anchor
         settingsBox.put('last_active_crypto_pin_snapshot', currentPin);
       }
     });
@@ -140,7 +136,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     setState(() => _isNoteLocked = false);
     FocusScope.of(context).unfocus();
 
-    // Refresh snapshot to guarantee stability tracking anchors
     Hive.box('rocen_settings_box').put('last_active_crypto_pin_snapshot', globalPin);
   }
 
@@ -163,90 +158,140 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       barrierLabel: 'Dismiss',
       barrierColor: Colors.black.withOpacity(0.7),
       pageBuilder: (context, anim1, anim2) {
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 280,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: dialogBg,
-                border: Border.all(color: borderColor, width: 0.8),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('ENTER 6-DIGIT PIN', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05)),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: pinVerifyController,
-                    obscureText: true,
-                    maxLength: 6,
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(color: textMain, fontSize: 14, letterSpacing: 8, fontFamily: 'Courier'),
-                    decoration: InputDecoration(
-                      counterText: '',
-                      hintText: '******',
-                      hintStyle: const TextStyle(color: Color(0xFF555555)),
-                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: borderColor, width: 0.8)),
-                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMain, width: 1.0)),
-                    ),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Center(
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 320,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: dialogBg,
+                    border: Border.all(color: borderColor, width: 0.8),
                   ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      InkWell(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: borderColor, width: 0.8),
+                      Text(
+                          'ENTER 6-DIGIT PIN',
+                          style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05)
+                      ),
+                      const SizedBox(height: 20),
+
+                      // INDEPENDENT SEGMENTED PIN FIELD ARCHITECTURE
+                      Stack(
+                        children: [
+                          // Transparent real text input capture panel
+                          Opacity(
+                            opacity: 0.0,
+                            child: TextField(
+                              controller: pinVerifyController,
+                              keyboardType: TextInputType.number,
+                              maxLength: 6,
+                              autofocus: true,
+                              onChanged: (val) {
+                                setDialogState(() {});
+                              },
+                              decoration: const InputDecoration(
+                                counterText: '',
+                                border: InputBorder.none,
+                              ),
+                            ),
                           ),
-                          child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
-                        ),
+                          // Custom rendered layout grid matching the sharp square design request
+                          IgnorePointer(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: List.generate(6, (index) {
+                                final String text = pinVerifyController.text;
+                                bool isFilled = text.length > index;
+                                bool isCurrentFocus = text.length == index;
+
+                                return Container(
+                                  width: 40,
+                                  height: 44,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: Colors.transparent,
+                                    // Crisp square borders without circular corners
+                                    border: Border.all(
+                                      color: isCurrentFocus
+                                          ? textMain
+                                          : (isFilled ? textMain.withOpacity(0.6) : borderColor),
+                                      width: isCurrentFocus ? 1.2 : 0.8,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    isFilled ? '●' : '',
+                                    style: TextStyle(
+                                      color: textMain,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      InkWell(
-                        onTap: () {
-                          if (pinVerifyController.text == globalPin) {
-                            Navigator.pop(context);
-                            if (openForEditing) {
-                              String rawContent = '';
-                              try {
-                                rawContent = CryptoEngine.xorProcess(item.content, globalPin);
-                              } catch (_) {
-                                rawContent = 'DECRYPTION FAULT';
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          InkWell(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: borderColor, width: 0.8),
+                              ),
+                              child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () {
+                              if (pinVerifyController.text == globalPin) {
+                                Navigator.pop(context);
+                                if (openForEditing) {
+                                  String rawContent = '';
+                                  try {
+                                    rawContent = CryptoEngine.xorProcess(item.content, globalPin);
+                                  } catch (_) {
+                                    rawContent = 'DECRYPTION FAULT';
+                                  }
+                                  final unpackedItem = CaptureItem(
+                                    id: item.id,
+                                    title: item.title,
+                                    content: rawContent,
+                                    type: item.type,
+                                    timestamp: item.timestamp,
+                                  );
+                                  _navigateToEdit(context, unpackedItem);
+                                } else {
+                                  _revealEncryptedNotePayload(item, globalPin, isDark);
+                                }
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ACCESS DENIED: INVALID KEY PIN')));
+                                Navigator.pop(context);
                               }
-                              final unpackedItem = CaptureItem(
-                                id: item.id,
-                                title: item.title,
-                                content: rawContent,
-                                type: item.type,
-                                timestamp: item.timestamp,
-                              );
-                              _navigateToEdit(context, unpackedItem);
-                            } else {
-                              _revealEncryptedNotePayload(item, globalPin, isDark);
-                            }
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ACCESS DENIED: INVALID KEY PIN')));
-                            Navigator.pop(context);
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(color: textMain),
-                          child: Text('VERIFY', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(color: textMain),
+                              child: Text('VERIFY', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      )
                     ],
-                  )
-                ],
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -520,13 +565,13 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                     Icon(
                       _isNoteLocked ? Icons.lock : Icons.lock_open,
                       size: 14,
-                      color: _isNoteLocked ? Colors.amber[600] : textSub,
+                      color: _isNoteLocked ? textMain : textSub,
                     ),
                     const SizedBox(width: 6),
                     Text(
                       _isNoteLocked ? 'ENCRYPTED LOG PIPELINE ACTIVE' : 'STANDARD TEXT DEPLOYMENT',
                       style: TextStyle(
-                        color: _isNoteLocked ? Colors.amber[600] : textSub,
+                        color: _isNoteLocked ? textMain : textSub,
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.02,
@@ -590,7 +635,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                         child: isEncrypted
                                             ? Padding(
                                           padding: const EdgeInsets.only(right: 6.0),
-                                          child: Icon(Icons.lock, size: 11, color: Colors.amber[600]),
+                                          child: Icon(Icons.lock, size: 11, color: textMain),
                                         )
                                             : const SizedBox.shrink(),
                                       ),
@@ -627,7 +672,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   fontSize: 13,
                                   height: 1.4,
                                 ),
-                                maxLines: 10, // Max preview limited strictly to 10 lines
+                                maxLines: 10,
                               ),
                             ],
                           ),
