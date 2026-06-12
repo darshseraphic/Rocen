@@ -78,7 +78,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   void _switchTab(int index) {
     setState(() {
       _activePageIndex = index;
-      // Reset select mode tracking on tab swap to eliminate registry pollution
       _isSelectMode = false;
       _selectedGalleryIds.clear();
       _selectedImportedIds.clear();
@@ -287,16 +286,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     });
   }
 
-  // SYSTEM ASSET FULLSCREEN PREVIEWER WITH ACTION MATRIX
-  void _showGalleryImagePreview(AssetEntity asset, bool isDark, Color borderColor) async {
+  // SYSTEM ASSET FULLSCREEN PREVIEWER WITH ACTION MATRIX & PAGE SWAPPING CAPABILITY
+  void _showGalleryImagePreview(int initialIndex, List<AssetEntity> assets, bool isDark, Color borderColor) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
-    final File? file = await asset.file;
-    if (file == null) return;
-    final String filePath = file.path;
-    final String folderPath = file.parent.path;
-
-    if (!mounted) return;
+    final PageController previewPageController = PageController(initialPage: initialIndex);
 
     showGeneralDialog(
       context: context,
@@ -306,8 +299,12 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (context, anim1, anim2) {
         bool showBottomBar = true;
+        int dialogCurrentIndex = initialIndex;
+
         return StatefulBuilder(
           builder: (context, setStateDialog) {
+            final currentAsset = assets[dialogCurrentIndex];
+
             return PopScope(
               canPop: true,
               onPopInvokedWithResult: (didPop, result) {
@@ -319,23 +316,52 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
                 body: Stack(
                   children: [
-                    // FULL SCREEN CANVAS WITH ACTION TOGGLE GESTURE MAPPER
-                    GestureDetector(
-                      onTap: () {
+                    // FULL SCREEN CANVAS IMPLEMENTING PAGEVIEW FOR IMAGE SWAPPING
+                    PageView.builder(
+                      controller: previewPageController,
+                      itemCount: assets.length,
+                      // Swap is ONLY active when bottom bar is hidden (full screen)
+                      physics: showBottomBar
+                          ? const NeverScrollableScrollPhysics()
+                          : const ClampingScrollPhysics(),
+                      onPageChanged: (newIndex) {
                         setStateDialog(() {
-                          showBottomBar = !showBottomBar;
+                          dialogCurrentIndex = newIndex;
                         });
                       },
-                      behavior: HitTestBehavior.opaque,
-                      child: Center(
-                        child: InteractiveViewer(
-                          maxScale: 5.0,
-                          child: Image.file(file, fit: BoxFit.contain),
-                        ),
-                      ),
+                      itemBuilder: (context, pageIndex) {
+                        return FutureBuilder<File?>(
+                          future: assets[pageIndex].file,
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData || snapshot.data == null) {
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  valueColor: AlwaysStoppedAnimation<Color>(isDark ? Colors.white : Colors.black),
+                                ),
+                              );
+                            }
+                            final file = snapshot.data!;
+                            return GestureDetector(
+                              onTap: () {
+                                setStateDialog(() {
+                                  showBottomBar = !showBottomBar;
+                                });
+                              },
+                              behavior: HitTestBehavior.opaque,
+                              child: Center(
+                                child: InteractiveViewer(
+                                  maxScale: 5.0,
+                                  child: Image.file(file, fit: BoxFit.contain),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
                     ),
 
-                    // TOP LEFT CORNER [RETURN] BUTTON (UNAFFECTED BY DYNAMIC CANVAS TOGGLE)
+                    // TOP LEFT CORNER [RETURN] BUTTON
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 16,
                       left: 16,
@@ -359,88 +385,96 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                     ),
 
                     // BOTTOM INFO AND THREE BUTTON NAVIGATION BAR (DYNAMIC SLIDE LAYOUT)
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: AnimatedSlide(
-                        offset: showBottomBar ? Offset.zero : const Offset(0, 1),
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.fastOutSlowIn,
-                        child: Consumer(
-                          builder: (context, ref, child) {
-                            final allItems = ref.watch(localDatabaseProvider);
-                            final bool isLiked = allItems.any((e) => e.type == 'imported_clip' && e.content == filePath);
+                    FutureBuilder<File?>(
+                      future: currentAsset.file,
+                      builder: (context, snapshot) {
+                        final filePath = snapshot.data?.path ?? '';
+                        final folderPath = snapshot.data?.parent.path ?? '';
 
-                            return Container(
-                              width: double.infinity,
-                              padding: EdgeInsets.only(
-                                top: 16,
-                                left: 16,
-                                right: 16,
-                                bottom: MediaQuery.of(context).padding.bottom + 16,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF5F5F5),
-                                border: Border(top: BorderSide(color: borderColor, width: 0.8)),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'PATH: $folderPath'.toUpperCase(),
-                                    style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.03),
-                                    maxLines: 2, overflow: TextOverflow.ellipsis,
+                        return Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: AnimatedSlide(
+                            offset: showBottomBar ? Offset.zero : const Offset(0, 1),
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.fastOutSlowIn,
+                            child: Consumer(
+                              builder: (context, ref, child) {
+                                final allItems = ref.watch(localDatabaseProvider);
+                                final bool isLiked = filePath.isNotEmpty && allItems.any((e) => e.type == 'imported_clip' && e.content == filePath);
+
+                                return Container(
+                                  width: double.infinity,
+                                  padding: EdgeInsets.only(
+                                    top: 16,
+                                    left: 16,
+                                    right: 16,
+                                    bottom: MediaQuery.of(context).padding.bottom + 16,
                                   ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                  decoration: BoxDecoration(
+                                    color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF5F5F5),
+                                    border: Border(top: BorderSide(color: borderColor, width: 0.8)),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      IconButton(
-                                        icon: Icon(Icons.share, color: isDark ? Colors.white : Colors.black, size: 20),
-                                        onPressed: () async {
-                                          if (filePath.isNotEmpty) {
-                                            await Share.shareXFiles([XFile(filePath)]);
-                                          }
-                                        },
+                                      Text(
+                                        'PATH: $folderPath'.toUpperCase(),
+                                        style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.03),
+                                        maxLines: 2, overflow: TextOverflow.ellipsis,
                                       ),
-                                      IconButton(
-                                        icon: Icon(
-                                            isLiked ? Icons.favorite : Icons.favorite_border,
-                                            color: isDark ? Colors.white : Colors.black,
-                                            size: 20
-                                        ),
-                                        onPressed: () async {
-                                          final allCurrentItems = ref.read(localDatabaseProvider);
-                                          CaptureItem? existingItem;
-                                          for (final item in allCurrentItems) {
-                                            if (item.type == 'imported_clip' && item.content == filePath) {
-                                              existingItem = item;
-                                              break;
-                                            }
-                                          }
+                                      const SizedBox(height: 16),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                        children: [
+                                          IconButton(
+                                            icon: Icon(Icons.share, color: isDark ? Colors.white : Colors.black, size: 20),
+                                            onPressed: () async {
+                                              if (filePath.isNotEmpty) {
+                                                await Share.shareXFiles([XFile(filePath)]);
+                                              }
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: Icon(
+                                                isLiked ? Icons.favorite : Icons.favorite_border,
+                                                color: isDark ? Colors.white : Colors.black,
+                                                size: 20
+                                            ),
+                                            onPressed: () async {
+                                              if (filePath.isEmpty) return;
+                                              final allCurrentItems = ref.read(localDatabaseProvider);
+                                              CaptureItem? existingItem;
+                                              for (final item in allCurrentItems) {
+                                                if (item.type == 'imported_clip' && item.content == filePath) {
+                                                  existingItem = item;
+                                                  break;
+                                                }
+                                              }
 
-                                          // All pop-up alerts completely removed. Database runs purely in the background.
-                                          if (existingItem != null) {
-                                            await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
-                                          } else {
-                                            await ref.read(localDatabaseProvider.notifier).insertMultipleItems([filePath], 'imported_clip');
-                                          }
-                                        },
-                                      ),
-                                      IconButton(
-                                        icon: Icon(Icons.delete_outline, color: Colors.red[400], size: 20),
-                                        onPressed: () => _confirmDeleteGalleryAsset(asset),
-                                      ),
+                                              if (existingItem != null) {
+                                                await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
+                                              } else {
+                                                await ref.read(localDatabaseProvider.notifier).insertMultipleItems([filePath], 'imported_clip');
+                                              }
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: Icon(Icons.delete_outline, color: Colors.red[400], size: 20),
+                                            onPressed: () => _confirmDeleteGalleryAsset(currentAsset),
+                                          ),
+                                        ],
+                                      )
                                     ],
-                                  )
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        );
+                      },
                     )
                   ],
                 ),
@@ -493,11 +527,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // LOCAL MEMORY FILE HARDWARE PREVIEWER WITH ACTION MATRIX
-  void _showImagePreview(CaptureItem item, bool isDark, Color borderColor) {
+  // LOCAL MEMORY FILE HARDWARE PREVIEWER WITH ACTION MATRIX & PAGE SWAPPING CAPABILITY
+  void _showImagePreview(int initialIndex, List<CaptureItem> items, bool isDark, Color borderColor) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    final filePath = item.content;
-    final folderPath = File(filePath).parent.path;
+    final PageController previewPageController = PageController(initialPage: initialIndex);
 
     showGeneralDialog(
       context: context,
@@ -507,8 +540,14 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (context, anim1, anim2) {
         bool showBottomBar = true;
+        int dialogCurrentIndex = initialIndex;
+
         return StatefulBuilder(
           builder: (context, setStateDialog) {
+            final currentItem = items[dialogCurrentIndex];
+            final filePath = currentItem.content;
+            final folderPath = File(filePath).parent.path;
+
             return PopScope(
               canPop: true,
               onPopInvokedWithResult: (didPop, result) {
@@ -520,23 +559,39 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
                 body: Stack(
                   children: [
-                    // FULL SCREEN CANVAS WITH ACTION TOGGLE GESTURE MAPPER
-                    GestureDetector(
-                      onTap: () {
+                    // FULL SCREEN CANVAS IMPLEMENTING PAGEVIEW FOR IMAGE SWAPPING
+                    PageView.builder(
+                      controller: previewPageController,
+                      itemCount: items.length,
+                      // Swap is ONLY active when bottom bar is hidden (full screen)
+                      physics: showBottomBar
+                          ? const NeverScrollableScrollPhysics()
+                          : const ClampingScrollPhysics(),
+                      onPageChanged: (newIndex) {
                         setStateDialog(() {
-                          showBottomBar = !showBottomBar;
+                          dialogCurrentIndex = newIndex;
                         });
                       },
-                      behavior: HitTestBehavior.opaque,
-                      child: Center(
-                        child: InteractiveViewer(
-                          maxScale: 5.0,
-                          child: Image.file(File(filePath), fit: BoxFit.contain),
-                        ),
-                      ),
+                      itemBuilder: (context, pageIndex) {
+                        final pageItem = items[pageIndex];
+                        return GestureDetector(
+                          onTap: () {
+                            setStateDialog(() {
+                              showBottomBar = !showBottomBar;
+                            });
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: Center(
+                            child: InteractiveViewer(
+                              maxScale: 5.0,
+                              child: Image.file(File(pageItem.content), fit: BoxFit.contain),
+                            ),
+                          ),
+                        );
+                      },
                     ),
 
-                    // TOP LEFT CORNER [RETURN] BUTTON (UNAFFECTED BY DYNAMIC CANVAS TOGGLE)
+                    // TOP LEFT CORNER [RETURN] BUTTON
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 16,
                       left: 16,
@@ -620,7 +675,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                             }
                                           }
 
-                                          // All pop-up alerts completely removed. Database runs purely in the background.
                                           if (existingItem != null) {
                                             await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
                                           } else {
@@ -630,7 +684,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                       ),
                                       IconButton(
                                         icon: Icon(Icons.delete_outline, color: Colors.red[400], size: 20),
-                                        onPressed: () => _confirmDeleteImportedItem(item),
+                                        onPressed: () => _confirmDeleteImportedItem(currentItem),
                                       ),
                                     ],
                                   )
@@ -750,7 +804,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
               }
             });
           }
-              : () => _showGalleryImagePreview(asset, isDark, borderColor),
+              : () => _showGalleryImagePreview(index, assets, isDark, borderColor),
           child: Stack(
             children: [
               Container(
@@ -789,7 +843,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                   ],
                 ),
               ),
-              // --- CONFIGURABLE BOUNDARY SELECT INDICATOR ---
               if (_isSelectMode)
                 Positioned(
                   top: 8,
@@ -878,7 +931,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
               }
             });
           }
-              : () => _showImagePreview(item, isDark, borderColor),
+              : () => _showImagePreview(index, items, isDark, borderColor),
           child: Stack(
             children: [
               Container(
@@ -920,7 +973,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                   ],
                 ),
               ),
-              // --- CONFIGURABLE BOUNDARY SELECT INDICATOR ---
               if (_isSelectMode)
                 Positioned(
                   top: 8,
@@ -974,7 +1026,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
 
               Row(
                 children: [
-                  // --- BUTTON MATRIX 1: REFRESH / IMPORT TO DYNAMIC BULK DELETE ---
                   GestureDetector(
                     onTap: () {
                       if (_isSelectMode) {
@@ -1001,7 +1052,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                   ),
                   const SizedBox(width: 12),
 
-                  // --- BUTTON MATRIX 2: DYNAMIC SELECT TO UNDO CONTROLLER ---
                   GestureDetector(
                     onTap: () {
                       setState(() {
@@ -1023,7 +1073,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                   ),
                   const SizedBox(width: 12),
 
-                  // --- BUTTON MATRIX 3: SCALING [+] TO BULK HEART ACTIONS ---
                   GestureDetector(
                     onTap: () {
                       if (_isSelectMode) {
@@ -1036,13 +1085,12 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       padding: _isSelectMode ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4) : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
                       child: _isSelectMode
-                          ? Icon(Icons.favorite, color: textMain, size: 14) // Adheres seamlessly to Light/Dark modes
+                          ? Icon(Icons.favorite, color: textMain, size: 14)
                           : Text('+', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                   ),
                   const SizedBox(width: 4),
 
-                  // --- BUTTON MATRIX 4: SCALING [-] TO BULK DISLIKE ACTIONS ---
                   GestureDetector(
                     onTap: () {
                       if (_isSelectMode) {
