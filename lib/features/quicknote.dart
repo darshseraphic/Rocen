@@ -528,209 +528,217 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final textSub = isDark ? const Color(0xFF737373) : const Color(0xFF888888);
     final ruleBorder = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('QUICK NOTES', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
-          const SizedBox(height: 16),
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textSelectionTheme: TextSelectionThemeData(
+          selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
+          selectionHandleColor: const Color(0xFF5F0E0D),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('QUICK NOTES', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
+            const SizedBox(height: 16),
 
-          TextField(
-            controller: _titleController,
-            style: TextStyle(color: textMain, fontSize: 14, fontWeight: FontWeight.w600),
-            cursorColor: textMain,
-            decoration: InputDecoration(
-              hintText: 'Title',
-              hintStyle: TextStyle(color: textSub, fontWeight: FontWeight.w400),
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              isDense: true,
-              contentPadding: const EdgeInsets.only(bottom: 8),
+            TextField(
+              controller: _titleController,
+              style: TextStyle(color: textMain, fontSize: 14, fontWeight: FontWeight.w600),
+              cursorColor: textMain,
+              decoration: InputDecoration(
+                hintText: 'Title',
+                hintStyle: TextStyle(color: textSub, fontWeight: FontWeight.w400),
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.only(bottom: 8),
+              ),
             ),
-          ),
-          Container(height: 1.0, color: const Color(0xFFa6a6a6)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _bodyController,
-            style: TextStyle(color: textMain, fontSize: 13),
-            maxLines: 4,
-            cursorColor: textMain,
-            decoration: InputDecoration(
-              hintText: 'Tell me your story',
-              hintStyle: TextStyle(color: textSub),
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 4),
+            Container(height: 1.0, color: const Color(0xFFa6a6a6)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _bodyController,
+              style: TextStyle(color: textMain, fontSize: 13),
+              maxLines: 4,
+              cursorColor: textMain,
+              decoration: InputDecoration(
+                hintText: 'Tell me your story',
+                hintStyle: TextStyle(color: textSub),
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 4),
+              ),
             ),
-          ),
 
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              GestureDetector(
-                onTap: () {
-                  final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
-                  if (globalPin == null || globalPin.isEmpty) {
-                    _showMissingKeyDialog(isDark);
-                  } else {
-                    setState(() => _isNoteLocked = !_isNoteLocked);
-                  }
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Row(
-                  children: [
-                    Icon(
-                      _isNoteLocked ? Icons.lock : Icons.lock_open,
-                      size: 14,
-                      color: _isNoteLocked ? textMain : textSub,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _isNoteLocked ? 'ENCRYPTED LOG PIPELINE ACTIVE' : 'STANDARD TEXT DEPLOYMENT',
-                      style: TextStyle(
-                        color: _isNoteLocked ? textMain : textSub,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.02,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              TextButton(
-                onPressed: _compileAndSaveNote,
-                child: Text('COMMIT', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-
-          Divider(color: ruleBorder, height: 16, thickness: 0.8),
-
-          Expanded(
-            child: items.isEmpty
-                ? Center(
-              child: Text(
-                'NO ACTIVE NOTE REGISTRIES CURRENTLY SAVED',
-                style: TextStyle(color: textSub, fontSize: 11, letterSpacing: 0.05),
-              ),
-            )
-                : ListView.builder(
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final item = items[index];
-                final bool isEncrypted = item.type == 'encrypted_note';
-                final formattedDate = _formatCustomDate(item.timestamp);
-
-                return GestureDetector(
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                GestureDetector(
                   onTap: () {
-                    if (isEncrypted) {
-                      _promptForPinChallenge(item, isDark);
+                    final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
+                    if (globalPin == null || globalPin.isEmpty) {
+                      _showMissingKeyDialog(isDark);
                     } else {
-                      _navigateToEdit(context, item);
+                      setState(() => _isNoteLocked = !_isNoteLocked);
                     }
                   },
                   behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: ruleBorder, width: 0.8)),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: RichText(
-                                  text: TextSpan(
-                                    children: [
-                                      WidgetSpan(
-                                        alignment: PlaceholderAlignment.middle,
-                                        child: isEncrypted
-                                            ? Padding(
-                                          padding: const EdgeInsets.only(right: 6.0),
-                                          child: Icon(Icons.lock, size: 11, color: textMain),
-                                        )
-                                            : const SizedBox.shrink(),
-                                      ),
-                                      TextSpan(
-                                        text: item.title.isNotEmpty ? '${item.title.toUpperCase()}  ' : 'UNTITLED  ',
-                                        style: TextStyle(
-                                          color: textMain,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          letterSpacing: 0.02,
+                  child: Row(
+                    children: [
+                      Icon(
+                        _isNoteLocked ? Icons.lock : Icons.lock_open,
+                        size: 14,
+                        color: _isNoteLocked ? textMain : textSub,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _isNoteLocked ? 'ENCRYPTED LOG PIPELINE ACTIVE' : 'STANDARD TEXT DEPLOYMENT',
+                        style: TextStyle(
+                          color: _isNoteLocked ? textMain : textSub,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.02,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: _compileAndSaveNote,
+                  child: Text('COMMIT', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+
+            Divider(color: ruleBorder, height: 16, thickness: 0.8),
+
+            Expanded(
+              child: items.isEmpty
+                  ? Center(
+                child: Text(
+                  'NO ACTIVE NOTE REGISTRIES CURRENTLY SAVED',
+                  style: TextStyle(color: textSub, fontSize: 11, letterSpacing: 0.05),
+                ),
+              )
+                  : ListView.builder(
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final bool isEncrypted = item.type == 'encrypted_note';
+                  final formattedDate = _formatCustomDate(item.timestamp);
+
+                  return GestureDetector(
+                    onTap: () {
+                      if (isEncrypted) {
+                        _promptForPinChallenge(item, isDark);
+                      } else {
+                        _navigateToEdit(context, item);
+                      }
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border(bottom: BorderSide(color: ruleBorder, width: 0.8)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: RichText(
+                                    text: TextSpan(
+                                      children: [
+                                        WidgetSpan(
+                                          alignment: PlaceholderAlignment.middle,
+                                          child: isEncrypted
+                                              ? Padding(
+                                            padding: const EdgeInsets.only(right: 6.0),
+                                            child: Icon(Icons.lock, size: 11, color: textMain),
+                                          )
+                                              : const SizedBox.shrink(),
                                         ),
-                                      ),
-                                      TextSpan(
-                                        text: formattedDate,
-                                        style: TextStyle(
-                                          color: textSub,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w400,
+                                        TextSpan(
+                                          text: item.title.isNotEmpty ? '${item.title.toUpperCase()}  ' : 'UNTITLED  ',
+                                          style: TextStyle(
+                                            color: textMain,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            letterSpacing: 0.02,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                        TextSpan(
+                                          text: formattedDate,
+                                          style: TextStyle(
+                                            color: textSub,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w400,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                              isEncrypted
-                                  ? Text(
-                                '● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ●',
-                                style: TextStyle(color: isDark ? const Color(0xFF333333) : const Color(0xFFCCCCCC), fontSize: 10, letterSpacing: 1.2),
-                              )
-                                  : AnimatedClampedText(
-                                text: item.content,
-                                style: TextStyle(
-                                  color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF404040),
-                                  fontSize: 13,
-                                  height: 1.4,
+                                isEncrypted
+                                    ? Text(
+                                  '● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ●',
+                                  style: TextStyle(color: isDark ? const Color(0xFF333333) : const Color(0xFFCCCCCC), fontSize: 10, letterSpacing: 1.2),
+                                )
+                                    : AnimatedClampedText(
+                                  text: item.content,
+                                  style: TextStyle(
+                                    color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF404040),
+                                    fontSize: 13,
+                                    height: 1.4,
+                                  ),
+                                  maxLines: 10,
                                 ),
-                                maxLines: 10,
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  if (isEncrypted) {
+                                    _promptForPinChallenge(item, isDark, openForEditing: true);
+                                  } else {
+                                    _navigateToEdit(context, item);
+                                  }
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4.0),
+                                  child: Icon(Icons.edit_outlined, color: textSub, size: 18),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              GestureDetector(
+                                onTap: () => _showDeleteConfirmation(context, item.id),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4.0),
+                                  child: Icon(Icons.delete_outline_rounded, color: textSub, size: 20),
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            GestureDetector(
-                              onTap: () {
-                                if (isEncrypted) {
-                                  _promptForPinChallenge(item, isDark, openForEditing: true);
-                                } else {
-                                  _navigateToEdit(context, item);
-                                }
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(4.0),
-                                child: Icon(Icons.edit_outlined, color: textSub, size: 18),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            GestureDetector(
-                              onTap: () => _showDeleteConfirmation(context, item.id),
-                              child: Padding(
-                                padding: const EdgeInsets.all(4.0),
-                                child: Icon(Icons.delete_outline_rounded, color: textSub, size: 20),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
-          )
-        ],
+                  );
+                },
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
@@ -864,8 +872,6 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
 
   void _dynamicSave() {
     final bool originalIsLocked = widget.item.type == 'encrypted_note';
-    // Only perform silent auto-save updates if the user hasn't explicitly changed security types,
-    // to avoid structural type/mismatch errors. The final save button will handle type transformation.
     if (_isNoteLocked != originalIsLocked) return;
 
     String contentToPersist = _bodyController.text.trim();
@@ -963,98 +969,104 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     final bgColor = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
     final ruleBorder = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
-    return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: bgColor,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, color: textMain, size: 18),
-          onPressed: () => Navigator.pop(context),
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textSelectionTheme: TextSelectionThemeData(
+          selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
+          selectionHandleColor: const Color(0xFF5F0E0D),
         ),
-        title: Text('EDIT NOTE', style: TextStyle(color: textMain, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.1)),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _isNoteLocked ? Icons.lock : Icons.lock_open,
-              color: textMain,
-              size: 20,
-            ),
-            onPressed: _toggleLock,
-          ),
-          TextButton(
-            onPressed: () async {
-              _debounceTimer?.cancel();
-              String contentToPersist = _bodyController.text.trim();
-              final bool originalIsLocked = widget.item.type == 'encrypted_note';
-
-              if (_isNoteLocked) {
-                final String? pin = Hive.box('rocen_settings_box').get('system_crypto_pin');
-                if (pin != null && pin.isNotEmpty) {
-                  contentToPersist = CryptoEngine.xorProcess(contentToPersist, pin);
-                }
-              }
-
-              if (_isNoteLocked == originalIsLocked) {
-                // Type matches, perform basic inline updates
-                await ref.read(localDatabaseProvider.notifier).updateItem(
-                  widget.item.id,
-                  contentToPersist,
-                  title: _titleController.text.trim(),
-                );
-              } else {
-                // Type transformed! Drop the outdated container entity and initialize a fresh variant mapping
-                await ref.read(localDatabaseProvider.notifier).deleteItem(widget.item.id);
-                await ref.read(localDatabaseProvider.notifier).insertItem(
-                  contentToPersist,
-                  _isNoteLocked ? 'encrypted_note' : 'note',
-                  title: _titleController.text.trim(),
-                );
-              }
-
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: Text('SAVE', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w700)),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              TextField(
-                controller: _titleController,
-                style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600),
-                cursorColor: textMain,
-                decoration: InputDecoration(
-                  hintText: 'Title',
-                  hintStyle: TextStyle(color: textSub, fontWeight: FontWeight.w400),
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  isDense: true,
-                ),
+      child: Scaffold(
+        backgroundColor: bgColor,
+        appBar: AppBar(
+          backgroundColor: bgColor,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back_ios_new_rounded, color: textMain, size: 18),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text('EDIT NOTE', style: TextStyle(color: textMain, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.1)),
+          actions: [
+            IconButton(
+              icon: Icon(
+                _isNoteLocked ? Icons.lock : Icons.lock_open,
+                color: textMain,
+                size: 20,
               ),
-              Container(height: 0.8, color: ruleBorder, margin: const EdgeInsets.symmetric(vertical: 12)),
-              Expanded(
-                child: TextField(
-                  controller: _bodyController,
-                  style: TextStyle(color: textMain, fontSize: 14, height: 1.6),
-                  maxLines: null,
-                  expands: true,
-                  textAlignVertical: TextAlignVertical.top,
+              onPressed: _toggleLock,
+            ),
+            TextButton(
+              onPressed: () async {
+                _debounceTimer?.cancel();
+                String contentToPersist = _bodyController.text.trim();
+                final bool originalIsLocked = widget.item.type == 'encrypted_note';
+
+                if (_isNoteLocked) {
+                  final String? pin = Hive.box('rocen_settings_box').get('system_crypto_pin');
+                  if (pin != null && pin.isNotEmpty) {
+                    contentToPersist = CryptoEngine.xorProcess(contentToPersist, pin);
+                  }
+                }
+
+                if (_isNoteLocked == originalIsLocked) {
+                  await ref.read(localDatabaseProvider.notifier).updateItem(
+                    widget.item.id,
+                    contentToPersist,
+                    title: _titleController.text.trim(),
+                  );
+                } else {
+                  await ref.read(localDatabaseProvider.notifier).deleteItem(widget.item.id);
+                  await ref.read(localDatabaseProvider.notifier).insertItem(
+                    contentToPersist,
+                    _isNoteLocked ? 'encrypted_note' : 'note',
+                    title: _titleController.text.trim(),
+                  );
+                }
+
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: Text('SAVE', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _titleController,
+                  style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600),
                   cursorColor: textMain,
                   decoration: InputDecoration(
-                    hintText: 'Note content...',
-                    hintStyle: TextStyle(color: textSub),
+                    hintText: 'Title',
+                    hintStyle: TextStyle(color: textSub, fontWeight: FontWeight.w400),
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
+                    isDense: true,
                   ),
                 ),
-              ),
-            ],
+                Container(height: 0.8, color: ruleBorder, margin: const EdgeInsets.symmetric(vertical: 12)),
+                Expanded(
+                  child: TextField(
+                    controller: _bodyController,
+                    style: TextStyle(color: textMain, fontSize: 14, height: 1.6),
+                    maxLines: null,
+                    expands: true,
+                    textAlignVertical: TextAlignVertical.top,
+                    cursorColor: textMain,
+                    decoration: InputDecoration(
+                      hintText: 'Note content...',
+                      hintStyle: TextStyle(color: textSub),
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
