@@ -201,9 +201,10 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                     : Colors.transparent;
 
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 18.0),
+                  // Symmetric padding places an identical gap above and below the item
+                  padding: const EdgeInsets.symmetric(vertical: 6.0),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start, // Changed to start for multi-line text alignment
+                    crossAxisAlignment: CrossAxisAlignment.center, // Centering keeps short lines perfectly uniform
                     children: [
                       // CUSTOM ANIMATED SQUARE TOGGLE
                       GestureDetector(
@@ -212,7 +213,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                           duration: const Duration(milliseconds: 350),
                           width: 20,
                           height: 20,
-                          margin: const EdgeInsets.only(top: 1), // Minor tweak to align box visually with first line
+                          // REMOVE the top margin completely so it remains geometrically centered
                           decoration: BoxDecoration(
                             color: boxFillColor,
                             border: Border.all(color: boxBorderColor, width: 1.4),
@@ -221,13 +222,13 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                       ),
                       const SizedBox(width: 16),
 
-                      // TASK TITLE WITH SMOOTH LEFT-TO-RIGHT WIPE ENGINE
+                      // TASK TITLE
                       Expanded(
                         child: GestureDetector(
                           onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
                           child: Stack(
+                            alignment: Alignment.centerLeft, // Mandates clean baseline positioning
                             children: [
-                              // 1. BASE TEXT: Uncompleted state (Always visible underneath)
                               Text(
                                 item.text,
                                 style: TextStyle(
@@ -237,17 +238,15 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                                   letterSpacing: -0.01,
                                 ),
                               ),
-                              // 2. OVERLAY TEXT: Completed state that smoothly wipes in
                               TweenAnimationBuilder<double>(
                                 tween: Tween<double>(begin: 0.0, end: item.isCompleted ? 1.0 : 0.0),
-                                // Highly smooth, relaxed duration for that physical "drawing" feel
                                 duration: const Duration(milliseconds: 600),
                                 curve: Curves.easeOutQuart,
                                 builder: (context, value, child) {
                                   return ClipRect(
                                     child: Align(
                                       alignment: Alignment.centerLeft,
-                                      widthFactor: value, // Clips the text from left to right as value goes 0 -> 1
+                                      widthFactor: value,
                                       child: Text(
                                         item.text,
                                         style: TextStyle(
@@ -274,7 +273,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                       GestureDetector(
                         onTap: () => ref.read(todoProvider.notifier).deleteTask(item.id),
                         child: Padding(
-                          padding: const EdgeInsets.all(4.0),
+                          padding: const EdgeInsets.all(4.0), // Keeps target balanced
                           child: Icon(Icons.close, color: textSub, size: 16),
                         ),
                       )

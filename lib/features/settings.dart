@@ -846,6 +846,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       'Network traffic tracking descriptors, background web scraping handshakes, and third-party tracking assets are strictly excluded from compile manifests to preserve full data isolation.',
                       textMain, textSub
                   ),
+                  _buildInfoSection(
+                      '06 // CRYPTOGRAPHIC STORAGE ENGINE',
+                      'To secure private assets, navigate to Settings and tap the CRYPTOGRAPHIC ACCESS PIN module to set up a mandatory 6-digit key. Once configured, open the QUICKNOTE sandbox workspace; you can toggle the secure pad lock icon at the top right to instantly encrypt or decrypt your text fields. Note that if you clear or change your PIN from the settings interface, all active un-keyed local encrypted data files will be wiped instantly as a system destruction safety precaution.',
+                      textMain, textSub
+                  ),
                 ],
                 isDark,
               ),
