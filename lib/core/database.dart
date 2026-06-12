@@ -1,3 +1,4 @@
+import 'dart:convert'; // Added for seamless high-performance JSON conversion
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -64,6 +65,46 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
       );
       state = [initialItem];
       await box.put('items', state.map((e) => e.toMap()).toList());
+    }
+  }
+
+  /// Converts the current app state into a raw JSON string for external file export
+  String exportToSchemaJson() {
+    final List<Map<String, dynamic>> rawList = state.map((item) => item.toMap()).toList();
+    return jsonEncode(rawList);
+  }
+
+  /// Validates structural composition, overwrites local storage, and updates the reactive UI
+  Future<bool> importFromSchemaJson(String jsonRawString) async {
+    try {
+      final decoded = jsonDecode(jsonRawString);
+      if (decoded is! List) return false;
+
+      final List<CaptureItem> importedItems = [];
+      for (final item in decoded) {
+        if (item is Map) {
+          final convertedMap = Map<String, dynamic>.from(item);
+          // High safety verification constraint mapping
+          if (convertedMap.containsKey('id') &&
+              convertedMap.containsKey('content') &&
+              convertedMap.containsKey('type')) {
+            importedItems.add(CaptureItem.fromMap(convertedMap));
+          }
+        }
+      }
+
+      // If the file is completely corrupt or unreadable, safely decline execution
+      if (importedItems.isEmpty && decoded.isNotEmpty) return false;
+
+      // Overwrite persistent device memory box
+      final box = Hive.box(_boxName);
+      await box.put('items', importedItems.map((e) => e.toMap()).toList());
+
+      // Force instant global Riverpod application state synchronizations
+      state = importedItems;
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 

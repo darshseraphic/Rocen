@@ -1,7 +1,11 @@
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
 import '../core/database.dart';
 import '../main.dart';
 
@@ -23,7 +27,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  // >>> ADD THIS NEW METHOD HERE <<<
   // SYSTEM ENGINE FOR OUTWARD FEEDBACK REDIRECT PIPELINE
   Future<void> _launchFeedbackUrl() async {
     final Uri url = Uri.parse('https://rocen.lovable.app/feedback');
@@ -31,6 +34,223 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       debugPrint('System Error: Could not execute route handshake to $url');
     }
   }
+
+  // ==========================================
+  // CUSTOM HIGH-CONTRAST STATUS NOTIFICATION DIALOG
+  // ==========================================
+  void _showStatusDialog(BuildContext context, String title, String message) {
+    final isDark = ref.read(themeProvider);
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+
+    // Theme Inverted Configurations for the Center CTA Button
+    final buttonBg = isDark ? Colors.white : Colors.black;
+    final buttonText = isDark ? Colors.black : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.85),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    title.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    message.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: textMain, fontSize: 11, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                  ),
+                  const SizedBox(height: 24),
+                  InkWell(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(color: buttonBg),
+                      alignment: Alignment.center,
+                      child: Text(
+                        'APPRECIATED',
+                        style: TextStyle(
+                          color: buttonText,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.06,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ==========================================
+  // DATA MANAGEMENT PERSISTENCE ENGINES
+  // ==========================================
+  Future<void> _handleDataExport() async {
+    try {
+      final String serializedJson = ref.read(localDatabaseProvider.notifier).exportToSchemaJson();
+      final String timestamp = DateTime.now().toString().split(' ').first.replaceAll('-', '_');
+      final String fileName = 'ROCEN_WORKSPACE_BACKUP_$timestamp.json';
+
+      final String? outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'SAVE BACKUP FILE',
+        fileName: fileName,
+        bytes: Uint8List.fromList(utf8.encode(serializedJson)),
+      );
+
+      if (outputPath != null && mounted) {
+        _showStatusDialog(
+          context,
+          'EXPORT SUCCESSFUL',
+          'YOUR LOCAL WORKSPACE SCHEMA HAS BEEN SERIALIZED AND RECORDED SAFELY TO DISK DESTINATION PATH.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showStatusDialog(context, 'EXPORT FAIL', 'CRITICAL ERROR INITIALIZING SEQUENCE: ${e.toString()}');
+      }
+    }
+  }
+
+  Future<void> _handleDataImport() async {
+    try {
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.any);
+
+      if (result == null || result.files.single.path == null) return;
+
+      final File pickedFile = File(result.files.single.path!);
+      final String fileContents = await pickedFile.readAsString();
+
+      final bool isSuccess = await ref.read(localDatabaseProvider.notifier).importFromSchemaJson(fileContents);
+
+      if (mounted) {
+        if (isSuccess) {
+          _showStatusDialog(
+            context,
+            'RESTORE SUCCESSFUL',
+            'DATABASE TRANSACTION COMPLETE. ALL WORKSPACE CACHE HAS BEEN SUCCESSFULLY RESTORED AND LOADED INTO REACTIVE SYSTEM CONTEXT.',
+          );
+        } else {
+          _showStatusDialog(
+            context,
+            'RESTORE ERROR',
+            'THE SELECTION PROVIDED FAILED VALIDATION CHECKS due to corrupt encoding OR STRUCTURAL COMPOSITION MISMATCH.',
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _showStatusDialog(context, 'IMPORT FAIL', 'PROCESS ABORTED DUE TO ENCODING EXCEPTIONS: ${e.toString()}');
+      }
+    }
+  }
+
+  void _showImportWarningDialog(BuildContext context) {
+    final isDark = ref.read(themeProvider);
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.8),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 310,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'OVERWRITE CURRENT DATA',
+                    style: TextStyle(color: Color(0xFFEF4444), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'RESTORING WILL PERMANENTLY WIPE ALL LOGGED RECORDS FROM RECENT SESSIONS AND REPLACE THEM WITH THE SELECTED BACKUP MATRIX. THIS CANNOT BE UNDONE.',
+                    style: TextStyle(color: textMain, fontSize: 11.5, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      InkWell(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: borderColor, width: 0.8),
+                          ),
+                          child: Text(
+                            'CANCEL',
+                            style: TextStyle(
+                              color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () {
+                          Navigator.pop(context);
+                          _handleDataImport();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          decoration: const BoxDecoration(color: Color(0xFFEF4444)),
+                          child: const Text(
+                            'RESTORE DATA',
+                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ==========================================
   // FLOW 1 & 2: 6-DIGIT PIN CREATION ENGINE
   // ==========================================
@@ -70,7 +290,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       const SizedBox(height: 20),
 
-                      // SEGMENTED HOOK ARCHITECTURE MATCHING QUICKNOTE
                       Stack(
                         children: [
                           Opacity(
@@ -147,9 +366,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ? null
                                 : () {
                               final typedPin = pinController.text;
-                              // Interface Gone (Dismiss current entry view)
                               Navigator.pop(context);
-                              // Trigger Confirmation Stage
                               _showAreYouSureDialog(context, typedPin);
                             },
                             child: Container(
@@ -225,7 +442,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       InkWell(
                         onTap: () {
                           Navigator.pop(context);
-                          // Re-route processing array directly back to password workspace engine
                           _showCreatePinDialog(context, initialValue: typedPin);
                         },
                         child: Container(
@@ -253,7 +469,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           await settingsBox.put('last_active_crypto_pin_snapshot', typedPin);
 
                           if (context.mounted) {
-                            // Instantly chain sequence to structural requirement 3
                             _showForgotWarningDialog(context);
                           }
                         },
@@ -390,7 +605,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       InkWell(
-                        onTap: () => Navigator.pop(context), // Undo the process cleanly
+                        onTap: () => Navigator.pop(context),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                           decoration: BoxDecoration(
@@ -409,18 +624,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       const SizedBox(width: 8),
                       InkWell(
                         onTap: () async {
-                          Navigator.pop(context); // Clear configuration warning overlay
+                          Navigator.pop(context);
 
-                          // Execution Block: Pull and isolate local data arrays
                           final currentItems = ref.read(localDatabaseProvider);
                           final targetsToPurge = currentItems.where((item) => item.type == 'encrypted_note').toList();
 
-                          // Execute full sequential physical workspace reference sweep
                           for (var target in targetsToPurge) {
                             await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
                           }
 
-                          // Clear keys from global preferences
                           final settingsBox = Hive.box(_boxName);
                           await settingsBox.delete('system_crypto_pin');
                           await settingsBox.delete('last_active_crypto_pin_snapshot');
@@ -445,7 +657,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // CUSTOM ROUTE BUILDER FOR THE RIGHT-TO-LEFT SMOOTH TAB SLIDE EFFECT (100% FULL PAGE)
   void _showSlidingPanel(BuildContext context, String title, List<Widget> children, bool isDark) {
     Navigator.of(context).push(
       PageRouteBuilder(
@@ -476,7 +687,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // PANEL HEADER BACK NAVIGATION TAB
                             Padding(
                               padding: const EdgeInsets.all(20.0),
                               child: Row(
@@ -506,7 +716,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                             Divider(color: borderColor, height: 1, thickness: 0.8),
 
-                            // SCROLLABLE PANEL CONTENT BLOCK
                             Expanded(
                               child: ListView(
                                 physics: const BouncingScrollPhysics(),
@@ -538,62 +747,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // MINIMAL UTILITY BUILDER FOR COMING SOON PROMPTS
-  void _showComingSoonDialog(BuildContext context, String featureTitle, bool isDark) {
-    final textMain = isDark ? Colors.white : Colors.black;
-    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0F0F0F) : Colors.white;
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: dialogBg,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            border: Border.all(color: borderColor, width: 0.8),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'SYSTEM STATUS',
-                style: TextStyle(color: textSub, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.05),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$featureTitle IS COMING SOON',
-                style: TextStyle(color: textMain, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: -0.01),
-              ),
-              const SizedBox(height: 24),
-              Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  onTap: () => Navigator.of(context).pop(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: textMain,
-                    ),
-                    child: Text(
-                      'ACKNOWLEDGE',
-                      style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              )
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // REUSABLE STRUCTURAL TILES FACTORY
   Widget _buildMenuTile({
     required String title,
     required String subtitle,
@@ -651,7 +804,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 6),
           Text(
             body,
-            style: TextStyle(color: textSub, fontSize: 11, height: 1.4),
+            style: TextStyle(color: textSub, fontSize: 11, height: 1.45),
           ),
         ],
       ),
@@ -762,6 +915,74 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               },
             ),
 
+            const SizedBox(height: 12),
+
+            // ==========================================
+            // HARMONIZED DATA WORKSPACE UTILITIES BLOCK
+            // ==========================================
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.black : Colors.white,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'DATA UTILITIES',
+                    style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.02),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Export or restore persistent application database matrices safely.',
+                    style: TextStyle(color: textSub, fontSize: 10.5),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _handleDataExport,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: borderColor, width: 0.8),
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'EXPORT BACKUP',
+                              style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _showImportWarningDialog(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: textMain, width: 0.8),
+                              color: Colors.transparent,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'RESTORE BACKUP',
+                              style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+
             Divider(color: borderColor, thickness: 0.8),
 
             // [01] USER GUIDE
@@ -777,32 +998,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 [
                   _buildInfoSection(
                       '01 // SYSTEM ROOT ENGINE',
-                      'Initializes state tracking and dynamic configuration variables via Riverpod. Sets up persistent disk storage boxes via Hive locally with absolute zero background network pollution or tracker threads. Contains an active corruption bypass pipeline to prevent app thread hangs.',
+                      'Initializes global asynchronous reactive state loops using Riverpod. It maps runtime dependencies directly upon app activation and tracks low-level mutations securely. Bypasses persistent disk hangs via strict corruption validation parameters, completely ensuring zero structural app freezing or unhandled memory loops.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '02 // GATEWAY LAYER (SPLASH SCREEN)',
-                      'Intercepts platform load phases. Executes a sequential 2-second opacity mapping (Fade-In -> Visual Hold -> Fade-Out) that updates background hexes to light or dark instantly depending on your previous system selection to kill boot flashes. Destroys itself from device memory once done.',
+                      'Handles high-performance layout warm-ups during frame construction phases. Intercepts the primary platform loading sequence, executing an isolated 2-second linear opacity rendering track (Fade -> Visual Suspension -> Purge) that seamlessly aligns the system layout context with your previous light or dark UI settings to eradicate aggressive boot-flash anomalies completely.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '03 // STRUCTURAL HUB NAVIGATION',
-                      'A minimal, low-fatigue typography navigation track managing screen selections. Enforces absolute scaffold layout parameter overrides that allow keyboard assemblies to slide in cleanly as structural overlays instead of physically compressing navigation bars or breaking view alignments.',
+                      'A streamlined typography-focused matrix navigation track that maps layout views safely. Built with absolute override layout parameters that dictate viewport allocation during active software keyboard states. Instead of forcing physical view compression or breaking cross-axis element alignments, incoming OS input windows act as smooth layer overlays.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '04 // MATRIX TIMELINE COMPONENT',
-                      'Renders an expansive 13-column structural timeline array mapping out all 365 calendar segments simultaneously. Shaded block indicators illustrate elapsed timelines, while open blocks map operational capacity limits left in the active calendar phase.',
+                      'Renders a massive, low-fatigue 13-column structural layout tracking 365 daily block elements simultaneously. Darkened tracking indicators pinpoint precise historical data allocation slots, while empty slots define exact leftover capacity indexes inside the current runtime period.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '05 // QUICKNOTE SANDBOX MODULE',
-                      'Features an advanced anti-collapse text scroll viewport framework (using explicit Expanded boundaries and SingleChildScrollView parameters). This forces text input metrics to dynamically scale and stay safely visible inside remaining boundaries when system keyboards push bottom navigation paths up.',
+                      'Employs an anti-collapse scrolling viewport configuration tied directly to explicit layout boundaries and custom constraints. This forces live character generation streams to dynamically recalculate remaining box space when virtual keyboards arise, keeping active text editing targets completely visible.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '06 // INTERFACE REGULATION CONTROLS',
-                      'Manages immediate UI inversion variables. Hooks sub-sheets into dedicated right-to-left animation pipelines locked at a 1.0 width Factor constraint to seamlessly map panels across 100% of the display boundaries, blocking out background layouts and dropping heavy dropshadow rendering tasks completely.',
+                      'Executes direct UI inversions via a streamlined state-toggle mechanism. Connects configuration panels into hardware-accelerated right-to-left slide transitions locked at a precise 1.0 width factor constraint. Sub-sheets completely obscure underlying layers, eliminating unnecessary drop-shadow re-renders to maximize device refresh rates.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '07 // DATA IMPORT/EXPORT SYSTEM',
+                      'Features custom serialization engines that loop through application states, converting model entries into raw standardized JSON bytes. Built-in file picking mechanics handle direct filesystem interaction to securely transfer data without utilizing external cloud proxies or intermediate networks.',
                       textMain, textSub
                   ),
                 ],
@@ -823,32 +1049,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 [
                   _buildInfoSection(
                       '01 // STORAGE PIPELINE (NOSQL ENGINE)',
-                      'Rocen bypasses heavy, slow relational SQL frameworks completely. The system utilizes a lightweight NoSQL key-value database engine called Hive. Data maps directly into flat binary blocks written strictly onto internal device hardware partitions. Cloud synchronization pipelines, servers, and telemetry relays are 100% omitted from the application code.',
+                      'Rocen avoids slow, heavy relational SQL frameworks entirely. The application operates exclusively on a lightning-fast NoSQL key-value architecture powered by Hive. Text strings and file indicators are encoded directly into raw binary streams written inside dedicated sandbox partitions allocated to the app hardware space.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '02 // BOX CONTAINER MATRIX',
-                      'Instead of complex relational SQL tables, records are organized into isolated data compartments called "Boxes" (e.g., system_settings). Rows and columns are replaced by lightning-fast, schemaless key-value indexes. This allows seamless framework growth without the threat of database schema crashes.',
+                      'Data storage blocks are separated into dedicated, context-isolated data compartments called "Boxes" (e.g., rocen_captures_box). Structural indexes replace classic relational tables, creating lightweight data access pathways that protect historical databases from schema breaking risks when fields expand.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
-                      '03 // MEMORY-FIRST PIPELINE',
-                      'To optimize interface speed, boxes are buffered entirely inside the device\'s active RAM memory on boot. Queries and data reads execute with absolute zero disk delay. Writes update the memory registry instantly for immediate UI rendering, then lazily flush the changes down to physical binary disk partitions in the background.',
+                      '03 // MEMORY-FIRST BUFFER PIPELINE',
+                      'Data structures are loaded straight into fast active RAM buffers during bootup. Read tasks operate directly inside this memory layer with zero disk latency. Create, update, and delete actions instantly change the cache array for direct visual updates, then stream down onto device hardware storage asynchronously.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '04 // CORRUPTION REPAIR FAILSAFE',
-                      'If a data commit sequence gets interrupted (such as a sudden device shutdown), a custom try-catch engine monitors the handshake during the next boot phase. If file corruption is detected, the broken block is instantly isolated, purged from the disk, and a fresh data box is initialized to safeguard the core application runtime.',
+                      'A custom try-catch validation engine checks the integrity of database boxes during initialization. If a database interruption (like a sudden power drop) compromises data syntax, the broken data block is instantly isolated to prevent system boot loops, and initialized safely back to standard parameters.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
                       '05 // APPLICATION PERMISSIONS OUTLINE',
-                      'Network traffic tracking descriptors, background web scraping handshakes, and third-party tracking assets are strictly excluded from compile manifests to preserve full data isolation.',
+                      'The application manifest explicitly excludes unnecessary network communication channels, background telemetry monitors, and analytical scrapers. Your information is physically unable to leave the system via background connection bridges.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
-                      '06 // CRYPTOGRAPHIC STORAGE ENGINE',
-                      'To secure private assets, navigate to Settings and tap the CRYPTOGRAPHIC ACCESS PIN module to set up a mandatory 6-digit key. Once configured, open the QUICKNOTE sandbox workspace; you can toggle the secure pad lock icon at the top right to instantly encrypt or decrypt your text fields. Note that if you clear or change your PIN from the settings interface, all active un-keyed local encrypted data files will be wiped instantly as a system destruction safety precaution.',
+                      '06 // CRYPTOGRAPHIC KEY WRAPPING',
+                      'Activating the CRYPTOGRAPHIC ACCESS PIN applies an isolated user verification requirement. Secure components (like encrypted_note parameters) evaluate this key matching verification block locally. Changing or deleting the security PIN immediately purges corresponding key-dependent items from storage to guarantee absolute protection against physical file manipulation.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '07 // OFF-GRID FILE EXPORT UTILITY',
+                      'Backup operations run on standard local UTF-8 data conversion engines. Generated data is written to user-designated folders via a native document explorer pipeline. Raw schema text is never transmitted through background trackers or third-party data processing endpoints.',
                       textMain, textSub
                   ),
                 ],
@@ -869,32 +1100,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 [
                   _buildInfoSection(
                       '01 // APPLICATION DESCRIPTION',
-                      'Rocen is an integrated, low-fi brutalist system blueprint built to run high-utility tools without backend pollution or network bloat.',
+                      'Rocen is a hyper-focused minimalist system blueprint designed to run high-utility tools without backend software bloat or visual clutter.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
-                      '02 // SYSTEM AUTHOR',
-                      'Developed entirely by Darshseraohic.',
+                      '02 // SYSTEM AUTHORSHIP',
+                      'Engineered and assembled by Darshseraphic.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
-                      '03 // PURPOSE & NEED',
-                      'Engineered to defeat visual fatigue by utilizing stark, clean interfaces and intentional data layouts.',
+                      '03 // PURPOSE & DESIGN METHODOLOGY',
+                      'Built to mitigate screen fatigue through a stark brutalist interface style, intentional whitespace, and highly structured typographic layouts.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
-                      '04 // DEVELOPMENT MATRIX',
-                      'Initial platform conceptualization to complete assembly overhaul completed in a pure 24-hour rapid deployment sequence.',
+                      '04 // DEVELOPMENT TIMELINE MATRIX',
+                      'Initial core system conceptualization, wireframing, and final architecture completion finalized over a highly compressed 24-hour rapid development sprint.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
-                      '05 // ABSOLUTE ZERO DATA COLLECTION',
-                      'The workspace architecture maintains a strict zero-collection manifest. The source framework is built with no telemetry tracking scripts, analytical tokens, crash report transmitters, or third-party background scraper threads. User data never leaves your hardware.',
+                      '05 // ABSOLUTE ZERO DATA ACCUMULATION',
+                      'This framework operates with a strict zero-telemetry policy. There are no analytics packages, usage tracking monitors, remote crash trackers, or cloud-based data bridges written into the codebase. All workspace activity remains strictly contained on your local device.',
                       textMain, textSub
                   ),
                   _buildInfoSection(
-                      '06 // AIR-GAPPED NETWORK ISOLATION',
-                      'Rocen operates under a complete air-gapped data methodology. Because no network permission structures or communication handlers are compiled into the operational database layer, user inputs are strictly safe, immutable, and 100% locked within the offline secure sandbox directory of the local device.',
+                      '06 // AIR-GAPPED HARDWARE ISOLATION',
+                      'The application runs entirely within an air-gapped system methodology. Without network permissions or server communication layers configured in its structural layer, user interactions are kept private, secure, and permanently anchored inside the isolated sandbox space of your hardware.',
+                      textMain, textSub
+                  ),
+                  _buildInfoSection(
+                      '07 // USER-OWNED STORAGE ARCHITECTURE',
+                      'You retain absolute, exclusive ownership of your data files. The system cannot read, change, or access stored items outside its specific offline database context. Deleting the application instantly wipes all local cache directories from internal storage arrays.',
                       textMain, textSub
                   ),
                 ],
@@ -902,7 +1138,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
 
-            // [04] WEBSITE - WIRED UP DIRECTLY TO YOUR WEB PORTAL
+            // [04] WEBSITE
             _buildMenuTile(
               title: 'WEBSITE',
               subtitle: 'Access outward system project portals',
@@ -911,14 +1147,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               borderColor: borderColor,
               onTap: _launchWebsiteUrl,
             ),
-// [05] FEEDBACK - RE-ROUTED DIRECTLY TO YOUR SECURE URL ENDPOINT
+
+            // [05] FEEDBACK
             _buildMenuTile(
               title: 'FEEDBACK',
               subtitle: 'Report pipeline anomalies or system logs',
               textMain: textMain,
               textSub: textSub,
               borderColor: borderColor,
-              onTap: _launchFeedbackUrl, // <-- Point directly to the new launcher function
+              onTap: _launchFeedbackUrl,
             ),
 
             const SizedBox(height: 48),
