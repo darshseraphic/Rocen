@@ -152,7 +152,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
     final TextEditingController pinVerifyController = TextEditingController();
 
-    // local tracking of failure state sequence
     bool hasPinFailed = false;
 
     showGeneralDialog(
@@ -188,10 +187,8 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                       ),
                       const SizedBox(height: 20),
 
-                      // INDEPENDENT SEGMENTED PIN FIELD ARCHITECTURE
                       Stack(
                         children: [
-                          // Transparent real text input capture panel
                           Opacity(
                             opacity: 0.0,
                             child: TextField(
@@ -201,7 +198,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                               autofocus: true,
                               onChanged: (val) {
                                 setDialogState(() {
-                                  // Clean fault immediately on subsequent character type operations
                                   if (hasPinFailed) {
                                     hasPinFailed = false;
                                   }
@@ -213,7 +209,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                               ),
                             ),
                           ),
-                          // Custom rendered layout grid matching the sharp square design request
                           IgnorePointer(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -242,13 +237,16 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                       width: isCurrentFocus || hasPinFailed ? 1.2 : 0.8,
                                     ),
                                   ),
-                                  child: Text(
-                                    isFilled ? '●' : '',
-                                    style: TextStyle(
+                                  child: isFilled
+                                      ? Container(
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
                                       color: hasPinFailed ? const Color(0xFFEF4444) : textMain,
-                                      fontSize: 10,
                                     ),
-                                  ),
+                                  )
+                                      : const SizedBox.shrink(),
                                 );
                               }),
                             ),
@@ -293,7 +291,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   _revealEncryptedNotePayload(item, globalPin, isDark);
                                 }
                               } else {
-                                // Instead of exiting via pop, trigger validation layout flags
                                 setDialogState(() {
                                   hasPinFailed = true;
                                   pinVerifyController.clear();
@@ -834,19 +831,128 @@ class EditNoteScreen extends ConsumerStatefulWidget {
 class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   late final TextEditingController _titleController;
   late final TextEditingController _bodyController;
+  bool _isNoteLocked = false;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.item.title);
     _bodyController = TextEditingController(text: widget.item.content);
+    _isNoteLocked = widget.item.type == 'encrypted_note';
+
+    _titleController.addListener(_onTextChanged);
+    _bodyController.addListener(_onTextChanged);
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
+    _titleController.removeListener(_onTextChanged);
+    _bodyController.removeListener(_onTextChanged);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _dynamicSave();
+    });
+  }
+
+  void _dynamicSave() {
+    final bool originalIsLocked = widget.item.type == 'encrypted_note';
+    // Only perform silent auto-save updates if the user hasn't explicitly changed security types,
+    // to avoid structural type/mismatch errors. The final save button will handle type transformation.
+    if (_isNoteLocked != originalIsLocked) return;
+
+    String contentToPersist = _bodyController.text.trim();
+
+    if (_isNoteLocked) {
+      final String? pin = Hive.box('rocen_settings_box').get('system_crypto_pin');
+      if (pin != null && pin.isNotEmpty) {
+        contentToPersist = CryptoEngine.xorProcess(contentToPersist, pin);
+      }
+    }
+
+    ref.read(localDatabaseProvider.notifier).updateItem(
+      widget.item.id,
+      contentToPersist,
+      title: _titleController.text.trim(),
+    );
+  }
+
+  void _toggleLock() {
+    final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
+    final isDark = ref.read(themeProvider);
+
+    if (globalPin == null || globalPin.isEmpty) {
+      _showMissingKeyDialog(isDark);
+    } else {
+      setState(() {
+        _isNoteLocked = !_isNoteLocked;
+      });
+      _dynamicSave();
+    }
+  }
+
+  void _showMissingKeyDialog(bool isDark) {
+    final textMain = isDark ? Colors.white : Colors.black;
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.7),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 280,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: dialogBg,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'SECURITY LOCK OUTCAST',
+                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'SET KEY FIRST FROM SETTING TO USE THIS FEATURE',
+                    style: TextStyle(color: textMain, fontSize: 12, height: 1.5, letterSpacing: 0.02, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: borderColor, width: 0.8),
+                        ),
+                        child: Text('ACKNOWLEDGE', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -869,22 +975,44 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
         ),
         title: Text('EDIT NOTE', style: TextStyle(color: textMain, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.1)),
         actions: [
+          IconButton(
+            icon: Icon(
+              _isNoteLocked ? Icons.lock : Icons.lock_open,
+              color: textMain,
+              size: 20,
+            ),
+            onPressed: _toggleLock,
+          ),
           TextButton(
             onPressed: () async {
+              _debounceTimer?.cancel();
               String contentToPersist = _bodyController.text.trim();
+              final bool originalIsLocked = widget.item.type == 'encrypted_note';
 
-              if (widget.item.type == 'encrypted_note') {
+              if (_isNoteLocked) {
                 final String? pin = Hive.box('rocen_settings_box').get('system_crypto_pin');
                 if (pin != null && pin.isNotEmpty) {
                   contentToPersist = CryptoEngine.xorProcess(contentToPersist, pin);
                 }
               }
 
-              await ref.read(localDatabaseProvider.notifier).updateItem(
-                widget.item.id,
-                contentToPersist,
-                title: _titleController.text.trim(),
-              );
+              if (_isNoteLocked == originalIsLocked) {
+                // Type matches, perform basic inline updates
+                await ref.read(localDatabaseProvider.notifier).updateItem(
+                  widget.item.id,
+                  contentToPersist,
+                  title: _titleController.text.trim(),
+                );
+              } else {
+                // Type transformed! Drop the outdated container entity and initialize a fresh variant mapping
+                await ref.read(localDatabaseProvider.notifier).deleteItem(widget.item.id);
+                await ref.read(localDatabaseProvider.notifier).insertItem(
+                  contentToPersist,
+                  _isNoteLocked ? 'encrypted_note' : 'note',
+                  title: _titleController.text.trim(),
+                );
+              }
+
               if (context.mounted) Navigator.pop(context);
             },
             child: Text('SAVE', style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w700)),
