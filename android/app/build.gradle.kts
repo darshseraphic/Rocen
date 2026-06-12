@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.darshseraphic.rocen"
+    namespace = "com.darshseraphic.Rocen"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

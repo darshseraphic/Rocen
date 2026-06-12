@@ -1,4 +1,4 @@
-package com.darshseraphic.rocen
+package com.darshseraphic.Rocen
 
 import io.flutter.embedding.android.FlutterActivity
 
