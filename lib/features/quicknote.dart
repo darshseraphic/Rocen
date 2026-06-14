@@ -532,7 +532,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
           selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFF5F0E0D),
+          selectionHandleColor: const Color(0xFFD5F0E0),
         ),
       ),
       child: Padding(
