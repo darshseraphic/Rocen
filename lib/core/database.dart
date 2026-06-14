@@ -96,8 +96,8 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
       // If the file is completely corrupt or unreadable, safely decline execution
       if (importedItems.isEmpty && decoded.isNotEmpty) return false;
 
-      // Overwrite persistent device memory box
-      final box = Hive.box(_boxName);
+      // Overwrite persistent device memory box safely
+      final box = await Hive.openBox(_boxName);
       await box.put('items', importedItems.map((e) => e.toMap()).toList());
 
       // Force instant global Riverpod application state synchronizations
@@ -108,7 +108,7 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     }
   }
 
-  // FIXED: Optimized batch insertion handling high-volume automatic asset additions
+  /// Optimized batch insertion handling high-volume automatic asset additions
   Future<void> insertMultipleItems(List<String> filePaths, String type) async {
     final int baseTimestamp = DateTime.now().microsecondsSinceEpoch;
 
@@ -124,10 +124,11 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
 
     state = [...newItems, ...state];
 
-    final box = Hive.box(_boxName);
+    final box = await Hive.openBox(_boxName);
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
+  /// Inserts a singular capture node directly into Hive and synchronizes state
   Future<void> insertItem(String content, String type, {String title = ''}) async {
     final newItem = CaptureItem(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -139,10 +140,11 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
 
     state = [newItem, ...state];
 
-    final box = Hive.box(_boxName);
+    final box = await Hive.openBox(_boxName);
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
+  /// Updates specific elements within persistent storage via micro-targeted identification matching
   Future<void> updateItem(String id, String newContent, {String? title}) async {
     state = [
       for (final item in state)
@@ -158,13 +160,14 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
           item,
     ];
 
-    final box = Hive.box(_boxName);
+    final box = await Hive.openBox(_boxName);
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
+  /// Deletes explicit objects safely and rewires local collection arrays
   Future<void> deleteItem(String id) async {
     state = state.where((item) => item.id != id).toList();
-    final box = Hive.box(_boxName);
+    final box = await Hive.openBox(_boxName);
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 }
