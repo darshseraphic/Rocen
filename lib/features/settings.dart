@@ -71,7 +71,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.85),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return Center(
           child: Material(
@@ -196,7 +196,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.8),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return Center(
           child: Material(
@@ -281,7 +281,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.75),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -423,7 +423,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.75),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return Center(
           child: Material(
@@ -523,7 +523,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.75),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return Center(
           child: Material(
@@ -587,7 +587,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.8),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return Center(
           child: Material(

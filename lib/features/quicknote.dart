@@ -31,7 +31,7 @@ void showMissingKeyUiDialog(BuildContext context, bool isDark) {
     context: context,
     barrierDismissible: true,
     barrierLabel: 'Dismiss',
-    barrierColor: Colors.black.withOpacity(0.7),
+    barrierColor: Colors.transparent,
     pageBuilder: (context, anim1, anim2) {
       return Center(
         child: Material(
@@ -192,7 +192,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.7),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -430,7 +430,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss',
-      barrierColor: Colors.black.withOpacity(0.85),
+      barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return Center(
           child: Material(
@@ -525,6 +525,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 100),
       pageBuilder: (context, anim1, anim2) {
         return Consumer(
