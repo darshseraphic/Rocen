@@ -1,55 +1,180 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+import 'package:cryptography/cryptography.dart';
 
 class CryptoEngine {
-  /// Transforms text payloads using an element-wise cryptographic XOR shifting mask.
-  ///
-  /// Because XOR operations are strictly symmetrical, passing an encrypted string
-  /// back into this matrix using the exact same PIN buffer seamlessly decrypts it.
-  static String xorProcess(String input, String pin) {
-    if (input.isEmpty || pin.isEmpty) return input;
+  // =========================
+  // CONFIGURATION CONSTANTS
+  // =========================
 
-    // Convert both strings to UTF-8 code-unit arrays to process characters accurately
-    final List<int> inputBytes = utf8.encode(input);
-    final List<int> pinBytes = utf8.encode(pin);
-    final List<int> resultBytes = List<int>.filled(inputBytes.length, 0);
+  static const int _version = 1;
+  static const int _saltLength = 16;
+  static const int _nonceLength = 12; // Standard AES-GCM nonce size
+  static const int _macLength = 16;   // Standard AES-GCM MAC tag size
 
-    // Dynamic state modifier to increase structural confusion across recurring characters
-    int pinSumShift = 0;
-    for (int byte in pinBytes) {
-      pinSumShift += byte;
-    }
+  static final AesGcm _cipher = AesGcm.with256bits();
 
-    for (int i = 0; i < inputBytes.length; i++) {
-      // Pick the corresponding key byte from the repeating PIN sequence
-      final int basePinByte = pinBytes[i % pinBytes.length];
+  // Heavy Profile: Used ONLY for login PIN storage & verification (Slows brute-forcing)
+  static final Argon2id _authKdf = Argon2id(
+    memory: 19456,   // 19 MB (OWASP Baseline)
+    iterations: 3,   // 3 Passes
+    parallelism: 1,  // Fits standard single-thread execution environments
+    hashLength: 32,
+  );
 
-      // Calculate a shifting offset based on the character position index
-      final int positionalMask = (basePinByte + pinSumShift + i) & 0xFF;
+  // Balanced Profile: Used for Data Encryption (Protects keys while maintaining UI responsiveness)
+  static final Argon2id _encryptionKdf = Argon2id(
+    memory: 12288,   // 12 MB
+    iterations: 2,
+    parallelism: 1,
+    hashLength: 32,
+  );
 
-      // Execute the XOR transform process
-      resultBytes[i] = inputBytes[i] ^ positionalMask;
-    }
+  // =========================
+  // PUBLIC API: DATA ENCRYPTION
+  // =========================
 
-    // Convert the mutated binary blocks into standard cross-platform Base64 strings
-    // when encrypting, or reverse back to readable string formats on decryption.
+  /// Encrypts data using a PIN
+  static Future<String> encryptProcess(String input, String pin) async {
+    final inputBytes = utf8.encode(input);
+
+    // Secure per-message random salt and nonce
+    final salt = _generateSecureBytes(_saltLength);
+    final nonce = _generateSecureBytes(_nonceLength);
+
+    // Derive Data Encryption Key (DEK)
+    final secretKey = await _encryptionKdf.deriveKeyFromPassword(
+      password: pin,
+      nonce: salt,
+    );
+
+    // Encrypt payload using explicit nonce
+    final secretBox = await _cipher.encrypt(
+      inputBytes,
+      secretKey: secretKey,
+      nonce: nonce,
+    );
+
+    // Pack: [Version (1B)] + [Salt (16B)] + [Nonce (12B)] + [MAC (16B)] + [Ciphertext]
+    final package = BytesBuilder()
+      ..add([_version])
+      ..add(salt)
+      ..add(secretBox.nonce)
+      ..add(secretBox.mac.bytes)
+      ..add(secretBox.cipherText);
+
+    return base64.encode(package.toBytes());
+  }
+
+  /// Decrypts data using a PIN
+  static Future<String> decryptProcess(String input, String pin) async {
     try {
-      // If the incoming text is already a clean Base64 string, attempt to decode and decrypt it
-      final String trimmedInput = input.trim();
-      final List<int> possibleBase64Bytes = base64.decode(trimmedInput);
+      final bytes = base64.decode(input);
 
-      // Recalculate mirror transform matrix for decryption phase
-      final List<int> decryptedBytes = List<int>.filled(possibleBase64Bytes.length, 0);
-      for (int i = 0; i < possibleBase64Bytes.length; i++) {
-        final int basePinByte = pinBytes[i % pinBytes.length];
-        final int positionalMask = (basePinByte + pinSumShift + i) & 0xFF;
-        decryptedBytes[i] = possibleBase64Bytes[i] ^ positionalMask;
+      // Simple structural validation
+      if (bytes.isEmpty || bytes[0] != _version) {
+        return 'DECRYPTION FAULT';
       }
 
-      return utf8.decode(decryptedBytes);
+      int offset = 1;
+
+      final salt = bytes.sublist(offset, offset + _saltLength);
+      offset += _saltLength;
+
+      final nonce = bytes.sublist(offset, offset + _nonceLength);
+      offset += _nonceLength;
+
+      final mac = bytes.sublist(offset, offset + _macLength);
+      offset += _macLength;
+
+      final cipherText = bytes.sublist(offset);
+
+      // Re-derive the identical Data Encryption Key
+      final secretKey = await _encryptionKdf.deriveKeyFromPassword(
+        password: pin,
+        nonce: salt,
+      );
+
+      final box = SecretBox(
+        cipherText,
+        nonce: nonce,
+        mac: Mac(mac),
+      );
+
+      final clear = await _cipher.decrypt(
+        box,
+        secretKey: secretKey,
+      );
+
+      return utf8.decode(clear);
     } catch (_) {
-      // If input cannot be parsed as Base64 data, it means we are performing an initial encryption.
-      // We return the encrypted byte array packed inside a secure Base64 transmission block.
-      return base64.encode(resultBytes);
+      return 'DECRYPTION FAULT';
     }
+  }
+
+  // =========================
+  // PUBLIC API: PIN AUTHENTICATION
+  // =========================
+
+  /// Hashes a user PIN securely for authentication/login checks
+  static Future<String> hashPin(String pin) async {
+    final salt = _generateSecureBytes(_saltLength);
+
+    final key = await _authKdf.deriveKeyFromPassword(
+      password: pin,
+      nonce: salt,
+    );
+
+    final hash = await key.extractBytes();
+
+    return '${base64.encode(salt)}:${base64.encode(hash)}';
+  }
+
+  /// Verifies a login PIN attempt using constant-time evaluation
+  static Future<bool> verifyPin(String pin, String stored) async {
+    try {
+      final parts = stored.split(':');
+      if (parts.length != 2) return false;
+
+      final salt = base64.decode(parts[0]);
+      final expected = base64.decode(parts[1]);
+
+      final key = await _authKdf.deriveKeyFromPassword(
+        password: pin,
+        nonce: salt,
+      );
+
+      final actual = await key.extractBytes();
+
+      return _constantTimeEquals(actual, expected);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // =========================
+  // CORE INTERNAL HELPERS
+  // =========================
+
+  /// Generates cryptographically secure random bytes natively in a block allocation
+  static Uint8List _generateSecureBytes(int length) {
+    final rnd = Random.secure();
+    final values = Uint8List(length);
+    for (int i = 0; i < length; i++) {
+      values[i] = rnd.nextInt(256);
+    }
+    return values;
+  }
+
+  /// Prevents timing attacks when comparing sensitive hash arrays
+  static bool _constantTimeEquals(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+
+    int result = 0;
+    for (int i = 0; i < a.length; i++) {
+      result |= a[i] ^ b[i];
+    }
+    return result == 0;
   }
 }

@@ -1,4 +1,5 @@
-import 'dart:convert'; // Added for seamless high-performance JSON conversion
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -17,6 +18,7 @@ class CaptureItem {
     required this.timestamp,
   });
 
+  /// Serializes the core item instance into an explicit structural schema map format
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -27,13 +29,16 @@ class CaptureItem {
     };
   }
 
+  /// High-resilience instantiation factory enforcing structural fallbacks for incoming fields
   factory CaptureItem.fromMap(Map<String, dynamic> map) {
     return CaptureItem(
-      id: map['id'] ?? '',
-      title: map['title'] ?? '',
-      content: map['content'] ?? '',
-      type: map['type'] ?? '',
-      timestamp: DateTime.tryParse(map['timestamp'] ?? '') ?? DateTime.now(),
+      id: (map['id'] ?? '').toString(),
+      title: (map['title'] ?? '').toString(),
+      content: (map['content'] ?? '').toString(),
+      type: (map['type'] ?? '').toString(),
+      timestamp: map['timestamp'] != null
+          ? (DateTime.tryParse(map['timestamp'].toString()) ?? DateTime.now())
+          : DateTime.now(),
     );
   }
 }
@@ -43,39 +48,73 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
 
   @override
   List<CaptureItem> build() {
+    // Dispatch asynchronous cold boot sequence safely into post-initialization queue
     _initAndLoad();
     return [];
   }
 
-  Future<void> _initAndLoad() async {
-    final box = await Hive.openBox(_boxName);
-    final List<dynamic>? storedRaw = box.get('items');
+  /// Optimizes instance lookups by retrieving an active box reference or executing open operations
+  Future<Box> _getBox() async {
+    if (Hive.isBoxOpen(_boxName)) {
+      return Hive.box(_boxName);
+    }
+    return await Hive.openBox(_boxName);
+  }
 
-    if (storedRaw != null && storedRaw.isNotEmpty) {
-      state = storedRaw
-          .map((item) => CaptureItem.fromMap(Map<String, dynamic>.from(item)))
-          .toList();
-    } else {
-      final initialItem = CaptureItem(
-        id: '1',
-        title: 'WELCOME',
-        content: 'Rocen minimal capture engine active.',
-        type: 'clip',
-        timestamp: DateTime.now(),
-      );
-      state = [initialItem];
-      await box.put('items', state.map((e) => e.toMap()).toList());
+  /// Handles systemic boot routines, opening local device memory tables and streaming blocks safely
+  Future<void> _initAndLoad() async {
+    try {
+      final box = await _getBox();
+      final List<dynamic>? storedRaw = box.get('items');
+
+      if (storedRaw != null && storedRaw.isNotEmpty) {
+        state = storedRaw
+            .map((item) {
+          try {
+            if (item is Map) {
+              return CaptureItem.fromMap(Map<String, dynamic>.from(item));
+            }
+            return null;
+          } catch (e) {
+            debugPrint('System Parsing Exception: Element sequence skip occurred -> $e');
+            return null;
+          }
+        })
+            .whereType<CaptureItem>()
+            .toList();
+      } else {
+        // Initialize structural standard zero-state anchor vector
+        final initialItem = CaptureItem(
+          id: '1',
+          title: 'WELCOME',
+          content: 'Rocen minimal capture engine active.',
+          type: 'clip',
+          timestamp: DateTime.now(),
+        );
+        state = [initialItem];
+        await box.put('items', state.map((e) => e.toMap()).toList());
+      }
+    } catch (e) {
+      debugPrint('Critical Local Storage Pipeline Error on Bootstrap: $e');
+      state = [];
     }
   }
 
-  /// Converts the current app state into a raw JSON string for external file export
+  /// Converts the active system state configuration block into a condensed schema JSON payload string
   String exportToSchemaJson() {
-    final List<Map<String, dynamic>> rawList = state.map((item) => item.toMap()).toList();
-    return jsonEncode(rawList);
+    try {
+      final List<Map<String, dynamic>> rawList = state.map((item) => item.toMap()).toList();
+      return jsonEncode(rawList);
+    } catch (e) {
+      debugPrint('Export Serialization Flaw: Failed to output raw data matrices -> $e');
+      return '[]';
+    }
   }
 
-  /// Validates structural composition, overwrites local storage, and updates the reactive UI
+  /// Validates deep structure parsing bounds, blocks corrupt mutations, and synchronizes memory boxes
   Future<bool> importFromSchemaJson(String jsonRawString) async {
+    if (jsonRawString.trim().isEmpty) return false;
+
     try {
       final decoded = jsonDecode(jsonRawString);
       if (decoded is! List) return false;
@@ -84,7 +123,8 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
       for (final item in decoded) {
         if (item is Map) {
           final convertedMap = Map<String, dynamic>.from(item);
-          // High safety verification constraint mapping
+
+          // Tight structural gatekeeping validation constraint verification matrix
           if (convertedMap.containsKey('id') &&
               convertedMap.containsKey('content') &&
               convertedMap.containsKey('type')) {
@@ -93,24 +133,27 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
         }
       }
 
-      // If the file is completely corrupt or unreadable, safely decline execution
+      // Reject transmission transaction immediately if the payload structure contains zero valid elements
       if (importedItems.isEmpty && decoded.isNotEmpty) return false;
 
-      // Overwrite persistent device memory box safely
-      final box = await Hive.openBox(_boxName);
+      final box = await _getBox();
       await box.put('items', importedItems.map((e) => e.toMap()).toList());
 
-      // Force instant global Riverpod application state synchronizations
+      // Propagate state modifications cleanly across active system consumer interfaces
       state = importedItems;
       return true;
     } catch (e) {
+      debugPrint('Import Handshake Exception: Transaction declined due to format anomaly -> $e');
       return false;
     }
   }
 
-  /// Optimized batch insertion handling high-volume automatic asset additions
+  /// Optimized batch ingestion engine capable of committing high-volume asset arrays sequentially
   Future<void> insertMultipleItems(List<String> filePaths, String type) async {
+    if (filePaths.isEmpty) return;
+
     final int baseTimestamp = DateTime.now().microsecondsSinceEpoch;
+    final DateTime operationTime = DateTime.now();
 
     final List<CaptureItem> newItems = filePaths.asMap().entries.map((entry) {
       return CaptureItem(
@@ -118,17 +161,18 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
         title: '',
         content: entry.value,
         type: type,
-        timestamp: DateTime.now(),
+        timestamp: operationTime,
       );
     }).toList();
 
+    // Splice records onto structural header to maintain chronological sequence
     state = [...newItems, ...state];
 
-    final box = await Hive.openBox(_boxName);
+    final box = await _getBox();
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
-  /// Inserts a singular capture node directly into Hive and synchronizes state
+  /// Appends a unified isolated data capture element onto the state model and local disk structure
   Future<void> insertItem(String content, String type, {String title = ''}) async {
     final newItem = CaptureItem(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -140,36 +184,52 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
 
     state = [newItem, ...state];
 
-    final box = await Hive.openBox(_boxName);
+    final box = await _getBox();
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
-  /// Updates specific elements within persistent storage via micro-targeted identification matching
+  /// Micro-targeted element index lookup modification matching specified identifier parameters
   Future<void> updateItem(String id, String newContent, {String? title}) async {
-    state = [
-      for (final item in state)
-        if (item.id == id)
-          CaptureItem(
-            id: item.id,
-            title: title ?? item.title,
-            content: newContent,
-            type: item.type,
-            timestamp: item.timestamp,
-          )
-        else
-          item,
-    ];
+    bool stateMutationOccurred = false;
 
-    final box = await Hive.openBox(_boxName);
+    // Use .map() to safely update logic while returning the exact CaptureItem object
+    final List<CaptureItem> updatedCollection = state.map((item) {
+      if (item.id == id) {
+        stateMutationOccurred = true;
+        return CaptureItem(
+          id: item.id,
+          title: title ?? item.title,
+          content: newContent,
+          type: item.type,
+          timestamp: item.timestamp, // Retain original transaction timeline sequence
+        );
+      }
+      return item;
+    }).toList();
+
+    // Performance short-circuit optimization: Avoid unneeded mutations if target element matches perfectly
+    if (!stateMutationOccurred) return;
+
+    state = updatedCollection;
+
+    final box = await _getBox();
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
-  /// Deletes explicit objects safely and rewires local collection arrays
+  /// Detaches an explicit node block safely from system layout tracks and cleans storage indexes
   Future<void> deleteItem(String id) async {
-    state = state.where((item) => item.id != id).toList();
-    final box = await Hive.openBox(_boxName);
+    final int originalSize = state.length;
+    final List<CaptureItem> remainingItems = state.where((item) => item.id != id).toList();
+
+    // Terminate pipeline path early if elimination candidate wasn't registered in tracking state
+    if (remainingItems.length == originalSize) return;
+
+    state = remainingItems;
+
+    final box = await _getBox();
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 }
 
+// Global immutable reactive database notifier provider interface registration hook
 final localDatabaseProvider = NotifierProvider<DatabaseNotifier, List<CaptureItem>>(DatabaseNotifier.new);

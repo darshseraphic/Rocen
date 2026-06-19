@@ -2,7 +2,7 @@ name: Rocen
 description: "A minimal workspace capture engine."
 publish_to: 'none'
 
-version: 0.2.0
+version: 0.3.0
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -10,15 +10,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-  # State Management Framework
   flutter_riverpod: ^2.4.9
-
-  # Persistent Disk Storage Subsystems
+  cryptography: ^2.7.0
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-
-  # Native UI Layout Kits & Asset Management
   flutter_staggered_grid_view: ^0.7.0
   file_picker: ^8.0.0
   photo_manager: ^3.3.0
@@ -30,11 +25,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-
-  # Launcher Icons Generation Package Configuration
   flutter_launcher_icons: ^0.13.1
 
-# SYSTEM LAUNCHER ICON PATH DISPATCH ENGINE
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
@@ -43,6 +35,5 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
 
-  # STATIC ASSETS DECLARED MATRIX FOR INTERNAL SYSTEM UTILITIES
   assets:
     - assets/logo.png

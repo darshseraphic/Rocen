@@ -7,7 +7,28 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/database.dart';
+import '../core/crypto_engine.dart';
 import '../main.dart';
+
+/// Reusable theme abstraction to centralize UI coloring schemas and eliminate code duplication.
+class SettingsUiTheme {
+  final bool isDark;
+  late final Color textMain;
+  late final Color textSub;
+  late final Color mainBorderColor;
+  late final Color dialogBorderColor;
+  late final Color dialogBg;
+  late final Color containerBg;
+
+  SettingsUiTheme(this.isDark) {
+    textMain = isDark ? Colors.white : Colors.black;
+    textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
+    mainBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    dialogBorderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
+  }
+}
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -40,9 +61,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // ==========================================
   void _showStatusDialog(BuildContext context, String title, String message) {
     final isDark = ref.read(themeProvider);
-    final textMain = isDark ? Colors.white : Colors.black;
-    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final theme = SettingsUiTheme(isDark);
 
     // Theme Inverted Configurations for the Center CTA Button
     final buttonBg = isDark ? Colors.white : Colors.black;
@@ -61,8 +80,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               width: 300,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: dialogBg,
-                border: Border.all(color: borderColor, width: 0.8),
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -71,13 +90,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Text(
                     title.toUpperCase(),
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     message.toUpperCase(),
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: textMain, fontSize: 11, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 11, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   InkWell(
@@ -171,9 +190,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   void _showImportWarningDialog(BuildContext context) {
     final isDark = ref.read(themeProvider);
-    final textMain = isDark ? Colors.white : Colors.black;
-    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final theme = SettingsUiTheme(isDark);
 
     showGeneralDialog(
       context: context,
@@ -188,8 +205,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               width: 310,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: dialogBg,
-                border: Border.all(color: borderColor, width: 0.8),
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -202,7 +219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(height: 16),
                   Text(
                     'RESTORING WILL PERMANENTLY WIPE ALL LOGGED RECORDS FROM RECENT SESSIONS AND REPLACE THEM WITH THE SELECTED BACKUP MATRIX. THIS CANNOT BE UNDONE.',
-                    style: TextStyle(color: textMain, fontSize: 11.5, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 11.5, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -213,7 +230,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                           decoration: BoxDecoration(
-                            border: Border.all(color: borderColor, width: 0.8),
+                            border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                           ),
                           child: Text(
                             'CANCEL',
@@ -256,9 +273,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // ==========================================
   void _showCreatePinDialog(BuildContext context, {String initialValue = ''}) {
     final isDark = ref.read(themeProvider);
-    final textMain = isDark ? Colors.white : Colors.black;
-    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final theme = SettingsUiTheme(isDark);
 
     final TextEditingController pinController = TextEditingController(text: initialValue);
 
@@ -277,8 +292,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   width: 320,
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: dialogBg,
-                    border: Border.all(color: borderColor, width: 0.8),
+                    color: theme.dialogBg,
+                    border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -286,7 +301,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [
                       Text(
                         'SETUP CRYPTOGRAPHY PIN',
-                        style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                        style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                       ),
                       const SizedBox(height: 20),
 
@@ -315,8 +330,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 bool isCurrentFocus = text.length == index;
 
                                 Color currentBoxBorderColor = isCurrentFocus
-                                    ? textMain
-                                    : (isFilled ? textMain.withOpacity(0.6) : borderColor);
+                                    ? theme.textMain
+                                    : (isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor);
 
                                 return Container(
                                   width: 40,
@@ -331,7 +346,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   ),
                                   child: Text(
                                     isFilled ? '●' : '',
-                                    style: TextStyle(color: textMain, fontSize: 10),
+                                    style: TextStyle(color: theme.textMain, fontSize: 10),
                                   ),
                                 );
                               }),
@@ -348,7 +363,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(
-                                border: Border.all(color: borderColor, width: 0.8),
+                                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                               ),
                               child: Text(
                                 'CANCEL',
@@ -372,7 +387,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(
-                                color: pinController.text.length == 6 ? textMain : textMain.withOpacity(0.2),
+                                color: pinController.text.length == 6 ? theme.textMain : theme.textMain.withOpacity(0.2),
                               ),
                               child: Text(
                                 'CONFIRM',
@@ -402,9 +417,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // ==========================================
   void _showAreYouSureDialog(BuildContext context, String typedPin) {
     final isDark = ref.read(themeProvider);
-    final textMain = isDark ? Colors.white : Colors.black;
-    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final theme = SettingsUiTheme(isDark);
 
     showGeneralDialog(
       context: context,
@@ -419,8 +432,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               width: 290,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: dialogBg,
-                border: Border.all(color: borderColor, width: 0.8),
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -428,12 +441,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(
                     'SECURITY VERIFICATION',
-                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                    style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'ARE YOU SURE TO ADD THIS PASSWORD?',
-                    style: TextStyle(color: textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -447,7 +460,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                           decoration: BoxDecoration(
-                            border: Border.all(color: borderColor, width: 0.8),
+                            border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                           ),
                           child: Text(
                             'CANCEL',
@@ -464,9 +477,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onTap: () async {
                           Navigator.pop(context);
 
+                          // Transform raw user input sequence using high-entropy Argon2id/PBKDF2 engine mapping
+                          final securePinHash = await CryptoEngine.hashPin(typedPin);
+
                           final settingsBox = Hive.box(_boxName);
-                          await settingsBox.put('system_crypto_pin', typedPin);
-                          await settingsBox.put('last_active_crypto_pin_snapshot', typedPin);
+                          await settingsBox.put('system_crypto_pin', securePinHash);
+                          await settingsBox.put('last_active_crypto_pin_snapshot', securePinHash);
 
                           if (context.mounted) {
                             _showForgotWarningDialog(context);
@@ -474,7 +490,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(color: textMain),
+                          decoration: BoxDecoration(color: theme.textMain),
                           child: Text(
                             'CONFIRM',
                             style: TextStyle(
@@ -501,9 +517,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // ==========================================
   void _showForgotWarningDialog(BuildContext context) {
     final isDark = ref.read(themeProvider);
-    final textMain = isDark ? Colors.white : Colors.black;
-    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final theme = SettingsUiTheme(isDark);
 
     showGeneralDialog(
       context: context,
@@ -518,8 +532,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               width: 300,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: dialogBg,
-                border: Border.all(color: borderColor, width: 0.8),
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -527,12 +541,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(
                     'CRITICAL NOTICE',
-                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                    style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'IF YOU FORGOT THE PASSWORD YOU HAVE TO TAP THE CLEAR',
-                    style: TextStyle(color: textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Align(
@@ -541,7 +555,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       onTap: () => Navigator.pop(context),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        decoration: BoxDecoration(color: textMain),
+                        decoration: BoxDecoration(color: theme.textMain),
                         child: Text(
                           'ACKNOWLEDGE',
                           style: TextStyle(
@@ -567,9 +581,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // ==========================================
   void _showClearConfirmationDialog(BuildContext context) {
     final isDark = ref.read(themeProvider);
-    final textMain = isDark ? Colors.white : Colors.black;
-    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final theme = SettingsUiTheme(isDark);
 
     showGeneralDialog(
       context: context,
@@ -584,8 +596,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               width: 310,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: dialogBg,
-                border: Border.all(color: borderColor, width: 0.8),
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -598,7 +610,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(height: 16),
                   Text(
                     'THIS PROCESS IN NOT REVERSABLE, ALL ENCRYPTED FILE WILL REMOVED',
-                    style: TextStyle(color: textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -609,7 +621,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                           decoration: BoxDecoration(
-                            border: Border.all(color: borderColor, width: 0.8),
+                            border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                           ),
                           child: Text(
                             'NO',
@@ -814,11 +826,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = ref.watch(themeProvider);
-
-    final textMain = isDark ? Colors.white : Colors.black;
-    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    final containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
+    final theme = SettingsUiTheme(isDark);
 
     return Scaffold(
       backgroundColor: isDark ? Colors.black : Colors.white,
@@ -829,7 +837,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           children: [
             Text(
               'SYSTEM SETTINGS',
-              style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
+              style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
             ),
             const SizedBox(height: 24),
 
@@ -837,8 +845,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: containerBg,
-                border: Border.all(color: borderColor, width: 0.8),
+                color: theme.containerBg,
+                border: Border.all(color: theme.mainBorderColor, width: 0.8),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -848,12 +856,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [
                       Text(
                         'DARK INTERFACE',
-                        style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                        style: TextStyle(color: theme.textMain, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.05),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         'Toggle system-wide dark mode',
-                        style: TextStyle(color: textSub, fontSize: 10),
+                        style: TextStyle(color: theme.textSub, fontSize: 10),
                       ),
                     ],
                   ),
@@ -869,7 +877,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       padding: const EdgeInsets.all(3),
                       decoration: BoxDecoration(
                         color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFDDDDDD),
-                        border: Border.all(color: borderColor, width: 0.8),
+                        border: Border.all(color: theme.mainBorderColor, width: 0.8),
                       ),
                       child: AnimatedAlign(
                         duration: const Duration(milliseconds: 120),
@@ -901,9 +909,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   subtitle: currentPin.isEmpty
                       ? 'SETUP REQUIRED // 6-DIGIT SECURITY KEY'
                       : 'ACTIVE // MODIFY SECURE TERMINAL DEPLOYMENT KEY',
-                  textMain: textMain,
-                  textSub: currentPin.isEmpty ? const Color(0xFFEF4444) : textSub,
-                  borderColor: borderColor,
+                  textMain: theme.textMain,
+                  textSub: currentPin.isEmpty ? const Color(0xFFEF4444) : theme.textSub,
+                  borderColor: theme.mainBorderColor,
                   onTap: () {
                     if (currentPin.isEmpty) {
                       _showCreatePinDialog(context);
@@ -925,19 +933,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: isDark ? Colors.black : Colors.white,
-                border: Border.all(color: borderColor, width: 0.8),
+                border: Border.all(color: theme.mainBorderColor, width: 0.8),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'DATA UTILITIES',
-                    style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Export or restore persistent application database matrices safely.',
-                    style: TextStyle(color: textSub, fontSize: 10.5),
+                    style: TextStyle(color: theme.textSub, fontSize: 10.5),
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -948,7 +956,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             decoration: BoxDecoration(
-                              border: Border.all(color: borderColor, width: 0.8),
+                              border: Border.all(color: theme.mainBorderColor, width: 0.8),
                               color: isDark ? Colors.white : Colors.black,
                             ),
                             alignment: Alignment.center,
@@ -966,13 +974,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             decoration: BoxDecoration(
-                              border: Border.all(color: textMain, width: 0.8),
+                              border: Border.all(color: theme.textMain, width: 0.8),
                               color: Colors.transparent,
                             ),
                             alignment: Alignment.center,
                             child: Text(
                               'RESTORE BACKUP',
-                              style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02),
+                              style: TextStyle(color: theme.textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02),
                             ),
                           ),
                         ),
@@ -983,15 +991,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
 
-            Divider(color: borderColor, thickness: 0.8),
+            Divider(color: theme.mainBorderColor, thickness: 0.8),
 
             // [01] USER GUIDE
             _buildMenuTile(
               title: 'USER GUIDE',
               subtitle: 'Overview of system infrastructure panels',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
+              textMain: theme.textMain,
+              textSub: theme.textSub,
+              borderColor: theme.mainBorderColor,
               onTap: () => _showSlidingPanel(
                 context,
                 'USER GUIDE',
@@ -999,37 +1007,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _buildInfoSection(
                       '01 // SYSTEM ROOT ENGINE',
                       'Initializes global asynchronous reactive state loops using Riverpod. It maps runtime dependencies directly upon app activation and tracks low-level mutations securely. Bypasses persistent disk hangs via strict corruption validation parameters, completely ensuring zero structural app freezing or unhandled memory loops.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '02 // GATEWAY LAYER (SPLASH SCREEN)',
                       'Handles high-performance layout warm-ups during frame construction phases. Intercepts the primary platform loading sequence, executing an isolated 2-second linear opacity rendering track (Fade -> Visual Suspension -> Purge) that seamlessly aligns the system layout context with your previous light or dark UI settings to eradicate aggressive boot-flash anomalies completely.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '03 // STRUCTURAL HUB NAVIGATION',
                       'A streamlined typography-focused matrix navigation track that maps layout views safely. Built with absolute override layout parameters that dictate viewport allocation during active software keyboard states. Instead of forcing physical view compression or breaking cross-axis element alignments, incoming OS input windows act as smooth layer overlays.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '04 // MATRIX TIMELINE COMPONENT',
                       'Renders a massive, low-fatigue 13-column structural layout tracking 365 daily block elements simultaneously. Darkened tracking indicators pinpoint precise historical data allocation slots, while empty slots define exact leftover capacity indexes inside the current runtime period.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '05 // QUICKNOTE SANDBOX MODULE',
                       'Employs an anti-collapse scrolling viewport configuration tied directly to explicit layout boundaries and custom constraints. This forces live character generation streams to dynamically recalculate remaining box space when virtual keyboards arise, keeping active text editing targets completely visible.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '06 // INTERFACE REGULATION CONTROLS',
                       'Executes direct UI inversions via a streamlined state-toggle mechanism. Connects configuration panels into hardware-accelerated right-to-left slide transitions locked at a precise 1.0 width factor constraint. Sub-sheets completely obscure underlying layers, eliminating unnecessary drop-shadow re-renders to maximize device refresh rates.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '07 // DATA IMPORT/EXPORT SYSTEM',
                       'Features custom serialization engines that loop through application states, converting model entries into raw standardized JSON bytes. Built-in file picking mechanics handle direct filesystem interaction to securely transfer data without utilizing external cloud proxies or intermediate networks.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                 ],
                 isDark,
@@ -1040,9 +1048,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _buildMenuTile(
               title: 'DATA SECURITY',
               subtitle: 'Information encryption & local cache schemas',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
+              textMain: theme.textMain,
+              textSub: theme.textSub,
+              borderColor: theme.mainBorderColor,
               onTap: () => _showSlidingPanel(
                 context,
                 'DATA SECURITY',
@@ -1050,37 +1058,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _buildInfoSection(
                       '01 // STORAGE PIPELINE (NOSQL ENGINE)',
                       'Rocen avoids slow, heavy relational SQL frameworks entirely. The application operates exclusively on a lightning-fast NoSQL key-value architecture powered by Hive. Text strings and file indicators are encoded directly into raw binary streams written inside dedicated sandbox partitions allocated to the app hardware space.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '02 // BOX CONTAINER MATRIX',
                       'Data storage blocks are separated into dedicated, context-isolated data compartments called "Boxes" (e.g., rocen_captures_box). Structural indexes replace classic relational tables, creating lightweight data access pathways that protect historical databases from schema breaking risks when fields expand.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '03 // MEMORY-FIRST BUFFER PIPELINE',
                       'Data structures are loaded straight into fast active RAM buffers during bootup. Read tasks operate directly inside this memory layer with zero disk latency. Create, update, and delete actions instantly change the cache array for direct visual updates, then stream down onto device hardware storage asynchronously.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '04 // CORRUPTION REPAIR FAILSAFE',
                       'A custom try-catch validation engine checks the integrity of database boxes during initialization. If a database interruption (like a sudden power drop) compromises data syntax, the broken data block is instantly isolated to prevent system boot loops, and initialized safely back to standard parameters.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '05 // APPLICATION PERMISSIONS OUTLINE',
                       'The application manifest explicitly excludes unnecessary network communication channels, background telemetry monitors, and analytical scrapers. Your information is physically unable to leave the system via background connection bridges.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '06 // CRYPTOGRAPHIC KEY WRAPPING',
                       'Activating the CRYPTOGRAPHIC ACCESS PIN applies an isolated user verification requirement. Secure components (like encrypted_note parameters) evaluate this key matching verification block locally. Changing or deleting the security PIN immediately purges corresponding key-dependent items from storage to guarantee absolute protection against physical file manipulation.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '07 // OFF-GRID FILE EXPORT UTILITY',
                       'Backup operations run on standard local UTF-8 data conversion engines. Generated data is written to user-designated folders via a native document explorer pipeline. Raw schema text is never transmitted through background trackers or third-party data processing endpoints.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                 ],
                 isDark,
@@ -1091,9 +1099,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _buildMenuTile(
               title: 'PRIVACY POLICY',
               subtitle: 'Application definitions and core manifest details',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
+              textMain: theme.textMain,
+              textSub: theme.textSub,
+              borderColor: theme.mainBorderColor,
               onTap: () => _showSlidingPanel(
                 context,
                 'PRIVACY POLICY',
@@ -1101,37 +1109,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _buildInfoSection(
                       '01 // APPLICATION DESCRIPTION',
                       'Rocen is a hyper-focused minimalist system blueprint designed to run high-utility tools without backend software bloat or visual clutter.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '02 // SYSTEM AUTHORSHIP',
                       'Engineered and assembled by Darshseraphic.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '03 // PURPOSE & DESIGN METHODOLOGY',
                       'Built to mitigate screen fatigue through a stark brutalist interface style, intentional whitespace, and highly structured typographic layouts.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '04 // DEVELOPMENT TIMELINE MATRIX',
                       'Initial core system conceptualization, wireframing, and final architecture completion finalized over a highly compressed 24-hour rapid development sprint.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '05 // ABSOLUTE ZERO DATA ACCUMULATION',
                       'This framework operates with a strict zero-telemetry policy. There are no analytics packages, usage tracking monitors, remote crash trackers, or cloud-based data bridges written into the codebase. All workspace activity remains strictly contained on your local device.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '06 // AIR-GAPPED HARDWARE ISOLATION',
                       'The application runs entirely within an air-gapped system methodology. Without network permissions or server communication layers configured in its structural layer, user interactions are kept private, secure, and permanently anchored inside the isolated sandbox space of your hardware.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                   _buildInfoSection(
                       '07 // USER-OWNED STORAGE ARCHITECTURE',
                       'You retain absolute, exclusive ownership of your data files. The system cannot read, change, or access stored items outside its specific offline database context. Deleting the application instantly wipes all local cache directories from internal storage arrays.',
-                      textMain, textSub
+                      theme.textMain, theme.textSub
                   ),
                 ],
                 isDark,
@@ -1142,9 +1150,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _buildMenuTile(
               title: 'WEBSITE',
               subtitle: 'Access outward system project portals',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
+              textMain: theme.textMain,
+              textSub: theme.textSub,
+              borderColor: theme.mainBorderColor,
               onTap: _launchWebsiteUrl,
             ),
 
@@ -1152,9 +1160,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _buildMenuTile(
               title: 'FEEDBACK',
               subtitle: 'Report pipeline anomalies or system logs',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
+              textMain: theme.textMain,
+              textSub: theme.textSub,
+              borderColor: theme.mainBorderColor,
               onTap: _launchFeedbackUrl,
             ),
 
@@ -1165,7 +1173,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Text(
                 'BUILD BY DARSHSERPHIC',
                 style: TextStyle(
-                  color: textSub.withOpacity(0.5),
+                  color: theme.textSub.withOpacity(0.5),
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.12,
