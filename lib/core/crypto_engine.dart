@@ -4,59 +4,45 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 
 class CryptoEngine {
-  // =========================
-  // CONFIGURATION CONSTANTS
-  // =========================
 
   static const int _version = 1;
   static const int _saltLength = 16;
-  static const int _nonceLength = 12; // Standard AES-GCM nonce size
-  static const int _macLength = 16;   // Standard AES-GCM MAC tag size
+  static const int _nonceLength = 12;
+  static const int _macLength = 16;
 
   static final AesGcm _cipher = AesGcm.with256bits();
 
-  // Heavy Profile: Used ONLY for login PIN storage & verification (Slows brute-forcing)
   static final Argon2id _authKdf = Argon2id(
-    memory: 19456,   // 19 MB (OWASP Baseline)
-    iterations: 3,   // 3 Passes
-    parallelism: 1,  // Fits standard single-thread execution environments
+    memory: 19456,
+    iterations: 3,
+    parallelism: 1,
     hashLength: 32,
   );
 
-  // Balanced Profile: Used for Data Encryption (Protects keys while maintaining UI responsiveness)
   static final Argon2id _encryptionKdf = Argon2id(
-    memory: 12288,   // 12 MB
+    memory: 12288,
     iterations: 2,
     parallelism: 1,
     hashLength: 32,
   );
 
-  // =========================
-  // PUBLIC API: DATA ENCRYPTION
-  // =========================
-
-  /// Encrypts data using a PIN
   static Future<String> encryptProcess(String input, String pin) async {
     final inputBytes = utf8.encode(input);
 
-    // Secure per-message random salt and nonce
     final salt = _generateSecureBytes(_saltLength);
     final nonce = _generateSecureBytes(_nonceLength);
 
-    // Derive Data Encryption Key (DEK)
     final secretKey = await _encryptionKdf.deriveKeyFromPassword(
       password: pin,
       nonce: salt,
     );
 
-    // Encrypt payload using explicit nonce
     final secretBox = await _cipher.encrypt(
       inputBytes,
       secretKey: secretKey,
       nonce: nonce,
     );
 
-    // Pack: [Version (1B)] + [Salt (16B)] + [Nonce (12B)] + [MAC (16B)] + [Ciphertext]
     final package = BytesBuilder()
       ..add([_version])
       ..add(salt)
@@ -67,12 +53,10 @@ class CryptoEngine {
     return base64.encode(package.toBytes());
   }
 
-  /// Decrypts data using a PIN
   static Future<String> decryptProcess(String input, String pin) async {
     try {
       final bytes = base64.decode(input);
 
-      // Simple structural validation
       if (bytes.isEmpty || bytes[0] != _version) {
         return 'DECRYPTION FAULT';
       }
@@ -90,7 +74,6 @@ class CryptoEngine {
 
       final cipherText = bytes.sublist(offset);
 
-      // Re-derive the identical Data Encryption Key
       final secretKey = await _encryptionKdf.deriveKeyFromPassword(
         password: pin,
         nonce: salt,
@@ -113,11 +96,38 @@ class CryptoEngine {
     }
   }
 
-  // =========================
-  // PUBLIC API: PIN AUTHENTICATION
-  // =========================
+  static Map<String, String> splitForBackup(String fullPackageBase64) {
+    final bytes = base64.decode(fullPackageBase64);
 
-  /// Hashes a user PIN securely for authentication/login checks
+    final versionByte = bytes.sublist(0, 1);
+    final salt = bytes.sublist(1, 1 + _saltLength);
+    final remainder = bytes.sublist(1 + _saltLength);
+
+    final cypherPackage = BytesBuilder()
+      ..add(versionByte)
+      ..add(remainder);
+
+    return {
+      'salt': base64.encode(salt),
+      'cyphertext': base64.encode(cypherPackage.toBytes()),
+    };
+  }
+
+  static String mergeFromBackup(String saltBase64, String cyphertextBase64) {
+    final saltBytes = base64.decode(saltBase64);
+    final cypherBytes = base64.decode(cyphertextBase64);
+
+    final versionByte = cypherBytes.sublist(0, 1);
+    final remainder = cypherBytes.sublist(1);
+
+    final fullPackage = BytesBuilder()
+      ..add(versionByte)
+      ..add(saltBytes)
+      ..add(remainder);
+
+    return base64.encode(fullPackage.toBytes());
+  }
+
   static Future<String> hashPin(String pin) async {
     final salt = _generateSecureBytes(_saltLength);
 
@@ -131,7 +141,6 @@ class CryptoEngine {
     return '${base64.encode(salt)}:${base64.encode(hash)}';
   }
 
-  /// Verifies a login PIN attempt using constant-time evaluation
   static Future<bool> verifyPin(String pin, String stored) async {
     try {
       final parts = stored.split(':');
@@ -153,11 +162,6 @@ class CryptoEngine {
     }
   }
 
-  // =========================
-  // CORE INTERNAL HELPERS
-  // =========================
-
-  /// Generates cryptographically secure random bytes natively in a block allocation
   static Uint8List _generateSecureBytes(int length) {
     final rnd = Random.secure();
     final values = Uint8List(length);
@@ -167,7 +171,6 @@ class CryptoEngine {
     return values;
   }
 
-  /// Prevents timing attacks when comparing sensitive hash arrays
   static bool _constantTimeEquals(List<int> a, List<int> b) {
     if (a.length != b.length) return false;
 

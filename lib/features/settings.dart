@@ -10,7 +10,6 @@ import '../core/database.dart';
 import '../core/crypto_engine.dart';
 import '../main.dart';
 
-/// Reusable theme abstraction to centralize UI coloring schemas and eliminate code duplication.
 class SettingsUiTheme {
   final bool isDark;
   late final Color textMain;
@@ -40,7 +39,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static const String _boxName = 'rocen_settings_box';
 
-  // CORE LAUNCH ENGINE FOR OUTWARD LINKS
   Future<void> _launchWebsiteUrl() async {
     final Uri url = Uri.parse('https://rocen.lovable.app/');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -48,7 +46,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  // SYSTEM ENGINE FOR OUTWARD FEEDBACK REDIRECT PIPELINE
   Future<void> _launchFeedbackUrl() async {
     final Uri url = Uri.parse('https://rocen.lovable.app/feedback');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -56,14 +53,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  // ==========================================
-  // CUSTOM HIGH-CONTRAST STATUS NOTIFICATION DIALOG
-  // ==========================================
+  String? _checkLockoutViolation(Box settingsBox) {
+    final int lockoutUntil = settingsBox.get('secure_lockout_until', defaultValue: 0);
+    final int currentTime = DateTime.now().millisecondsSinceEpoch;
+
+    if (lockoutUntil > currentTime) {
+      final remainingTime = ((lockoutUntil - currentTime) / 1000).ceil();
+      return 'SYSTEM LOCKED - WAIT $remainingTime SECONDS';
+    }
+    return null;
+  }
+
+  Future<void> _purgeEncryptedNotesOnBruteForce() async {
+    final currentItems = ref.read(localDatabaseProvider);
+    final targetsToPurge = currentItems.where((item) => item.type == 'encrypted_note').toList();
+
+    for (var target in targetsToPurge) {
+      await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
+    }
+  }
+
   void _showStatusDialog(BuildContext context, String title, String message) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
 
-    // Theme Inverted Configurations for the Center CTA Button
     final buttonBg = isDark ? Colors.white : Colors.black;
     final buttonText = isDark ? Colors.black : Colors.white;
 
@@ -126,9 +139,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==========================================
-  // DATA MANAGEMENT PERSISTENCE ENGINES
-  // ==========================================
   Future<void> _handleDataExport() async {
     try {
       final String serializedJson = ref.read(localDatabaseProvider.notifier).exportToSchemaJson();
@@ -268,9 +278,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==========================================
-  // FLOW 1 & 2: 6-DIGIT PIN CREATION ENGINE
-  // ==========================================
   void _showCreatePinDialog(BuildContext context, {String initialValue = ''}) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
@@ -412,9 +419,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==========================================
-  // FLOW 2: DOUBLE-CHECK MUTATION INTERCEPTOR
-  // ==========================================
   void _showAreYouSureDialog(BuildContext context, String typedPin) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
@@ -477,7 +481,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onTap: () async {
                           Navigator.pop(context);
 
-                          // Transform raw user input sequence using high-entropy Argon2id/PBKDF2 engine mapping
                           final securePinHash = await CryptoEngine.hashPin(typedPin);
 
                           final settingsBox = Hive.box(_boxName);
@@ -512,9 +515,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==========================================
-  // FLOW 3: LOST ACCESS PIPELINE ADVISORY
-  // ==========================================
   void _showForgotWarningDialog(BuildContext context) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
@@ -576,9 +576,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==========================================
-  // FLOW 4: IRREVERSIBLE PURGE CONFIRMATION
-  // ==========================================
   void _showClearConfirmationDialog(BuildContext context) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
@@ -648,6 +645,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           final settingsBox = Hive.box(_boxName);
                           await settingsBox.delete('system_crypto_pin');
                           await settingsBox.delete('last_active_crypto_pin_snapshot');
+                          await settingsBox.delete('github_access_encrypted');
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
@@ -660,6 +658,345 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                   )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _promptGithubAccessChallenge(BuildContext context) {
+    final settingsBox = Hive.box(_boxName);
+    final String? globalPin = settingsBox.get('system_crypto_pin');
+
+    if (globalPin == null || globalPin.isEmpty) {
+      _showStatusDialog(context, 'PIN REQUIRED', 'SET THE CRYPTOGRAPHY ACCESS PIN FIRST BEFORE STORING A GITHUB TOKEN.');
+      return;
+    }
+
+    final isDark = ref.read(themeProvider);
+    final theme = SettingsUiTheme(isDark);
+    final TextEditingController pinVerifyController = TextEditingController();
+
+    bool hasPinFailed = false;
+    String? lockStringStatus = _checkLockoutViolation(settingsBox);
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      pageBuilder: (context, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            String displayHeaderTitle = 'ENTER 6-DIGIT PIN';
+            if (lockStringStatus != null) {
+              displayHeaderTitle = lockStringStatus!;
+            } else if (hasPinFailed) {
+              displayHeaderTitle = 'INVALID KEY PIN - TRY AGAIN';
+            }
+
+            return Center(
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 320,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: theme.dialogBg,
+                    border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayHeaderTitle,
+                        style: TextStyle(
+                          color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.05,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Stack(
+                        children: [
+                          Opacity(
+                            opacity: 0.0,
+                            child: TextField(
+                              controller: pinVerifyController,
+                              keyboardType: TextInputType.number,
+                              maxLength: 6,
+                              autofocus: lockStringStatus == null,
+                              enabled: lockStringStatus == null,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  if (hasPinFailed) hasPinFailed = false;
+                                });
+                              },
+                              decoration: const InputDecoration(counterText: '', border: InputBorder.none),
+                            ),
+                          ),
+                          IgnorePointer(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: List.generate(6, (index) {
+                                final String text = pinVerifyController.text;
+                                bool isFilled = text.length > index;
+                                bool isCurrentFocus = text.length == index;
+
+                                Color currentBoxBorderColor;
+                                if (hasPinFailed || lockStringStatus != null) {
+                                  currentBoxBorderColor = const Color(0xFFEF4444);
+                                } else if (isCurrentFocus) {
+                                  currentBoxBorderColor = theme.textMain;
+                                } else {
+                                  currentBoxBorderColor = isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor;
+                                }
+
+                                return Container(
+                                  width: 40,
+                                  height: 44,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: Colors.transparent,
+                                    border: Border.all(
+                                      color: currentBoxBorderColor,
+                                      width: isCurrentFocus || hasPinFailed || lockStringStatus != null ? 1.2 : 0.8,
+                                    ),
+                                  ),
+                                  child: isFilled
+                                      ? Container(
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
+                                    ),
+                                  )
+                                      : const SizedBox.shrink(),
+                                );
+                              }),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          InkWell(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                              child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () async {
+                              final activeLockCheck = _checkLockoutViolation(settingsBox);
+                              if (activeLockCheck != null) {
+                                setDialogState(() {
+                                  lockStringStatus = activeLockCheck;
+                                });
+                                return;
+                              }
+
+                              final bool isPinValid = await CryptoEngine.verifyPin(pinVerifyController.text, globalPin);
+
+                              if (isPinValid) {
+                                await settingsBox.put('secure_failed_attempts', 0);
+                                await settingsBox.put('secure_lockout_until', 0);
+
+                                if (!context.mounted) return;
+                                Navigator.pop(context);
+                                await _openGithubAccessDialog(context, globalPin);
+                              } else {
+                                int attempts = settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1;
+                                await settingsBox.put('secure_failed_attempts', attempts);
+
+                                int penaltyDurationSeconds = 0;
+                                bool flagWipeConditionTriggered = false;
+
+                                if (attempts == 5) {
+                                  penaltyDurationSeconds = 30;
+                                } else if (attempts == 10) {
+                                  penaltyDurationSeconds = 60;
+                                } else if (attempts == 15) {
+                                  penaltyDurationSeconds = 1800;
+                                } else if (attempts > 15) {
+                                  flagWipeConditionTriggered = true;
+                                }
+
+                                if (flagWipeConditionTriggered) {
+                                  await _purgeEncryptedNotesOnBruteForce();
+                                  await settingsBox.put('secure_failed_attempts', 0);
+                                  await settingsBox.put('secure_lockout_until', 0);
+                                  if (!context.mounted) return;
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('SECURITY COMPLIANCE AUDIT: DATA PURGED PERMANENTLY.')),
+                                  );
+                                  return;
+                                }
+
+                                if (penaltyDurationSeconds > 0) {
+                                  final int unlockTimestampMillis = DateTime.now().millisecondsSinceEpoch + (penaltyDurationSeconds * 1000);
+                                  await settingsBox.put('secure_lockout_until', unlockTimestampMillis);
+                                }
+
+                                setDialogState(() {
+                                  pinVerifyController.clear();
+                                  lockStringStatus = _checkLockoutViolation(settingsBox);
+                                  if (lockStringStatus == null) {
+                                    hasPinFailed = true;
+                                  }
+                                });
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(color: theme.textMain),
+                              child: Text('VERIFY', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openGithubAccessDialog(BuildContext context, String pinHash) async {
+    final settingsBox = Hive.box(_boxName);
+    final String? accessBlob = settingsBox.get('github_access_encrypted');
+
+    String initialToken = '';
+    String initialRepo = '';
+
+    if (accessBlob != null) {
+      try {
+        final String decoded = await CryptoEngine.decryptProcess(accessBlob, pinHash);
+        final Map<String, dynamic> access = jsonDecode(decoded);
+        initialToken = (access['token'] ?? '').toString();
+        initialRepo = (access['repo'] ?? '').toString();
+      } catch (_) {
+      }
+    }
+
+    if (!context.mounted) return;
+    _showGithubAccessDialog(context, pinHash, initialToken: initialToken, initialRepo: initialRepo);
+  }
+
+  void _showGithubAccessDialog(BuildContext context, String pinHash, {String initialToken = '', String initialRepo = ''}) {
+    final isDark = ref.read(themeProvider);
+    final theme = SettingsUiTheme(isDark);
+    final settingsBox = Hive.box(_boxName);
+
+    final TextEditingController tokenController = TextEditingController(text: initialToken);
+    final TextEditingController repoController = TextEditingController(text: initialRepo);
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'GITHUB TOKEN STORE',
+                    style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: tokenController,
+                    obscureText: true,
+                    style: TextStyle(color: theme.textMain, fontSize: 13),
+                    cursorColor: theme.textMain,
+                    decoration: InputDecoration(
+                      hintText: 'Fine-grained token',
+                      hintStyle: TextStyle(color: theme.textSub),
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      isDense: true,
+                    ),
+                  ),
+                  Container(height: 0.8, color: theme.dialogBorderColor),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: repoController,
+                    style: TextStyle(color: theme.textMain, fontSize: 13),
+                    cursorColor: theme.textMain,
+                    decoration: InputDecoration(
+                      hintText: 'Repository (username/repo)',
+                      hintStyle: TextStyle(color: theme.textSub),
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      isDense: true,
+                    ),
+                  ),
+                  Container(height: 0.8, color: theme.dialogBorderColor),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      InkWell(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                          child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () async {
+                          final String token = tokenController.text.trim();
+                          final String repo = repoController.text.trim();
+
+                          if (token.isEmpty || repo.isEmpty) {
+                            Navigator.pop(context);
+                            return;
+                          }
+
+                          final String payload = jsonEncode({'token': token, 'repo': repo});
+                          final String encrypted = await CryptoEngine.encryptProcess(payload, pinHash);
+                          await settingsBox.put('github_access_encrypted', encrypted);
+
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(color: theme.textMain),
+                          child: Text('CONFIRM', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -841,7 +1178,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 24),
 
-            // SYSTEM-WIDE DARK THEME CONFIG
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -898,7 +1234,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const SizedBox(height: 12),
 
-            // CRYPTOGRAPHIC ACCESS PIN INTERACTIVE CONTROLLER
             ValueListenableBuilder(
               valueListenable: Hive.box(_boxName).listenable(keys: ['system_crypto_pin']),
               builder: (context, Box box, _) {
@@ -925,9 +1260,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const SizedBox(height: 12),
 
-            // ==========================================
-            // HARMONIZED DATA WORKSPACE UTILITIES BLOCK
-            // ==========================================
+            ValueListenableBuilder(
+              valueListenable: Hive.box(_boxName).listenable(keys: ['github_access_encrypted']),
+              builder: (context, Box box, _) {
+                final bool githubReady = box.get('github_access_encrypted') != null;
+
+                return _buildMenuTile(
+                  title: 'GITHUB TOKEN STORE',
+                  subtitle: githubReady
+                      ? 'ACTIVE // MODIFY REPOSITORY BACKUP CREDENTIALS'
+                      : 'SETUP REQUIRED // FINE-GRAINED TOKEN + REPOSITORY',
+                  textMain: theme.textMain,
+                  textSub: githubReady ? theme.textSub : const Color(0xFFEF4444),
+                  borderColor: theme.mainBorderColor,
+                  onTap: () => _promptGithubAccessChallenge(context),
+                );
+              },
+            ),
+
+            const SizedBox(height: 12),
+
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -993,7 +1345,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             Divider(color: theme.mainBorderColor, thickness: 0.8),
 
-            // [01] USER GUIDE
             _buildMenuTile(
               title: 'USER GUIDE',
               subtitle: 'Overview of system infrastructure panels',
@@ -1044,7 +1395,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
 
-            // [02] DATA SECURITY
             _buildMenuTile(
               title: 'DATA SECURITY',
               subtitle: 'Information encryption & local cache schemas',
@@ -1095,7 +1445,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
 
-            // [03] PRIVACY POLICY
             _buildMenuTile(
               title: 'PRIVACY POLICY',
               subtitle: 'Application definitions and core manifest details',
@@ -1146,7 +1495,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
 
-            // [04] WEBSITE
             _buildMenuTile(
               title: 'WEBSITE',
               subtitle: 'Access outward system project portals',
@@ -1156,7 +1504,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onTap: _launchWebsiteUrl,
             ),
 
-            // [05] FEEDBACK
             _buildMenuTile(
               title: 'FEEDBACK',
               subtitle: 'Report pipeline anomalies or system logs',
@@ -1168,7 +1515,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             const SizedBox(height: 48),
 
-            // THE SYSTEM SIGNATURE STAMP
             Center(
               child: Text(
                 'BUILD BY DARSHSERPHIC',

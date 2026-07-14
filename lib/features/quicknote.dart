@@ -1,12 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../core/database.dart';
 import '../core/crypto_engine.dart';
+import '../core/github_backup_service.dart';
 import '../main.dart';
 
-/// Reusable utility to centralize UI coloring schemas and eliminate code duplication.
 class SecurityUiTheme {
   final bool isDark;
   late final Color textMain;
@@ -24,9 +25,9 @@ class SecurityUiTheme {
   }
 }
 
-/// Consolidated Reusable Dialog for Missing Cryptographic Keys
-void showMissingKeyUiDialog(BuildContext context, bool isDark) {
+void showMissingKeyUiDialog(BuildContext context, bool isDark, {String? message}) {
   final theme = SecurityUiTheme(isDark);
+  final String bodyMessage = message ?? 'SET KEY FIRST FROM SETTING TO USE THIS FEATURE';
   showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -53,7 +54,7 @@ void showMissingKeyUiDialog(BuildContext context, bool isDark) {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'SET KEY FIRST FROM SETTING TO USE THIS FEATURE',
+                  bodyMessage,
                   style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, letterSpacing: 0.02, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 24),
@@ -79,6 +80,50 @@ void showMissingKeyUiDialog(BuildContext context, bool isDark) {
   );
 }
 
+Future<void> attemptGithubSync(WidgetRef ref, {Map<String, String>? upsert}) async {
+  try {
+    final settingsBox = Hive.box('rocen_settings_box');
+    final String? globalPin = settingsBox.get('system_crypto_pin');
+    final String? accessBlob = settingsBox.get('github_access_encrypted');
+    if (globalPin == null || globalPin.isEmpty || accessBlob == null) {
+      debugPrint('GITHUB SYNC ABORTED: missing PIN or stored access blob (globalPin null/empty: ${globalPin == null || globalPin.isEmpty}, accessBlob null: ${accessBlob == null})');
+      return;
+    }
+
+    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+    if (accessJson == 'DECRYPTION FAULT') {
+      debugPrint('GITHUB SYNC ABORTED: stored access blob failed to decrypt with the current PIN');
+      return;
+    }
+    final Map<String, dynamic> access = jsonDecode(accessJson);
+    final String? token = access['token'] as String?;
+    final String? repo = access['repo'] as String?;
+    if (token == null || token.isEmpty || repo == null || repo.isEmpty) {
+      debugPrint('GITHUB SYNC ABORTED: token or repo field empty after decrypt (token empty: ${token == null || token.isEmpty}, repo empty: ${repo == null || repo.isEmpty})');
+      return;
+    }
+
+    debugPrint('GITHUB SYNC STARTING: repo="$repo" upsertKeys=${upsert?.keys.toList()}');
+
+    final service = GithubBackupService(token: token, repoPath: repo);
+    final notifier = ref.read(localDatabaseProvider.notifier);
+    final queue = await notifier.getSyncQueue();
+    debugPrint('GITHUB SYNC QUEUE: deleted=${queue['deleted']} renamed=${queue['renamed']}');
+
+    await service.amendSync(
+      upsertFiles: upsert ?? const {},
+      deleteFiles: List<String>.from(queue['deleted']),
+      renameFiles: Map<String, String>.from(queue['renamed']),
+    );
+
+    await notifier.clearSyncQueue();
+    debugPrint('GITHUB SYNC SUCCEEDED');
+  } catch (e, stackTrace) {
+    debugPrint('GITHUB SYNC FAILED: $e');
+    debugPrint('$stackTrace');
+  }
+}
+
 class QuickNoteScreen extends ConsumerStatefulWidget {
   const QuickNoteScreen({super.key});
 
@@ -90,6 +135,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   late final TextEditingController _titleController;
   late final TextEditingController _bodyController;
   bool _isNoteLocked = false;
+  bool _isBackupEnabled = false;
 
   @override
   void initState() {
@@ -119,7 +165,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     });
   }
 
-  /// Internal data purge helper execution block
   void _executeWipeSequence() {
     final currentItems = ref.read(localDatabaseProvider);
     final targetsToPurge = currentItems.where((item) => item.type == 'encrypted_note').toList();
@@ -129,7 +174,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     }
   }
 
-  /// Evaluates current lockout conditions based on progressive throttling configuration rules
   String? _checkLockoutViolation(Box settingsBox) {
     final int lockoutUntil = settingsBox.get('secure_lockout_until', defaultValue: 0);
     final int currentTime = DateTime.now().millisecondsSinceEpoch;
@@ -155,19 +199,60 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         showMissingKeyUiDialog(context, isDark);
         return;
       }
-      // Upgrade step execution placeholder targeting your Argon2id/PBKDF2 engine implementation
       finalPayload = await CryptoEngine.encryptProcess(cleanBody, globalPin);
     }
 
-    await ref.read(localDatabaseProvider.notifier).insertItem(
+    if (_isBackupEnabled) {
+      final settingsBox = Hive.box('rocen_settings_box');
+      final bool githubReady = settingsBox.get('github_access_encrypted') != null;
+
+      if (!githubReady) {
+        final isDark = ref.read(themeProvider);
+        showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
+        return;
+      }
+
+      if (cleanTitle.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('BACKUP REQUIRES A NOTE TITLE')),
+        );
+        return;
+      }
+
+      if (ref.read(localDatabaseProvider.notifier).titleExists(cleanTitle)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
+        );
+        return;
+      }
+    }
+
+    final bool inserted = await ref.read(localDatabaseProvider.notifier).insertItem(
       finalPayload,
       _isNoteLocked ? 'encrypted_note' : 'note',
       title: cleanTitle,
+      backupEnabled: _isBackupEnabled,
     );
+
+    if (!inserted) return;
+
+    if (_isBackupEnabled) {
+      final Map<String, String> backupFields = _isNoteLocked
+          ? CryptoEngine.splitForBackup(finalPayload)
+          : {'salt': '', 'cyphertext': cleanBody};
+
+      await attemptGithubSync(
+        ref,
+        upsert: {DatabaseNotifier.noteFileName(cleanTitle): jsonEncode(backupFields)},
+      );
+    }
 
     _titleController.clear();
     _bodyController.clear();
-    setState(() => _isNoteLocked = false);
+    setState(() {
+      _isNoteLocked = false;
+      _isBackupEnabled = false;
+    });
     FocusScope.of(context).unfocus();
 
     Hive.box('rocen_settings_box').put('last_active_crypto_pin_snapshot', globalPin);
@@ -196,7 +281,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            // Evaluates title string depending on context parameters dynamically
             String displayHeaderTitle = 'ENTER 6-DIGIT PIN';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
@@ -313,7 +397,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                           const SizedBox(width: 8),
                           InkWell(
                             onTap: () async {
-                              // Instant restriction catch if security timeline constraints are active
                               final activeLockCheck = _checkLockoutViolation(settingsBox);
                               if (activeLockCheck != null) {
                                 setDialogState(() {
@@ -322,11 +405,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                 return;
                               }
 
-                              // Updated validation check against your new high-entropy storage validation matrix
                               final bool isPinValid = await CryptoEngine.verifyPin(pinVerifyController.text, globalPin);
 
                               if (isPinValid) {
-                                // Reset sequential metrics upon clearance validation complete
                                 await settingsBox.put('secure_failed_attempts', 0);
                                 await settingsBox.put('secure_lockout_until', 0);
 
@@ -346,13 +427,13 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                     content: rawContent,
                                     type: item.type,
                                     timestamp: item.timestamp,
+                                    backupEnabled: item.backupEnabled,
                                   );
                                   _navigateToEdit(context, unpackedItem);
                                 } else {
                                   _revealEncryptedNotePayload(item, globalPin, isDark);
                                 }
                               } else {
-                                // Dynamic Throttling Progression Engine implementation
                                 int attempts = settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1;
                                 await settingsBox.put('secure_failed_attempts', attempts);
 
@@ -364,7 +445,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                 } else if (attempts == 10) {
                                   penaltyDurationSeconds = 60;
                                 } else if (attempts == 15) {
-                                  penaltyDurationSeconds = 1800; // 30 mins
+                                  penaltyDurationSeconds = 1800;
                                 } else if (attempts > 15) {
                                   flagWipeConditionTriggered = true;
                                 }
@@ -489,6 +570,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             content: decryptedContent,
                             type: item.type,
                             timestamp: item.timestamp,
+                            backupEnabled: item.backupEnabled,
                           );
                           _navigateToEdit(context, unpackedItem);
                         },
@@ -565,9 +647,10 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                           Container(width: 0.8, height: 40, color: theme.borderColor),
                           Expanded(
                             child: InkWell(
-                              onTap: () {
-                                ref.read(localDatabaseProvider.notifier).deleteItem(id);
-                                Navigator.pop(context);
+                              onTap: () async {
+                                await ref.read(localDatabaseProvider.notifier).deleteItem(id);
+                                if (context.mounted) Navigator.pop(context);
+                                unawaited(attemptGithubSync(ref));
                               },
                               child: Container(
                                 height: 40,
@@ -672,35 +755,70 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                GestureDetector(
-                  onTap: () {
-                    final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
-                    if (globalPin == null || globalPin.isEmpty) {
-                      showMissingKeyUiDialog(context, isDark);
-                    } else {
-                      setState(() => _isNoteLocked = !_isNoteLocked);
-                    }
-                  },
-                  behavior: HitTestBehavior.opaque,
-                  child: Row(
-                    children: [
-                      Icon(
-                        _isNoteLocked ? Icons.lock : Icons.lock_open,
-                        size: 14,
-                        color: _isNoteLocked ? theme.textMain : theme.textSub,
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
+                        if (globalPin == null || globalPin.isEmpty) {
+                          showMissingKeyUiDialog(context, isDark);
+                        } else {
+                          setState(() => _isNoteLocked = !_isNoteLocked);
+                        }
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Row(
+                        children: [
+                          Icon(
+                            _isNoteLocked ? Icons.lock : Icons.lock_open,
+                            size: 14,
+                            color: _isNoteLocked ? theme.textMain : theme.textSub,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'ENCRYPTION',
+                            style: TextStyle(
+                              color: _isNoteLocked ? theme.textMain : theme.textSub,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.02,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _isNoteLocked ? 'ENCRYPTED LOG PIPELINE ACTIVE' : 'STANDARD TEXT DEPLOYMENT',
-                        style: TextStyle(
-                          color: _isNoteLocked ? theme.textMain : theme.textSub,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.02,
-                        ),
+                    ),
+                    const SizedBox(width: 14),
+                    GestureDetector(
+                      onTap: () {
+                        final bool githubReady = Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
+                        if (!githubReady) {
+                          showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
+                        } else {
+                          setState(() => _isBackupEnabled = !_isBackupEnabled);
+                        }
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Row(
+                        children: [
+                          Icon(
+                            _isBackupEnabled ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+                            size: 14,
+                            color: _isBackupEnabled ? theme.textMain : theme.textSub,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'BACKUP',
+                            style: TextStyle(
+                              color: _isBackupEnabled ? theme.textMain : theme.textSub,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.02,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
                 TextButton(
                   onPressed: _compileAndSaveNote,
@@ -936,6 +1054,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   late final TextEditingController _titleController;
   late final TextEditingController _bodyController;
   bool _isNoteLocked = false;
+  bool _isBackupEnabled = false;
   Timer? _debounceTimer;
 
   @override
@@ -944,6 +1063,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     _titleController = TextEditingController(text: widget.item.title);
     _bodyController = TextEditingController(text: widget.item.content);
     _isNoteLocked = widget.item.type == 'encrypted_note';
+    _isBackupEnabled = widget.item.backupEnabled;
 
     _titleController.addListener(_onTextChanged);
     _bodyController.addListener(_onTextChanged);
@@ -983,6 +1103,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
       widget.item.id,
       contentToPersist,
       title: _titleController.text.trim(),
+      backupEnabled: _isBackupEnabled,
     );
   }
 
@@ -998,6 +1119,36 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
       });
       await _dynamicSave();
     }
+  }
+
+  void _toggleBackup() async {
+    final bool githubReady = Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
+    final isDark = ref.read(themeProvider);
+
+    if (!githubReady) {
+      showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
+      return;
+    }
+
+    if (!_isBackupEnabled) {
+      if (_titleController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('BACKUP REQUIRES A NOTE TITLE')),
+        );
+        return;
+      }
+      if (ref.read(localDatabaseProvider.notifier).titleExists(_titleController.text.trim(), excludingId: widget.item.id)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
+        );
+        return;
+      }
+    }
+
+    setState(() {
+      _isBackupEnabled = !_isBackupEnabled;
+    });
+    await _dynamicSave();
   }
 
   @override
@@ -1033,32 +1184,81 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
               ),
               onPressed: _toggleLock,
             ),
+            IconButton(
+              icon: Icon(
+                _isBackupEnabled ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+                color: theme.textMain,
+                size: 20,
+              ),
+              onPressed: _toggleBackup,
+            ),
             TextButton(
               onPressed: () async {
                 _debounceTimer?.cancel();
-                String contentToPersist = _bodyController.text.trim();
+                final String rawBody = _bodyController.text.trim();
+                final String cleanTitle = _titleController.text.trim();
                 final bool originalIsLocked = widget.item.type == 'encrypted_note';
+                String contentToPersist = rawBody;
+                final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
 
                 if (_isNoteLocked) {
-                  final String? pin = Hive.box('rocen_settings_box').get('system_crypto_pin');
-                  if (pin != null && pin.isNotEmpty) {
-                    contentToPersist = await CryptoEngine.encryptProcess(contentToPersist, pin);
+                  if (globalPin != null && globalPin.isNotEmpty) {
+                    contentToPersist = await CryptoEngine.encryptProcess(contentToPersist, globalPin);
                   }
                 }
 
+                if (_isBackupEnabled) {
+                  final bool githubReady = Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
+                  if (!githubReady) {
+                    final isDark = ref.read(themeProvider);
+                    showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
+                    return;
+                  }
+                  if (cleanTitle.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('BACKUP REQUIRES A NOTE TITLE')),
+                    );
+                    return;
+                  }
+                  if (ref.read(localDatabaseProvider.notifier).titleExists(cleanTitle, excludingId: widget.item.id)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
+                    );
+                    return;
+                  }
+                }
+
+                bool success;
                 if (_isNoteLocked == originalIsLocked) {
-                  await ref.read(localDatabaseProvider.notifier).updateItem(
+                  success = await ref.read(localDatabaseProvider.notifier).updateItem(
                     widget.item.id,
                     contentToPersist,
-                    title: _titleController.text.trim(),
+                    title: cleanTitle,
+                    backupEnabled: _isBackupEnabled,
                   );
                 } else {
                   await ref.read(localDatabaseProvider.notifier).deleteItem(widget.item.id);
-                  await ref.read(localDatabaseProvider.notifier).insertItem(
+                  success = await ref.read(localDatabaseProvider.notifier).insertItem(
                     contentToPersist,
                     _isNoteLocked ? 'encrypted_note' : 'note',
-                    title: _titleController.text.trim(),
+                    title: cleanTitle,
+                    backupEnabled: _isBackupEnabled,
                   );
+                }
+
+                if (!success) return;
+
+                if (_isBackupEnabled) {
+                  final Map<String, String> backupFields = _isNoteLocked
+                      ? CryptoEngine.splitForBackup(contentToPersist)
+                      : {'salt': '', 'cyphertext': rawBody};
+
+                  await attemptGithubSync(
+                    ref,
+                    upsert: {DatabaseNotifier.noteFileName(cleanTitle): jsonEncode(backupFields)},
+                  );
+                } else {
+                  unawaited(attemptGithubSync(ref));
                 }
 
                 if (context.mounted) Navigator.pop(context);
