@@ -124,6 +124,29 @@ Future<void> attemptGithubSync(WidgetRef ref, {Map<String, String>? upsert}) asy
   }
 }
 
+Future<bool> isTitleTakenRemotely(String title) async {
+  try {
+    final settingsBox = Hive.box('rocen_settings_box');
+    final String? globalPin = settingsBox.get('system_crypto_pin');
+    final String? accessBlob = settingsBox.get('github_access_encrypted');
+    if (globalPin == null || accessBlob == null) return false;
+
+    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+    if (accessJson == 'DECRYPTION FAULT') return false;
+
+    final Map<String, dynamic> access = jsonDecode(accessJson);
+    final String? token = access['token'] as String?;
+    final String? repo = access['repo'] as String?;
+    if (token == null || token.isEmpty || repo == null || repo.isEmpty) return false;
+
+    final service = GithubBackupService(token: token, repoPath: repo);
+    final remote = await service.fetchNoteFile(DatabaseNotifier.noteFileName(title));
+    return remote != null;
+  } catch (_) {
+    return false;
+  }
+}
+
 class QuickNoteScreen extends ConsumerStatefulWidget {
   const QuickNoteScreen({super.key});
 
@@ -136,20 +159,51 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   late final TextEditingController _bodyController;
   bool _isNoteLocked = false;
   bool _isBackupEnabled = false;
+  Timer? _titleCheckDebounce;
+  String? _titleCheckStatus;
 
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController();
     _bodyController = TextEditingController();
+    _titleController.addListener(_onTitleChanged);
     _enforceKeyRotationPurge();
   }
 
   @override
   void dispose() {
+    _titleCheckDebounce?.cancel();
+    _titleController.removeListener(_onTitleChanged);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
+  }
+
+  void _onTitleChanged() {
+    _titleCheckDebounce?.cancel();
+    final String title = _titleController.text.trim();
+
+    if (!_isBackupEnabled || title.isEmpty) {
+      if (_titleCheckStatus != null) setState(() => _titleCheckStatus = null);
+      return;
+    }
+
+    setState(() => _titleCheckStatus = 'FETCHING');
+
+    _titleCheckDebounce = Timer(const Duration(seconds: 5), () {
+      _performTitleCheck(title);
+    });
+  }
+
+  Future<void> _performTitleCheck(String title) async {
+    if (ref.read(localDatabaseProvider.notifier).titleExists(title)) {
+      if (mounted) setState(() => _titleCheckStatus = 'TAKEN');
+      return;
+    }
+
+    final bool taken = await isTitleTakenRemotely(title);
+    if (mounted) setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
   }
 
   void _enforceKeyRotationPurge() {
@@ -225,6 +279,14 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         );
         return;
       }
+
+      if (await isTitleTakenRemotely(cleanTitle)) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
+        );
+        return;
+      }
     }
 
     final bool inserted = await ref.read(localDatabaseProvider.notifier).insertItem(
@@ -239,7 +301,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     if (_isBackupEnabled) {
       final Map<String, String> backupFields = _isNoteLocked
           ? CryptoEngine.splitForBackup(finalPayload)
-          : {'salt': '', 'cyphertext': cleanBody};
+          : {'salt': '', 'nonce': '', 'cyphertext': cleanBody};
 
       await attemptGithubSync(
         ref,
@@ -259,6 +321,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   }
 
   void _promptForPinChallenge(CaptureItem item, bool isDark, {bool openForEditing = false}) {
+    final BuildContext screenContext = context;
     final settingsBox = Hive.box('rocen_settings_box');
     final String? globalPin = settingsBox.get('system_crypto_pin');
 
@@ -272,6 +335,21 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
 
     bool hasPinFailed = false;
     String? lockStringStatus = _checkLockoutViolation(settingsBox);
+    Timer? countdownTimer;
+
+    void ensureCountdownRunning(void Function(void Function()) setState_) {
+      if (lockStringStatus == null) return;
+      if (countdownTimer != null && countdownTimer!.isActive) return;
+      countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        final String? current = _checkLockoutViolation(settingsBox);
+        setState_(() {
+          lockStringStatus = current;
+        });
+        if (current == null) {
+          timer.cancel();
+        }
+      });
+    }
 
     showGeneralDialog(
       context: context,
@@ -281,11 +359,12 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            String displayHeaderTitle = 'ENTER 6-DIGIT PIN';
+            ensureCountdownRunning(setDialogState);
+            String displayHeaderTitle = 'ENTER 6-CHARACTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
-              displayHeaderTitle = 'INVALID KEY PIN - TRY AGAIN';
+              displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
             }
 
             return Center(
@@ -319,7 +398,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             opacity: 0.0,
                             child: TextField(
                               controller: pinVerifyController,
-                              keyboardType: TextInputType.number,
+                              keyboardType: TextInputType.text,
                               maxLength: 6,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
@@ -413,6 +492,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
 
                                 if (!context.mounted) return;
                                 Navigator.pop(context);
+                                if (!screenContext.mounted) return;
 
                                 if (openForEditing) {
                                   String rawContent = '';
@@ -429,7 +509,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                     timestamp: item.timestamp,
                                     backupEnabled: item.backupEnabled,
                                   );
-                                  _navigateToEdit(context, unpackedItem);
+                                  _navigateToEdit(screenContext, unpackedItem);
                                 } else {
                                   _revealEncryptedNotePayload(item, globalPin, isDark);
                                 }
@@ -437,18 +517,10 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                 int attempts = settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1;
                                 await settingsBox.put('secure_failed_attempts', attempts);
 
-                                int penaltyDurationSeconds = 0;
-                                bool flagWipeConditionTriggered = false;
-
-                                if (attempts == 5) {
-                                  penaltyDurationSeconds = 30;
-                                } else if (attempts == 10) {
-                                  penaltyDurationSeconds = 60;
-                                } else if (attempts == 15) {
-                                  penaltyDurationSeconds = 1800;
-                                } else if (attempts > 15) {
-                                  flagWipeConditionTriggered = true;
-                                }
+                                bool flagWipeConditionTriggered = attempts > 15;
+                                int penaltyDurationSeconds = flagWipeConditionTriggered
+                                    ? 0
+                                    : CryptoEngine.lockoutSecondsForAttempt(attempts);
 
                                 if (flagWipeConditionTriggered) {
                                   _executeWipeSequence();
@@ -492,7 +564,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
           },
         );
       },
-    );
+    ).then((_) => countdownTimer?.cancel());
   }
 
   void _revealEncryptedNotePayload(CaptureItem item, String pin, bool isDark) async {
@@ -504,6 +576,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     }
 
     if (!mounted) return;
+    final BuildContext screenContext = context;
     final theme = SecurityUiTheme(isDark);
     final formattedDate = _formatCustomDate(item.timestamp);
 
@@ -572,7 +645,8 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             timestamp: item.timestamp,
                             backupEnabled: item.backupEnabled,
                           );
-                          _navigateToEdit(context, unpackedItem);
+                          if (!screenContext.mounted) return;
+                          _navigateToEdit(screenContext, unpackedItem);
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -711,7 +785,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
           selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFFD5F0E0),
+          selectionHandleColor: const Color(0xFF5F0E0D),
         ),
       ),
       child: Padding(
@@ -722,18 +796,39 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
             Text('QUICK NOTES', style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
             const SizedBox(height: 16),
 
-            TextField(
-              controller: _titleController,
-              style: TextStyle(color: theme.textMain, fontSize: 14, fontWeight: FontWeight.w600),
-              cursorColor: theme.textMain,
-              decoration: InputDecoration(
-                hintText: 'Title',
-                hintStyle: TextStyle(color: theme.textSub, fontWeight: FontWeight.w400),
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                isDense: true,
-                contentPadding: const EdgeInsets.only(bottom: 8),
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _titleController,
+                    style: TextStyle(color: theme.textMain, fontSize: 14, fontWeight: FontWeight.w600),
+                    cursorColor: theme.textMain,
+                    decoration: InputDecoration(
+                      hintText: 'Title',
+                      hintStyle: TextStyle(color: theme.textSub, fontWeight: FontWeight.w400),
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.only(bottom: 8),
+                    ),
+                  ),
+                ),
+                if (_titleCheckStatus != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    _titleCheckStatus!,
+                    style: TextStyle(
+                      color: _titleCheckStatus == 'TAKEN'
+                          ? const Color(0xFF5F0E0D)
+                          : (_titleCheckStatus == 'FETCHING' ? theme.textSub : theme.textMain),
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.02,
+                    ),
+                  ),
+                ],
+              ],
             ),
             Container(height: 1.0, color: const Color(0xFFa6a6a6)),
             const SizedBox(height: 8),
@@ -795,6 +890,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                           showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
                         } else {
                           setState(() => _isBackupEnabled = !_isBackupEnabled);
+                          _onTitleChanged();
                         }
                       },
                       behavior: HitTestBehavior.opaque,
@@ -1056,6 +1152,8 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   bool _isNoteLocked = false;
   bool _isBackupEnabled = false;
   Timer? _debounceTimer;
+  Timer? _titleCheckDebounce;
+  String? _titleCheckStatus;
 
   @override
   void initState() {
@@ -1067,16 +1165,46 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
 
     _titleController.addListener(_onTextChanged);
     _bodyController.addListener(_onTextChanged);
+    _titleController.addListener(_onTitleUniquenessChanged);
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _titleCheckDebounce?.cancel();
     _titleController.removeListener(_onTextChanged);
     _bodyController.removeListener(_onTextChanged);
+    _titleController.removeListener(_onTitleUniquenessChanged);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
+  }
+
+  void _onTitleUniquenessChanged() {
+    _titleCheckDebounce?.cancel();
+    final String title = _titleController.text.trim();
+    final String originalTitle = widget.item.title.trim();
+
+    if (!_isBackupEnabled || title.isEmpty || title == originalTitle) {
+      if (_titleCheckStatus != null) setState(() => _titleCheckStatus = null);
+      return;
+    }
+
+    setState(() => _titleCheckStatus = 'FETCHING');
+
+    _titleCheckDebounce = Timer(const Duration(seconds: 5), () {
+      _performTitleCheck(title);
+    });
+  }
+
+  Future<void> _performTitleCheck(String title) async {
+    if (ref.read(localDatabaseProvider.notifier).titleExists(title, excludingId: widget.item.id)) {
+      if (mounted) setState(() => _titleCheckStatus = 'TAKEN');
+      return;
+    }
+
+    final bool taken = await isTitleTakenRemotely(title);
+    if (mounted) setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
   }
 
   void _onTextChanged() {
@@ -1148,6 +1276,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     setState(() {
       _isBackupEnabled = !_isBackupEnabled;
     });
+    _onTitleUniquenessChanged();
     await _dynamicSave();
   }
 
@@ -1226,6 +1355,13 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                     );
                     return;
                   }
+                  if (cleanTitle != widget.item.title.trim() && await isTitleTakenRemotely(cleanTitle)) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
+                    );
+                    return;
+                  }
                 }
 
                 bool success;
@@ -1251,7 +1387,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 if (_isBackupEnabled) {
                   final Map<String, String> backupFields = _isNoteLocked
                       ? CryptoEngine.splitForBackup(contentToPersist)
-                      : {'salt': '', 'cyphertext': rawBody};
+                      : {'salt': '', 'nonce': '', 'cyphertext': rawBody};
 
                   await attemptGithubSync(
                     ref,
@@ -1273,17 +1409,38 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
             padding: const EdgeInsets.all(24.0),
             child: Column(
               children: [
-                TextField(
-                  controller: _titleController,
-                  style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600),
-                  cursorColor: theme.textMain,
-                  decoration: InputDecoration(
-                    hintText: 'Title',
-                    hintStyle: TextStyle(color: theme.textSub, fontWeight: FontWeight.w400),
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    isDense: true,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _titleController,
+                        style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600),
+                        cursorColor: theme.textMain,
+                        decoration: InputDecoration(
+                          hintText: 'Title',
+                          hintStyle: TextStyle(color: theme.textSub, fontWeight: FontWeight.w400),
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    if (_titleCheckStatus != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        _titleCheckStatus!,
+                        style: TextStyle(
+                          color: _titleCheckStatus == 'TAKEN'
+                              ? const Color(0xFFEF4444)
+                              : (_titleCheckStatus == 'FETCHING' ? theme.textSub : theme.textMain),
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.02,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 Container(height: 0.8, color: theme.ruleBorder, margin: const EdgeInsets.symmetric(vertical: 12)),
                 Expanded(
