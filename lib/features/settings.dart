@@ -509,15 +509,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                                 try {
                                   final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
-                                  if (accessJson == 'DECRYPTION FAULT') return;
+                                  if (accessJson == 'DECRYPTION FAULT') {
+                                    if (screenContext.mounted) {
+                                      _showStatusDialog(screenContext, 'RESTORE ERROR', 'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD.');
+                                    }
+                                    return;
+                                  }
                                   final Map<String, dynamic> access = jsonDecode(accessJson);
                                   final String? token = access['token'] as String?;
                                   final String? repo = access['repo'] as String?;
-                                  if (token == null || repo == null) return;
+                                  if (token == null || repo == null) {
+                                    if (screenContext.mounted) {
+                                      _showStatusDialog(screenContext, 'RESTORE ERROR', 'STORED TOKEN OR REPOSITORY WAS EMPTY.');
+                                    }
+                                    return;
+                                  }
 
                                   if (!screenContext.mounted) return;
-                                  await _handlePostSaveGithubSync(screenContext, token, repo, rawPassword, globalPin);
-                                } catch (_) {
+                                  await _handlePostSaveGithubSync(screenContext, token, repo, rawPassword, globalPin, isExplicitRestore: true);
+                                } catch (e) {
+                                  if (screenContext.mounted) {
+                                    _showStatusDialog(screenContext, 'RESTORE ERROR', 'UNEXPECTED ERROR: $e');
+                                  }
                                 }
                               } else {
                                 int attempts = settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1;
@@ -1336,6 +1349,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             try {
               final service = GithubBackupService(token: access['token'], repoPath: access['repo']);
               await service.amendSync(upsertFiles: {'device_key.json': jsonEncode(rewrapped)}, message: 'password rotation');
+              await settingsBox.put('device_key_owned_repo', access['repo']);
             } catch (_) {
             }
           }
@@ -1775,10 +1789,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           onTap: () async {
                             final String token = tokenController.text.trim();
                             final String repo = repoController.text.trim();
-                            debugPrint('TOKEN DIALOG CONFIRM: tapped, token empty=${token.isEmpty}, repo="$repo"');
 
                             if (token.isEmpty || repo.isEmpty) {
-                              debugPrint('TOKEN DIALOG CONFIRM: token or repo empty, aborting');
                               Navigator.pop(context);
                               return;
                             }
@@ -1786,21 +1798,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             final String payload = jsonEncode({'token': token, 'repo': repo});
                             final String encrypted = await CryptoEngine.encryptProcess(payload, pinHash);
                             await settingsBox.put('github_access_encrypted', encrypted);
-                            debugPrint('TOKEN DIALOG CONFIRM: credentials stored locally');
 
-                            if (!context.mounted) {
-                              debugPrint('TOKEN DIALOG CONFIRM: dialog context unmounted before pop, aborting');
-                              return;
-                            }
+                            if (!context.mounted) return;
                             Navigator.pop(context);
 
-                            if (!screenContext.mounted) {
-                              debugPrint('TOKEN DIALOG CONFIRM: screenContext unmounted after pop, aborting sync call');
-                              return;
-                            }
-                            debugPrint('TOKEN DIALOG CONFIRM: calling _handlePostSaveGithubSync now');
+                            if (!screenContext.mounted) return;
                             await _handlePostSaveGithubSync(screenContext, token, repo, rawPassword, pinHash);
-                            debugPrint('TOKEN DIALOG CONFIRM: _handlePostSaveGithubSync returned');
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -1825,90 +1828,76 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       String token,
       String repo,
       String rawPassword,
-      String currentPinHash,
-      ) async {
-    debugPrint('POST-SAVE SYNC: starting, repo="$repo"');
+      String currentPinHash, {
+        bool isExplicitRestore = false,
+      }) async {
     final service = GithubBackupService(token: token, repoPath: repo);
     final settingsBox = Hive.box(_boxName);
 
-    Map<String, dynamic>? existingDeviceKey;
-    try {
-      existingDeviceKey = await service.fetchNoteFile('device_key.json');
-      debugPrint('POST-SAVE SYNC: device_key.json fetch result: ${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}');
-    } catch (e) {
-      debugPrint('POST-SAVE SYNC: device_key.json fetch THREW: $e');
-      existingDeviceKey = null;
+    final List<String> syncLog = [];
+    void log(String msg) {
+      syncLog.add(msg);
+      debugPrint(msg);
     }
 
-    List<String> filesToImport = [];
-    try {
-      filesToImport = await service.listNoteFiles();
-      debugPrint('POST-SAVE SYNC: listNoteFiles returned: $filesToImport');
-    } catch (e) {
-      debugPrint('POST-SAVE SYNC: listNoteFiles THREW: $e');
-      filesToImport = [];
+    Future<void> finish(String title) async {
+      if (isExplicitRestore && context.mounted) {
+        _showDiagnosticLogDialog(context, title, syncLog);
+      }
     }
-    filesToImport.remove('device_key.json');
 
-    String effectivePinHash = currentPinHash;
-
-    if (existingDeviceKey == null) {
-      debugPrint('POST-SAVE SYNC: taking FIRST-TIME SETUP branch (generate mnemonic + push device_key.json)');
-      final Uint8List authSalt = CryptoEngine.extractAuthSalt(currentPinHash);
-      final List<String> mnemonicWords = await CryptoEngine.generateMnemonic();
-      debugPrint('POST-SAVE SYNC: mnemonic generated (${mnemonicWords.length} words)');
-      final Map<String, String> wrapped = await CryptoEngine.wrapDeviceKey(
-        authSaltBytes: authSalt,
-        password: rawPassword,
-        mnemonicWords: mnemonicWords,
-      );
-      debugPrint('POST-SAVE SYNC: device key wrapped, attempting push');
-
+    try {
+      Map<String, dynamic>? existingDeviceKey;
       try {
-        await service.amendSync(
-          upsertFiles: {'device_key.json': jsonEncode(wrapped)},
-          message: 'device key setup',
+        existingDeviceKey = await service.fetchNoteFile('device_key.json');
+        log('device_key.json fetch: ${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}');
+      } catch (e) {
+        log('device_key.json fetch THREW: $e');
+        existingDeviceKey = null;
+      }
+
+      String effectivePinHash = currentPinHash;
+      final String? ownedRepo = settingsBox.get('device_key_owned_repo');
+      final bool ownsThisRepoKey = ownedRepo == repo;
+      log('ownedRepo locally = "$ownedRepo", this repo = "$repo", ownsThisRepoKey = $ownsThisRepoKey');
+
+      if (existingDeviceKey == null) {
+        log('taking first-time-setup branch');
+        final Uint8List authSalt = CryptoEngine.extractAuthSalt(currentPinHash);
+        final List<String> mnemonicWords = await CryptoEngine.generateMnemonic();
+        final Map<String, String> wrapped = await CryptoEngine.wrapDeviceKey(
+          authSaltBytes: authSalt,
+          password: rawPassword,
+          mnemonicWords: mnemonicWords,
         );
-        debugPrint('POST-SAVE SYNC: device_key.json PUSH SUCCEEDED');
-      } catch (e) {
-        debugPrint('POST-SAVE SYNC: device_key.json PUSH FAILED: $e');
-      }
 
-      debugPrint('POST-SAVE SYNC: context.mounted = ${context.mounted}, about to show mnemonic dialog');
-      if (context.mounted) {
-        await _showMnemonicDisplayDialog(context, mnemonicWords);
-        debugPrint('POST-SAVE SYNC: mnemonic dialog closed');
-      } else {
-        debugPrint('POST-SAVE SYNC: SKIPPED mnemonic dialog because context was unmounted');
-      }
-    } else if (filesToImport.isNotEmpty) {
-      debugPrint('POST-SAVE SYNC: device_key.json already exists, probing same-device match');
-      bool sameDeviceKey = false;
-      try {
-        final Map<String, dynamic>? probe = await service.fetchNoteFile(filesToImport.first);
-        if (probe != null) {
-          final String salt = (probe['salt'] ?? '').toString();
-          final String nonce = (probe['nonce'] ?? '').toString();
-          final String cyphertext = (probe['cyphertext'] ?? '').toString();
-
-          final String testResult = salt.isEmpty
-              ? cyphertext
-              : await CryptoEngine.decryptProcess(
-            CryptoEngine.mergeFromBackup(salt, nonce, cyphertext),
-            currentPinHash,
+        try {
+          await service.amendSync(
+            upsertFiles: {'device_key.json': jsonEncode(wrapped)},
+            message: 'device key setup',
           );
-          sameDeviceKey = testResult != 'DECRYPTION FAULT';
+          await settingsBox.put('device_key_owned_repo', repo);
+          log('device_key.json push succeeded');
+        } catch (e) {
+          log('device_key.json push FAILED: $e');
         }
-      } catch (e) {
-        debugPrint('POST-SAVE SYNC: same-device probe THREW: $e');
-        sameDeviceKey = false;
-      }
-      debugPrint('POST-SAVE SYNC: sameDeviceKey = $sameDeviceKey');
 
-      if (!sameDeviceKey) {
-        if (!context.mounted) return;
+        if (context.mounted) {
+          await _showMnemonicDisplayDialog(context, mnemonicWords);
+        }
+      } else if (!ownsThisRepoKey) {
+        log('taking recovery branch - prompting for 12 words');
+        if (!context.mounted) {
+          log('context unmounted before mnemonic prompt, aborting');
+          return;
+        }
         final List<String>? recoveredWords = await _promptMnemonicRecovery(context);
-        if (recoveredWords == null) return;
+        if (recoveredWords == null) {
+          log('mnemonic dialog closed without submitting (cancelled or dismissed)');
+          await finish('RECOVERY CANCELLED');
+          return;
+        }
+        log('12 words submitted, attempting unwrap');
 
         final Uint8List? unwrapped = await CryptoEngine.unwrapDeviceKey(
           wrapSalt: (existingDeviceKey['wrapSalt'] ?? '').toString(),
@@ -1919,71 +1908,171 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
 
         if (unwrapped == null) {
-          if (context.mounted) {
-            _showStatusDialog(context, 'RECOVERY FAILED', 'THE RECOVERY PHRASE DID NOT MATCH THIS BACKUP.');
-          }
+          log('unwrapDeviceKey returned null - password or mnemonic did not match this backup');
+          await finish('RECOVERY FAILED');
           return;
         }
 
         effectivePinHash = await CryptoEngine.hashPinWithSalt(rawPassword, unwrapped);
         await settingsBox.put('system_crypto_pin', effectivePinHash);
         await settingsBox.put('last_active_crypto_pin_snapshot', effectivePinHash);
+        await settingsBox.put('device_key_owned_repo', repo);
+
+        final String reEncryptedAccess = await CryptoEngine.encryptProcess(
+          jsonEncode({'token': token, 'repo': repo}),
+          effectivePinHash,
+        );
+        await settingsBox.put('github_access_encrypted', reEncryptedAccess);
+        log('re-encrypted stored GitHub credentials under the recovered key');
+        log('unwrap succeeded, local key updated');
+      } else {
+        log('this device already owns this repo key, skipping recovery');
       }
-    } else {
-      debugPrint('POST-SAVE SYNC: device_key.json exists but repo has no note files - nothing to probe or import');
-    }
 
-    if (filesToImport.isEmpty) {
-      debugPrint('POST-SAVE SYNC: filesToImport empty, stopping here');
-      return;
-    }
-
-    final notifier = ref.read(localDatabaseProvider.notifier);
-    final List<CaptureItem> currentBackedUpItems =
-    ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
-    for (final item in currentBackedUpItems) {
-      await notifier.deleteItem(item.id);
-    }
-    await notifier.clearSyncQueue();
-
-    int importedCount = 0;
-    for (final fileName in filesToImport) {
+      List<String> filesToImport = [];
       try {
-        final Map<String, dynamic>? data = await service.fetchNoteFile(fileName);
-        if (data == null) continue;
-
-        final String salt = (data['salt'] ?? '').toString();
-        final String nonce = (data['nonce'] ?? '').toString();
-        final String cyphertext = (data['cyphertext'] ?? '').toString();
-        final String title = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
-
-        String content;
-        String type;
-        if (salt.isEmpty) {
-          content = cyphertext;
-          type = 'note';
-        } else {
-          content = await CryptoEngine.decryptProcess(
-            CryptoEngine.mergeFromBackup(salt, nonce, cyphertext),
-            effectivePinHash,
-          );
-          if (content == 'DECRYPTION FAULT') continue;
-          type = 'encrypted_note';
-        }
-
-        final bool inserted = await notifier.insertItem(content, type, title: title, backupEnabled: true);
-        if (inserted) importedCount++;
-      } catch (_) {
-        continue;
+        filesToImport = await service.listNoteFiles();
+        log('listNoteFiles returned: $filesToImport');
+      } catch (e) {
+        log('listNoteFiles THREW: $e');
+        filesToImport = [];
       }
-    }
+      filesToImport.remove('device_key.json');
+      log('filesToImport after removing device_key.json: $filesToImport');
 
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('IMPORTED $importedCount NOTE(S) FROM BACKUP')),
-      );
+      if (filesToImport.isEmpty) {
+        log('nothing to import, stopping');
+        if (isExplicitRestore && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('BACKUP SIGN-IN SUCCESSFUL (0 NOTES FOUND)')),
+          );
+        }
+        await finish('RESTORE RESULT');
+        return;
+      }
+
+      final notifier = ref.read(localDatabaseProvider.notifier);
+      final List<CaptureItem> currentBackedUpItems =
+      ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
+      log('deleting ${currentBackedUpItems.length} existing local backup-enabled notes first');
+      for (final item in currentBackedUpItems) {
+        await notifier.deleteItem(item.id);
+      }
+      await notifier.clearSyncQueue();
+
+      int importedCount = 0;
+      for (final fileName in filesToImport) {
+        try {
+          final Map<String, dynamic>? data = await service.fetchNoteFile(fileName);
+          log('fetched "$fileName" -> ${data == null ? "NULL" : "OK"}');
+          if (data == null) continue;
+
+          final String salt = (data['salt'] ?? '').toString();
+          final String nonce = (data['nonce'] ?? '').toString();
+          final String cyphertext = (data['cyphertext'] ?? '').toString();
+          final String title = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
+
+          String content;
+          String type;
+          if (salt.isEmpty) {
+            content = cyphertext;
+            type = 'note';
+            log('"$fileName" is plaintext, title="$title"');
+          } else {
+            content = await CryptoEngine.decryptProcess(
+              CryptoEngine.mergeFromBackup(salt, nonce, cyphertext),
+              effectivePinHash,
+            );
+            log('"$fileName" decrypt: ${content == "DECRYPTION FAULT" ? "FAULT" : "OK"}');
+            if (content == 'DECRYPTION FAULT') continue;
+            type = 'encrypted_note';
+          }
+
+          final bool inserted = await notifier.insertItem(content, type, title: title, backupEnabled: true);
+          log('insertItem "$title" -> $inserted');
+          if (inserted) importedCount++;
+        } catch (e) {
+          log('exception processing "$fileName": $e');
+          continue;
+        }
+      }
+
+      log('done, importedCount=$importedCount');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('IMPORTED $importedCount NOTE(S) FROM BACKUP')),
+        );
+      }
+      await finish('RESTORE RESULT');
+    } catch (e, stackTrace) {
+      syncLog.add('UNCAUGHT EXCEPTION: $e');
+      syncLog.add('STACK TRACE: $stackTrace');
+      debugPrint('SYNC UNCAUGHT EXCEPTION: $e');
+      debugPrint('$stackTrace');
+      if (isExplicitRestore && context.mounted) {
+        _showDiagnosticLogDialog(context, 'SYNC ERROR', syncLog);
+      }
     }
   }
+
+  void _showDiagnosticLogDialog(BuildContext context, String title, List<String> log) {
+    final isDark = ref.read(themeProvider);
+    final theme = SettingsUiTheme(isDark);
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 330,
+              constraints: const BoxConstraints(maxHeight: 480),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05)),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Text(
+                        log.isEmpty ? 'NO LOG ENTRIES' : log.join('\n'),
+                        style: TextStyle(color: theme.textSub, fontSize: 10, height: 1.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(color: theme.textMain),
+                      child: Text(
+                        'CLOSE',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   Future<void> _showMnemonicDisplayDialog(BuildContext context, List<String> words) async {
     final isDark = ref.read(themeProvider);
@@ -2105,7 +2194,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final result = await showGeneralDialog<List<String>?>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {

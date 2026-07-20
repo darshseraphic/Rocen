@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart' show debugPrint;
 
 class GithubSyncException implements Exception {
   final String message;
@@ -131,14 +132,22 @@ class GithubBackupService {
   }
 
   Future<List<String>> listNoteFiles() async {
-    final res = await http.get(_api('/contents/'), headers: _headers);
+    final res = await http.get(_api('/contents'), headers: _headers);
+    debugPrint('LIST NOTE FILES: status=${res.statusCode}');
     if (res.statusCode == 404) return [];
     if (res.statusCode != 200) throw GithubSyncException('DIRECTORY LIST FAILED: ${res.statusCode} ${res.body}');
 
-    final data = jsonDecode(res.body) as List;
-    return data
+    final dynamic decoded = jsonDecode(res.body);
+    if (decoded is! List) {
+      debugPrint('LIST NOTE FILES: response was not a List, raw body: ${res.body}');
+      return [];
+    }
+
+    final List<String> names = decoded
         .where((e) => e['type'] == 'file' && (e['name'] as String).endsWith('.json'))
         .map((e) => e['name'] as String)
         .toList();
+    debugPrint('LIST NOTE FILES: found ${decoded.length} entries total, ${names.length} .json files: $names');
+    return names;
   }
 }
