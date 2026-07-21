@@ -80,6 +80,60 @@ void showMissingKeyUiDialog(BuildContext context, bool isDark, {String? message}
   );
 }
 
+void showAcknowledgeDialog(BuildContext context, bool isDark, String title, String message) {
+  final theme = SecurityUiTheme(isDark);
+  showGeneralDialog(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Dismiss',
+    barrierColor: Colors.transparent,
+    pageBuilder: (context, anim1, anim2) {
+      return Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 280,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: theme.dialogBg,
+              border: Border.all(color: theme.borderColor, width: 0.8),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  message,
+                  style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, letterSpacing: 0.02, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 24),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: InkWell(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: theme.borderColor, width: 0.8),
+                      ),
+                      child: Text('ACKNOWLEDGE', style: TextStyle(color: theme.textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                )
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
 Future<void> attemptGithubSync(WidgetRef ref, {Map<String, String>? upsert}) async {
   try {
     final settingsBox = Hive.box('rocen_settings_box');
@@ -244,12 +298,12 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final String cleanTitle = _titleController.text.trim();
     if (cleanBody.isEmpty) return;
 
+    final isDark = ref.read(themeProvider);
     String finalPayload = cleanBody;
     final String? globalPin = Hive.box('rocen_settings_box').get('system_crypto_pin');
 
     if (_isNoteLocked) {
       if (globalPin == null || globalPin.isEmpty) {
-        final isDark = ref.read(themeProvider);
         showMissingKeyUiDialog(context, isDark);
         return;
       }
@@ -261,30 +315,23 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       final bool githubReady = settingsBox.get('github_access_encrypted') != null;
 
       if (!githubReady) {
-        final isDark = ref.read(themeProvider);
         showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
         return;
       }
 
       if (cleanTitle.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('BACKUP REQUIRES A NOTE TITLE')),
-        );
+        showAcknowledgeDialog(context, isDark, 'BACKUP REQUIRES A TITLE', 'ENTER A NOTE TITLE BEFORE ENABLING BACKUP.');
         return;
       }
 
       if (ref.read(localDatabaseProvider.notifier).titleExists(cleanTitle)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
-        );
+        showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
         return;
       }
 
       if (await isTitleTakenRemotely(cleanTitle)) {
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
-        );
+        showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
         return;
       }
     }
@@ -528,9 +575,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   await settingsBox.put('secure_lockout_until', 0);
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('SECURITY COMPLIANCE AUDIT: DATA PURGED PERMANENTLY.')),
-                                  );
+                                  showAcknowledgeDialog(context, isDark, 'SECURITY COMPLIANCE AUDIT', 'DATA PURGED PERMANENTLY.');
                                   return;
                                 }
 
@@ -785,7 +830,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
           selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFF5F0E0D),
+          selectionHandleColor: const Color(0xFFD5F0E0),
         ),
       ),
       child: Padding(
@@ -820,7 +865,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                     _titleCheckStatus!,
                     style: TextStyle(
                       color: _titleCheckStatus == 'TAKEN'
-                          ? const Color(0xFF5F0E0D)
+                          ? const Color(0xFFEF4444)
                           : (_titleCheckStatus == 'FETCHING' ? theme.textSub : theme.textMain),
                       fontSize: 9,
                       fontWeight: FontWeight.bold,
@@ -1260,15 +1305,11 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
 
     if (!_isBackupEnabled) {
       if (_titleController.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('BACKUP REQUIRES A NOTE TITLE')),
-        );
+        showAcknowledgeDialog(context, isDark, 'BACKUP REQUIRES A TITLE', 'ENTER A NOTE TITLE BEFORE ENABLING BACKUP.');
         return;
       }
       if (ref.read(localDatabaseProvider.notifier).titleExists(_titleController.text.trim(), excludingId: widget.item.id)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
-        );
+        showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
         return;
       }
     }
@@ -1337,29 +1378,23 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 }
 
                 if (_isBackupEnabled) {
+                  final isDark = ref.read(themeProvider);
                   final bool githubReady = Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
                   if (!githubReady) {
-                    final isDark = ref.read(themeProvider);
                     showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
                     return;
                   }
                   if (cleanTitle.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('BACKUP REQUIRES A NOTE TITLE')),
-                    );
+                    showAcknowledgeDialog(context, isDark, 'BACKUP REQUIRES A TITLE', 'ENTER A NOTE TITLE BEFORE ENABLING BACKUP.');
                     return;
                   }
                   if (ref.read(localDatabaseProvider.notifier).titleExists(cleanTitle, excludingId: widget.item.id)) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
-                    );
+                    showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
                     return;
                   }
                   if (cleanTitle != widget.item.title.trim() && await isTitleTakenRemotely(cleanTitle)) {
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('TITLE ALREADY TAKEN - CHOOSE ANOTHER')),
-                    );
+                    showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
                     return;
                   }
                 }

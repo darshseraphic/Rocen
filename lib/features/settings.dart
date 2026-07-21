@@ -98,6 +98,67 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  void _showAcknowledgeDialog(BuildContext context, String title, String message) {
+    final isDark = ref.read(themeProvider);
+    final theme = SettingsUiTheme(isDark);
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    message,
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                  ),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(color: theme.textMain),
+                        child: Text(
+                          'ACKNOWLEDGE',
+                          style: TextStyle(
+                            color: isDark ? Colors.black : Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showStatusDialog(BuildContext context, String title, String message) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
@@ -548,9 +609,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  ScaffoldMessenger.of(screenContext).showSnackBar(
-                                    const SnackBar(content: Text('SECURITY COMPLIANCE AUDIT: DATA PURGED PERMANENTLY.')),
-                                  );
+                                  _showAcknowledgeDialog(screenContext, 'SECURITY COMPLIANCE AUDIT', 'DATA PURGED PERMANENTLY.');
                                   return;
                                 }
 
@@ -1155,9 +1214,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  ScaffoldMessenger.of(screenContext).showSnackBar(
-                                    const SnackBar(content: Text('SECURITY COMPLIANCE AUDIT: DATA PURGED PERMANENTLY.')),
-                                  );
+                                  _showAcknowledgeDialog(screenContext, 'SECURITY COMPLIANCE AUDIT', 'DATA PURGED PERMANENTLY.');
                                   return;
                                 }
 
@@ -1359,9 +1416,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PASSWORD UPDATED')),
-      );
+      _showAcknowledgeDialog(context, 'PASSWORD UPDATED', 'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.');
     }
   }
 
@@ -1640,9 +1695,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  ScaffoldMessenger.of(screenContext).showSnackBar(
-                                    const SnackBar(content: Text('SECURITY COMPLIANCE AUDIT: DATA PURGED PERMANENTLY.')),
-                                  );
+                                  _showAcknowledgeDialog(screenContext, 'SECURITY COMPLIANCE AUDIT', 'DATA PURGED PERMANENTLY.');
                                   return;
                                 }
 
@@ -1943,9 +1996,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (filesToImport.isEmpty) {
         log('nothing to import, stopping');
         if (isExplicitRestore && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('BACKUP SIGN-IN SUCCESSFUL (0 NOTES FOUND)')),
-          );
+          _showAcknowledgeDialog(context, 'BACKUP SIGN-IN SUCCESSFUL', '0 NOTES FOUND IN THIS BACKUP.');
         }
         await finish('RESTORE RESULT');
         return;
@@ -1999,9 +2050,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       log('done, importedCount=$importedCount');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('IMPORTED $importedCount NOTE(S) FROM BACKUP')),
-        );
+        _showAcknowledgeDialog(context, 'RESTORE COMPLETE', 'IMPORTED $importedCount NOTE(S) FROM BACKUP.');
       }
       await finish('RESTORE RESULT');
     } catch (e, stackTrace) {
@@ -2177,7 +2226,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settingsBox = Hive.box(_boxName);
 
     final List<TextEditingController> controllers = List.generate(12, (_) => TextEditingController());
+    final List<FocusNode> focusNodes = List.generate(12, (_) => FocusNode());
     String? lockStringStatus = _checkMnemonicLockout(settingsBox);
+    bool showValidationError = false;
     Timer? countdownTimer;
 
     void ensureCountdownRunning(void Function(void Function()) setState_) {
@@ -2219,7 +2270,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: theme.dialogBg,
-                      border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+                      border: Border.all(
+                        color: showValidationError ? const Color(0xFF5F0E0D) : theme.dialogBorderColor,
+                        width: showValidationError ? 1.4 : 0.8,
+                      ),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -2235,9 +2289,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        _mnemonicFieldRow(controllers.sublist(0, 6), 0, theme, setDialogState, !locked),
+                        _mnemonicFieldRow(
+                          controllers.sublist(0, 6),
+                          focusNodes.sublist(0, 6),
+                          0,
+                          theme,
+                          setDialogState,
+                          !locked,
+                          onFieldEdited: () => showValidationError = false,
+                        ),
                         const SizedBox(height: 8),
-                        _mnemonicFieldRow(controllers.sublist(6, 12), 6, theme, setDialogState, !locked),
+                        _mnemonicFieldRow(
+                          controllers.sublist(6, 12),
+                          focusNodes.sublist(6, 12),
+                          6,
+                          theme,
+                          setDialogState,
+                          !locked,
+                          onFieldEdited: () => showValidationError = false,
+                        ),
                         const SizedBox(height: 24),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.end,
@@ -2263,7 +2333,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 }
 
                                 final List<String> words = controllers.map((c) => c.text.trim().toLowerCase()).toList();
-                                final bool allKnown = words.every((w) => CryptoEngine.isValidMnemonicWord(w));
+                                final bool allFilled = words.every((w) => w.isNotEmpty);
+                                final bool allKnown = allFilled && words.every((w) => CryptoEngine.isValidMnemonicWord(w));
                                 final bool checksumOk = allKnown && await CryptoEngine.validateMnemonicChecksum(words);
 
                                 if (checksumOk) {
@@ -2282,6 +2353,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     );
                                   }
                                   setDialogState(() {
+                                    showValidationError = true;
                                     lockStringStatus = _checkMnemonicLockout(settingsBox);
                                   });
                                 }
@@ -2309,30 +2381,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     countdownTimer?.cancel();
+    for (final node in focusNodes) {
+      node.dispose();
+    }
     return result;
   }
 
   Widget _mnemonicFieldRow(
       List<TextEditingController> rowControllers,
+      List<FocusNode> rowFocusNodes,
       int startIndex,
       SettingsUiTheme theme,
       void Function(void Function()) setDialogState,
-      bool enabled,
-      ) {
+      bool enabled, {
+        required void Function() onFieldEdited,
+      }) {
     return Row(
       children: List.generate(6, (i) {
         final TextEditingController controller = rowControllers[i];
+        final FocusNode focusNode = rowFocusNodes[i];
         final String word = controller.text.trim().toLowerCase();
         final bool isUnknown = word.isNotEmpty && !CryptoEngine.isValidMnemonicWord(word);
+        final int globalIndex = startIndex + i;
 
         return Expanded(
           child: Container(
             margin: EdgeInsets.only(right: i == 5 ? 0 : 4),
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               enabled: enabled,
               contextMenuBuilder: (context, state) => const SizedBox.shrink(),
-              onChanged: (_) => setDialogState(() {}),
+              onChanged: (value) {
+                onFieldEdited();
+                if (value.contains(' ')) {
+                  final String stripped = value.replaceAll(' ', '');
+                  controller.text = stripped;
+                  controller.selection = TextSelection.collapsed(offset: stripped.length);
+                  if (globalIndex < 11) {
+                    focusNode.nextFocus();
+                  } else {
+                    focusNode.unfocus();
+                  }
+                }
+                setDialogState(() {});
+              },
               style: TextStyle(color: theme.textMain, fontSize: 10),
               decoration: InputDecoration(
                 isDense: true,
