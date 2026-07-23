@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -178,6 +179,178 @@ Future<void> attemptGithubSync(WidgetRef ref, {Map<String, String>? upsert}) asy
   }
 }
 
+Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
+  try {
+    final settingsBox = Hive.box('rocen_settings_box');
+    final String? globalPin = settingsBox.get('system_crypto_pin');
+    final String? accessBlob = settingsBox.get('github_access_encrypted');
+    if (globalPin == null || accessBlob == null) {
+      return 'GITHUB CREDENTIALS ARE MISSING LOCALLY.';
+    }
+
+    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+    if (accessJson == 'DECRYPTION FAULT') {
+      return 'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD. RE-ENTER YOUR TOKEN IN GITHUB TOKEN STORE.';
+    }
+    final Map<String, dynamic> access = jsonDecode(accessJson);
+    final String? token = access['token'] as String?;
+    final String? repo = access['repo'] as String?;
+    if (token == null || repo == null) {
+      return 'STORED TOKEN OR REPOSITORY WAS EMPTY.';
+    }
+
+    final backedUpItems = ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
+
+    final Map<String, String> upsertFiles = {};
+    for (final item in backedUpItems) {
+      try {
+        final Map<String, String> fields;
+        if (item.type == 'encrypted_note') {
+          fields = CryptoEngine.splitForBackup(item.content);
+        } else {
+          fields = {'salt': '', 'nonce': '', 'cyphertext': item.content};
+        }
+        upsertFiles[DatabaseNotifier.noteFileName(item.title)] = jsonEncode(fields);
+      } catch (e) {
+        debugPrint('SKIPPING CORRUPTED NOTE "${item.title}" DURING PUSH: $e');
+        continue;
+      }
+    }
+
+    final service = GithubBackupService(token: token, repoPath: repo);
+    final notifier = ref.read(localDatabaseProvider.notifier);
+    final queue = await notifier.getSyncQueue();
+
+    await service.amendSync(
+      upsertFiles: upsertFiles,
+      deleteFiles: List<String>.from(queue['deleted']),
+      renameFiles: Map<String, String>.from(queue['renamed']),
+      message: 'refresh sync',
+    );
+
+    await notifier.clearSyncQueue();
+    return null;
+  } catch (e) {
+    return 'GITHUB PUSH FAILED: $e';
+  }
+}
+
+Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
+  try {
+    final settingsBox = Hive.box('rocen_settings_box');
+    final String? globalPin = settingsBox.get('system_crypto_pin');
+    final String? accessBlob = settingsBox.get('github_access_encrypted');
+    if (globalPin == null || accessBlob == null) return null;
+
+    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+    if (accessJson == 'DECRYPTION FAULT') return null;
+    final Map<String, dynamic> access = jsonDecode(accessJson);
+    final String? token = access['token'] as String?;
+    final String? repo = access['repo'] as String?;
+    if (token == null || repo == null) return null;
+
+    final service = GithubBackupService(token: token, repoPath: repo);
+    final List<String> filesToImport = await service.listNoteFiles();
+    filesToImport.remove('device_key.json');
+
+    final notifier = ref.read(localDatabaseProvider.notifier);
+    final currentBackedUpItems = ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
+    for (final item in currentBackedUpItems) {
+      await notifier.deleteItem(item.id);
+    }
+    await notifier.clearSyncQueue();
+
+    int importedCount = 0;
+    for (final fileName in filesToImport) {
+      try {
+        final Map<String, dynamic>? data = await service.fetchNoteFile(fileName);
+        if (data == null) continue;
+
+        final String salt = (data['salt'] ?? '').toString();
+        final String nonce = (data['nonce'] ?? '').toString();
+        final String cyphertext = (data['cyphertext'] ?? '').toString();
+        final String title = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
+
+        String content;
+        String type;
+        if (salt.isEmpty) {
+          content = cyphertext;
+          type = 'note';
+        } else {
+          final String merged = CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
+          final String testDecrypt = await CryptoEngine.decryptProcess(merged, globalPin);
+          if (testDecrypt == 'DECRYPTION FAULT') continue;
+          content = merged;
+          type = 'encrypted_note';
+        }
+
+        final bool inserted = await notifier.insertItem(content, type, title: title, backupEnabled: true);
+        if (inserted) importedCount++;
+      } catch (_) {
+        continue;
+      }
+    }
+    return importedCount;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> performRefresh(WidgetRef ref, BuildContext context, {bool silent = false}) async {
+  try {
+    final isDark = ref.read(themeProvider);
+
+    final bool online = await hasInternetConnection();
+    if (!online) {
+      if (!silent && context.mounted) {
+        showAcknowledgeDialog(context, isDark, 'YOU ARE OFFLINE', 'CONNECT TO THE INTERNET TO REFRESH YOUR BACKUP.');
+      }
+      return;
+    }
+
+    final settingsBox = Hive.box('rocen_settings_box');
+    final bool configured = settingsBox.get('system_crypto_pin') != null && settingsBox.get('github_access_encrypted') != null;
+    if (!configured) {
+      if (!silent && context.mounted) {
+        showAcknowledgeDialog(context, isDark, 'GITHUB NOT CONFIGURED', 'SET UP THE GITHUB TOKEN STORE IN SETTINGS FIRST.');
+      }
+      return;
+    }
+
+    final String? pushError = await pushAllBackupEnabledNotes(ref);
+    if (pushError != null) {
+      if (!silent && context.mounted) {
+        showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', pushError);
+      }
+      return;
+    }
+
+    final int? imported = await pullAndReconcileNotes(ref);
+    if (!silent && context.mounted) {
+      if (imported == null) {
+        showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', 'COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
+      } else {
+        showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE ($imported FROM BACKUP).');
+      }
+    }
+  } catch (e) {
+    debugPrint('REFRESH UNCAUGHT EXCEPTION: $e');
+    if (!silent && context.mounted) {
+      final isDark = ref.read(themeProvider);
+      showAcknowledgeDialog(context, isDark, 'REFRESH ERROR', 'UNEXPECTED ERROR: $e');
+    }
+  }
+}
+
+Future<bool> hasInternetConnection() async {
+  try {
+    final result = await InternetAddress.lookup('github.com').timeout(const Duration(seconds: 4));
+    return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+  } catch (_) {
+    return false;
+  }
+}
+
 Future<bool> isTitleTakenRemotely(String title) async {
   try {
     final settingsBox = Hive.box('rocen_settings_box');
@@ -223,6 +396,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     _bodyController = TextEditingController();
     _titleController.addListener(_onTitleChanged);
     _enforceKeyRotationPurge();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) performRefresh(ref, context, silent: true);
+    });
   }
 
   @override
@@ -838,7 +1014,28 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('QUICK NOTES', style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('QUICK NOTES', style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
+                GestureDetector(
+                  onTap: () => performRefresh(ref, context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(color: theme.textMain),
+                    child: Text(
+                      'REFRESH',
+                      style: TextStyle(
+                        color: isDark ? Colors.black : Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.05,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
 
             Row(
@@ -929,14 +1126,29 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                     ),
                     const SizedBox(width: 14),
                     GestureDetector(
-                      onTap: () {
+                      onTap: () async {
                         final bool githubReady = Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
                         if (!githubReady) {
                           showMissingKeyUiDialog(context, isDark, message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
-                        } else {
-                          setState(() => _isBackupEnabled = !_isBackupEnabled);
-                          _onTitleChanged();
+                          return;
                         }
+
+                        if (!_isBackupEnabled) {
+                          final bool online = await hasInternetConnection();
+                          if (!online) {
+                            if (!context.mounted) return;
+                            showAcknowledgeDialog(
+                              context,
+                              isDark,
+                              'YOU ARE OFFLINE',
+                              "BACKUP CAN'T BE ENABLED. YOU CAN SAVE IT LOCALLY AND AFTER THE INTERNET COMES BACK, GO IN THE NOTE YOU WANT TO UPLOAD AND ENABLE THE BACKUP FROM THE NOTE.",
+                            );
+                            return;
+                          }
+                        }
+
+                        setState(() => _isBackupEnabled = !_isBackupEnabled);
+                        _onTitleChanged();
                       },
                       behavior: HitTestBehavior.opaque,
                       child: Row(
@@ -1310,6 +1522,18 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
       }
       if (ref.read(localDatabaseProvider.notifier).titleExists(_titleController.text.trim(), excludingId: widget.item.id)) {
         showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
+        return;
+      }
+
+      final bool online = await hasInternetConnection();
+      if (!online) {
+        if (!context.mounted) return;
+        showAcknowledgeDialog(
+          context,
+          isDark,
+          'YOU ARE OFFLINE',
+          "BACKUP CAN'T BE ENABLED. YOU CAN SAVE IT LOCALLY AND AFTER THE INTERNET COMES BACK, GO IN THE NOTE YOU WANT TO UPLOAD AND ENABLE THE BACKUP FROM THE NOTE.",
+        );
         return;
       }
     }

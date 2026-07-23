@@ -244,13 +244,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       final Map<String, String> upsertFiles = {};
       for (final item in backedUpItems) {
-        final Map<String, String> fields;
-        if (item.type == 'encrypted_note') {
-          fields = CryptoEngine.splitForBackup(item.content);
-        } else {
-          fields = {'salt': '', 'nonce': '', 'cyphertext': item.content};
+        try {
+          final Map<String, String> fields;
+          if (item.type == 'encrypted_note') {
+            fields = CryptoEngine.splitForBackup(item.content);
+          } else {
+            fields = {'salt': '', 'nonce': '', 'cyphertext': item.content};
+          }
+          upsertFiles[DatabaseNotifier.noteFileName(item.title)] = jsonEncode(fields);
+        } catch (e) {
+          debugPrint('SKIPPING CORRUPTED NOTE "${item.title}" DURING EXPORT PUSH: $e');
+          continue;
         }
-        upsertFiles[DatabaseNotifier.noteFileName(item.title)] = jsonEncode(fields);
       }
 
       final service = GithubBackupService(token: token, repoPath: repo);
@@ -1856,7 +1861,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             Navigator.pop(context);
 
                             if (!screenContext.mounted) return;
-                            await _handlePostSaveGithubSync(screenContext, token, repo, rawPassword, pinHash);
+                            await _handlePostSaveGithubSync(screenContext, token, repo, rawPassword, pinHash, pullAfterKeySetup: false);
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -1883,6 +1888,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       String rawPassword,
       String currentPinHash, {
         bool isExplicitRestore = false,
+        bool pullAfterKeySetup = true,
       }) async {
     final service = GithubBackupService(token: token, repoPath: repo);
     final settingsBox = Hive.box(_boxName);
@@ -1982,6 +1988,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         log('this device already owns this repo key, skipping recovery');
       }
 
+      if (!pullAfterKeySetup) {
+        log('pullAfterKeySetup is false, stopping after key setup/recovery');
+        return;
+      }
+
       List<String> filesToImport = [];
       try {
         filesToImport = await service.listNoteFiles();
@@ -2030,12 +2041,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             type = 'note';
             log('"$fileName" is plaintext, title="$title"');
           } else {
-            content = await CryptoEngine.decryptProcess(
-              CryptoEngine.mergeFromBackup(salt, nonce, cyphertext),
-              effectivePinHash,
-            );
-            log('"$fileName" decrypt: ${content == "DECRYPTION FAULT" ? "FAULT" : "OK"}');
-            if (content == 'DECRYPTION FAULT') continue;
+            final String merged = CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
+            final String testDecrypt = await CryptoEngine.decryptProcess(merged, effectivePinHash);
+            log('"$fileName" decrypt: ${testDecrypt == "DECRYPTION FAULT" ? "FAULT" : "OK"}');
+            if (testDecrypt == 'DECRYPTION FAULT') continue;
+            content = merged;
             type = 'encrypted_note';
           }
 
@@ -2507,7 +2517,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                             Expanded(
                               child: ListView(
-                                physics: const BouncingScrollPhysics(),
+                                physics: const ClampingScrollPhysics(),
                                 padding: const EdgeInsets.all(24.0),
                                 children: children,
                               ),
@@ -2609,7 +2619,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       backgroundColor: isDark ? Colors.black : Colors.white,
       body: SafeArea(
         child: ListView(
-          physics: const BouncingScrollPhysics(),
+          physics: const ClampingScrollPhysics(),
           padding: const EdgeInsets.all(24.0),
           children: [
             Text(

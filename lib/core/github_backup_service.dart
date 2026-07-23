@@ -54,7 +54,14 @@ class GithubBackupService {
     if (baseTreeSha != null) body['base_tree'] = baseTreeSha;
 
     final res = await http.post(_api('/git/trees'), headers: _headers, body: jsonEncode(body));
-    if (res.statusCode != 201) throw GithubSyncException('TREE CREATE FAILED: ${res.statusCode} ${res.body}');
+    if (res.statusCode != 201) {
+      final String entrySummary = entries
+          .map((e) => '${e['path']}:${e['sha'] == null ? 'DELETE' : 'UPSERT'}')
+          .join(', ');
+      throw GithubSyncException(
+        'TREE CREATE FAILED: ${res.statusCode} ${res.body} | base_tree=$baseTreeSha | entries=[$entrySummary]',
+      );
+    }
     return (jsonDecode(res.body) as Map<String, dynamic>)['sha'] as String;
   }
 
@@ -94,13 +101,25 @@ class GithubBackupService {
   }) async {
     if (upsertFiles.isEmpty && deleteFiles.isEmpty && renameFiles.isEmpty) return;
 
+    final currentRefSha = await _getBranchRefSha();
+    final String? baseTreeSha = currentRefSha != null ? await _getCommitTreeSha(currentRefSha) : null;
+
+    final Set<String> existingFiles = (currentRefSha != null && (deleteFiles.isNotEmpty || renameFiles.isNotEmpty))
+        ? (await listNoteFiles()).toSet()
+        : <String>{};
+
+    final List<String> validDeleteFiles = deleteFiles.where(existingFiles.contains).toList();
+    final Map<String, String> validRenameFiles = Map.fromEntries(
+      renameFiles.entries.where((entry) => existingFiles.contains(entry.key)),
+    );
+
     final List<Map<String, dynamic>> entries = [];
 
-    for (final path in deleteFiles) {
+    for (final path in validDeleteFiles) {
       entries.add({'path': path, 'mode': '100644', 'type': 'blob', 'sha': null});
     }
 
-    renameFiles.forEach((oldPath, newPath) {
+    validRenameFiles.forEach((oldPath, newPath) {
       entries.add({'path': oldPath, 'mode': '100644', 'type': 'blob', 'sha': null});
       if (!upsertFiles.containsKey(newPath)) {
         entries.add({'path': newPath, 'mode': '100644', 'type': 'blob', 'content': upsertFiles[newPath] ?? ''});
@@ -111,8 +130,7 @@ class GithubBackupService {
       entries.add({'path': path, 'mode': '100644', 'type': 'blob', 'content': content});
     });
 
-    final currentRefSha = await _getBranchRefSha();
-    final String? baseTreeSha = currentRefSha != null ? await _getCommitTreeSha(currentRefSha) : null;
+    if (entries.isEmpty) return;
 
     final newTreeSha = await _createTree(entries: entries, baseTreeSha: baseTreeSha);
     final newCommitSha = await _createRootCommit(treeSha: newTreeSha, message: message);
