@@ -255,12 +255,15 @@ Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
 
     final notifier = ref.read(localDatabaseProvider.notifier);
     final currentBackedUpItems = ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
-    for (final item in currentBackedUpItems) {
-      await notifier.deleteItem(item.id);
-    }
+
+    final Map<String, CaptureItem> localByTitle = {
+      for (final item in currentBackedUpItems) item.title.trim().toLowerCase(): item,
+    };
+    final Set<String> matchedIds = {};
+
     await notifier.clearSyncQueue();
 
-    int importedCount = 0;
+    int syncedCount = 0;
     for (final fileName in filesToImport) {
       try {
         final Map<String, dynamic>? data = await service.fetchNoteFile(fileName);
@@ -284,24 +287,45 @@ Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
           type = 'encrypted_note';
         }
 
-        final bool inserted = await notifier.insertItem(content, type, title: title, backupEnabled: true);
-        if (inserted) importedCount++;
+        final CaptureItem? existing = localByTitle[title.trim().toLowerCase()];
+        if (existing != null && !matchedIds.contains(existing.id)) {
+          matchedIds.add(existing.id);
+          final bool updated = await notifier.updateItem(existing.id, content, title: title, backupEnabled: true);
+          if (updated) syncedCount++;
+        } else {
+          final bool inserted = await notifier.insertItem(content, type, title: title, backupEnabled: true);
+          if (inserted) syncedCount++;
+        }
       } catch (_) {
         continue;
       }
     }
-    return importedCount;
+
+    for (final item in currentBackedUpItems) {
+      if (!matchedIds.contains(item.id)) {
+        await notifier.deleteItem(item.id);
+      }
+    }
+
+    return syncedCount;
   } catch (_) {
     return null;
   }
 }
 
-Future<void> performRefresh(WidgetRef ref, BuildContext context, {bool silent = false}) async {
+Future<void> performRefresh(
+    WidgetRef ref,
+    BuildContext context, {
+      bool silent = false,
+      void Function(String phase)? onPhase,
+    }) async {
   try {
     final isDark = ref.read(themeProvider);
+    onPhase?.call('FETCH');
 
     final bool online = await hasInternetConnection();
     if (!online) {
+      onPhase?.call('REFRESH');
       if (!silent && context.mounted) {
         showAcknowledgeDialog(context, isDark, 'YOU ARE OFFLINE', 'CONNECT TO THE INTERNET TO REFRESH YOUR BACKUP.');
       }
@@ -311,6 +335,7 @@ Future<void> performRefresh(WidgetRef ref, BuildContext context, {bool silent = 
     final settingsBox = Hive.box('rocen_settings_box');
     final bool configured = settingsBox.get('system_crypto_pin') != null && settingsBox.get('github_access_encrypted') != null;
     if (!configured) {
+      onPhase?.call('REFRESH');
       if (!silent && context.mounted) {
         showAcknowledgeDialog(context, isDark, 'GITHUB NOT CONFIGURED', 'SET UP THE GITHUB TOKEN STORE IN SETTINGS FIRST.');
       }
@@ -319,22 +344,33 @@ Future<void> performRefresh(WidgetRef ref, BuildContext context, {bool silent = 
 
     final String? pushError = await pushAllBackupEnabledNotes(ref);
     if (pushError != null) {
+      onPhase?.call('REFRESH');
       if (!silent && context.mounted) {
         showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', pushError);
       }
       return;
     }
 
+    onPhase?.call('DECRYPT');
     final int? imported = await pullAndReconcileNotes(ref);
-    if (!silent && context.mounted) {
-      if (imported == null) {
+
+    if (imported == null) {
+      onPhase?.call('REFRESH');
+      if (!silent && context.mounted) {
         showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', 'COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
-      } else {
-        showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE ($imported FROM BACKUP).');
       }
+      return;
     }
+
+    onPhase?.call('SUCCESS');
+    if (!silent && context.mounted) {
+      showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE ($imported FROM BACKUP).');
+    }
+    await Future.delayed(const Duration(milliseconds: 900));
+    onPhase?.call('REFRESH');
   } catch (e) {
     debugPrint('REFRESH UNCAUGHT EXCEPTION: $e');
+    onPhase?.call('REFRESH');
     if (!silent && context.mounted) {
       final isDark = ref.read(themeProvider);
       showAcknowledgeDialog(context, isDark, 'REFRESH ERROR', 'UNEXPECTED ERROR: $e');
@@ -388,6 +424,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   bool _isBackupEnabled = false;
   Timer? _titleCheckDebounce;
   String? _titleCheckStatus;
+  String _refreshLabel = 'REFRESH';
 
   @override
   void initState() {
@@ -397,7 +434,16 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     _titleController.addListener(_onTitleChanged);
     _enforceKeyRotationPurge();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) performRefresh(ref, context, silent: true);
+      if (mounted) {
+        performRefresh(
+          ref,
+          context,
+          silent: true,
+          onPhase: (phase) {
+            if (mounted) setState(() => _refreshLabel = phase);
+          },
+        );
+      }
     });
   }
 
@@ -1006,7 +1052,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
           selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFFD5F0E0),
+          selectionHandleColor: const Color(0xFF5F0E0D),
         ),
       ),
       child: Padding(
@@ -1019,12 +1065,20 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
               children: [
                 Text('QUICK NOTES', style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02)),
                 GestureDetector(
-                  onTap: () => performRefresh(ref, context),
+                  onTap: _refreshLabel != 'REFRESH'
+                      ? null
+                      : () => performRefresh(
+                    ref,
+                    context,
+                    onPhase: (phase) {
+                      if (mounted) setState(() => _refreshLabel = phase);
+                    },
+                  ),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(color: theme.textMain),
                     child: Text(
-                      'REFRESH',
+                      _refreshLabel,
                       style: TextStyle(
                         color: isDark ? Colors.black : Colors.white,
                         fontSize: 10,
