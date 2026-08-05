@@ -54,163 +54,168 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: ref.read(themeProvider) ? const Color(0xFF000000) : Colors.white,
+      barrierColor: Colors.transparent, // Prevents background from dimming/graying out
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.zero, // Strict 90-degree corners for sheet
       ),
       builder: (context) {
         final isDark = ref.watch(themeProvider);
         final textMain = isDark ? Colors.white : Colors.black;
         final textSub = isDark ? const Color(0xFF737373) : const Color(0xFF888888);
 
-        // Input block set to black in dark theme with dynamic border to keep it visible
-        final inputBg = isDark ? Colors.black : const Color(0xFFF5F5F5);
-        final inputBorder = isDark ? const Color(0xFF2D2D2D) : Colors.transparent;
+        // Input block background set strictly to pure white in light mode and pure black in dark mode
+        final inputBg = isDark ? Colors.black : Colors.white;
+        final inputBorder = isDark ? Colors.white : Colors.black;
         final ruleBorder = isDark ? const Color(0xFF2D2D2D) : const Color(0xFFE5E5E5);
+        final popUpBorder = isDark ? Colors.white : Colors.black;
 
         // Commit button styling
         final btnBgColor = isDark ? Colors.white : Colors.black;
         final btnTextColor = isDark ? Colors.black : Colors.white;
 
-        // Custom Text Selection Theme applied exclusively to the pop-up
-        return Theme(
-          data: Theme.of(context).copyWith(
-            textSelectionTheme: TextSelectionThemeData(
-              // Pure white with opacity for dark mode, pure black with opacity for light mode
-              selectionColor: isDark
-                  ? const Color(0xFFFFFFFF).withOpacity(0.4)
-                  : const Color(0xFF000000).withOpacity(0.2),
-              // Pure white for dark mode, pure black for light mode
-              selectionHandleColor: isDark
-                  ? const Color(0xFFFFFFFF)
-                  : const Color(0xFF000000),
-              cursorColor: isDark
-                  ? const Color(0xFFFFFFFF)
-                  : const Color(0xFF000000),
-            ),
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? Colors.black : Colors.white,
+            border: Border.all(color: popUpBorder, width: 1.0), // High-contrast border around the pop-up sheet
           ),
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-              left: 24.0,
-              right: 24.0,
-              top: 24.0,
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              textSelectionTheme: TextSelectionThemeData(
+                selectionColor: isDark
+                    ? const Color(0xFFFFFFFF).withOpacity(0.4)
+                    : const Color(0xFF000000).withOpacity(0.2),
+                selectionHandleColor: isDark
+                    ? const Color(0xFFFFFFFF)
+                    : const Color(0xFF000000),
+                cursorColor: isDark
+                    ? const Color(0xFFFFFFFF)
+                    : const Color(0xFF000000),
+              ),
             ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '$monthName $day — COMMIT BLOCK',
-                        style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.close, size: 18, color: textSub),
-                        onPressed: () => Navigator.pop(context),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      )
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Divider(color: ruleBorder, height: 1, thickness: 0.8),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: titleController,
-                    style: TextStyle(color: textMain, fontSize: 14),
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: 'Title',
-                      hintStyle: TextStyle(color: textSub, fontSize: 14),
-                      filled: true,
-                      fillColor: inputBg,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: isDark ? BorderSide(color: inputBorder, width: 1) : BorderSide.none
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: isDark ? BorderSide(color: inputBorder, width: 1) : BorderSide.none
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: isDark ? BorderSide(color: inputBorder, width: 1) : BorderSide.none
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 24.0,
+                right: 24.0,
+                top: 24.0,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '$monthName $day — COMMIT BLOCK',
+                          style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.close, size: 18, color: textSub),
+                          onPressed: () => Navigator.pop(context),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        )
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Divider(color: ruleBorder, height: 1, thickness: 0.8),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: titleController,
+                      style: TextStyle(color: textMain, fontSize: 14),
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Title',
+                        hintStyle: TextStyle(color: textSub, fontSize: 14),
+                        filled: true,
+                        fillColor: inputBg,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: descController,
-                    style: TextStyle(color: textMain, fontSize: 14),
-                    maxLines: 4,
-                    decoration: InputDecoration(
-                      hintText: 'Description',
-                      hintStyle: TextStyle(color: textSub, fontSize: 14),
-                      filled: true,
-                      fillColor: inputBg,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: isDark ? BorderSide(color: inputBorder, width: 1) : BorderSide.none
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: isDark ? BorderSide(color: inputBorder, width: 1) : BorderSide.none
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: isDark ? BorderSide(color: inputBorder, width: 1) : BorderSide.none
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descController,
+                      style: TextStyle(color: textMain, fontSize: 14),
+                      maxLines: 4,
+                      decoration: InputDecoration(
+                        hintText: 'Description',
+                        hintStyle: TextStyle(color: textSub, fontSize: 14),
+                        filled: true,
+                        fillColor: inputBg,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.zero,
+                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: btnBgColor,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      ),
-                      onPressed: () async {
-                        final title = titleController.text.trim();
-                        final description = descController.text.trim();
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: btnBgColor,
+                          elevation: 0,
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        ),
+                        onPressed: () async {
+                          final title = titleController.text.trim();
+                          final description = descController.text.trim();
 
-                        if (title.isNotEmpty || description.isNotEmpty) {
-                          if (existingItem != null) {
-                            await ref.read(localDatabaseProvider.notifier).updateItem(
-                              existingItem.id,
-                              description,
-                              title: title,
-                            );
+                          if (title.isNotEmpty || description.isNotEmpty) {
+                            if (existingItem != null) {
+                              await ref.read(localDatabaseProvider.notifier).updateItem(
+                                existingItem.id,
+                                description,
+                                title: title,
+                              );
+                            } else {
+                              await ref.read(localDatabaseProvider.notifier).insertItem(
+                                description,
+                                'matrix_event:$dateKey',
+                                title: title,
+                              );
+                            }
                           } else {
-                            await ref.read(localDatabaseProvider.notifier).insertItem(
-                              description,
-                              'matrix_event:$dateKey',
-                              title: title,
-                            );
+                            if (existingItem != null) {
+                              await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
+                            }
                           }
-                        } else {
-                          if (existingItem != null) {
-                            await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
-                          }
-                        }
-                        if (context.mounted) Navigator.pop(context);
-                      },
-                      child: Text(
-                        'COMMIT',
-                        style: TextStyle(color: btnTextColor, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: Text(
+                          'COMMIT',
+                          style: TextStyle(color: btnTextColor, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
+                    const SizedBox(height: 24),
+                  ],
+                ),
               ),
             ),
           ),
@@ -344,7 +349,6 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                               Color textColor;
 
                               if (hasEvent) {
-                                // Reverted matrix event boxes to dark red
                                 boxColor = const Color(0xFF5F0E0D);
                                 borderColor = const Color(0xFF5F0E0D);
                                 textColor = Colors.white;
@@ -423,7 +427,7 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                     width: 7,
                     height: 7,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF5F0E0D), // Reverted the UPCOMING legend color to dark red
+                      color: const Color(0xFF5F0E0D),
                       borderRadius: BorderRadius.circular(1.0),
                     ),
                   ),

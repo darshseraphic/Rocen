@@ -29,7 +29,7 @@ class SettingsUiTheme {
     mainBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
     dialogBorderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
     dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
-    containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
+    containerBg = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
   }
 }
 
@@ -2690,7 +2690,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       height: 24,
                       padding: const EdgeInsets.all(3),
                       decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFDDDDDD),
+                        color: isDark ? const Color(0xFF0C0F0A) : const Color(0xFFF8F8FF),
                         border: Border.all(color: theme.mainBorderColor, width: 0.8),
                       ),
                       child: AnimatedAlign(

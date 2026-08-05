@@ -121,9 +121,9 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
     final tasks = ref.watch(todoProvider);
 
     final textMain = isDark ? Colors.white : Colors.black;
-    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
+    final textSub = isDark ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
     final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    final containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
+    final containerBg = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
