@@ -2,7 +2,17 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/services.dart' show MethodChannel;
+import 'package:hive_flutter/hive_flutter.dart';
 import 'bip39.dart';
+import 'crypto_isolate.dart';
+import 'secure_bytes.dart';
+
+class KdfParams {
+  final int memory;
+  final int iterations;
+  const KdfParams(this.memory, this.iterations);
+}
 
 class CryptoEngine {
 
@@ -13,45 +23,62 @@ class CryptoEngine {
   static const int _nonceLength = 12;
   static const int _macLength = 16;
 
-  static final AesGcm _cipher = AesGcm.with256bits();
+  static const MethodChannel _integrityChannel = MethodChannel('com.darshseraphic.rocen/device_integrity');
+  static bool? _cachedRootStatus;
 
-  static final Argon2id _authKdf = Argon2id(
-    memory: 65536,
-    iterations: 3,
-    parallelism: 1,
-    hashLength: 32,
-  );
+  static const MethodChannel _secureKeystoreChannel = MethodChannel('com.darshseraphic.rocen/secure_keystore');
 
-  static final Argon2id _encryptionKdf = Argon2id(
-    memory: 65536,
-    iterations: 3,
-    parallelism: 1,
-    hashLength: 32,
-  );
+  static Future<bool> isDeviceRooted() async {
+    if (_cachedRootStatus != null) return _cachedRootStatus!;
+    try {
+      final bool result = (await _integrityChannel.invokeMethod<bool>('isRooted')) ?? false;
+      _cachedRootStatus = result;
+      return result;
+    } catch (_) {
+      _cachedRootStatus = false;
+      return false;
+    }
+  }
+
+  static bool _isHardened() {
+    try {
+      final box = Hive.box('rocen_settings_box');
+      return box.get('kdf_hardened', defaultValue: false) as bool;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static const KdfParams _authParamsStandard = KdfParams(65536, 3);
+  static const KdfParams _authParamsHardened = KdfParams(131072, 4);
+  static const KdfParams _encryptionParamsStandard = KdfParams(65536, 3);
+  static const KdfParams _encryptionParamsHardened = KdfParams(131072, 4);
+
+  static KdfParams get _activeAuthParams => _isHardened() ? _authParamsHardened : _authParamsStandard;
+  static KdfParams get _activeEncryptionParams => _isHardened() ? _encryptionParamsHardened : _encryptionParamsStandard;
 
   static Future<String> encryptProcess(String input, String pin) async {
-    final inputBytes = utf8.encode(input);
+    final Uint8List inputBytes = Uint8List.fromList(utf8.encode(input));
 
     final salt = _generateSecureBytes(_saltLength);
     final nonce = _generateSecureBytes(_nonceLength);
+    final params = _activeEncryptionParams;
 
-    final secretKey = await _encryptionKdf.deriveKeyFromPassword(
+    final result = await CryptoIsolate.deriveAndEncrypt(
+      plaintext: inputBytes,
       password: pin,
-      nonce: salt,
-    );
-
-    final secretBox = await _cipher.encrypt(
-      inputBytes,
-      secretKey: secretKey,
+      salt: salt,
       nonce: nonce,
+      memory: params.memory,
+      iterations: params.iterations,
     );
 
     final package = BytesBuilder()
       ..add([_version])
       ..add(salt)
-      ..add(secretBox.nonce)
-      ..add(secretBox.mac.bytes)
-      ..add(secretBox.cipherText);
+      ..add(nonce)
+      ..add(result['mac']!)
+      ..add(result['cipherText']!);
 
     return base64.encode(package.toBytes());
   }
@@ -77,23 +104,30 @@ class CryptoEngine {
 
       final cipherText = bytes.sublist(offset);
 
-      final secretKey = await _encryptionKdf.deriveKeyFromPassword(
+      final params = _activeEncryptionParams;
+      final clear = await CryptoIsolate.deriveAndDecrypt(
+        cipherText: Uint8List.fromList(cipherText),
+        mac: Uint8List.fromList(mac),
         password: pin,
-        nonce: salt,
+        salt: Uint8List.fromList(salt),
+        nonce: Uint8List.fromList(nonce),
+        memory: params.memory,
+        iterations: params.iterations,
       );
 
-      final box = SecretBox(
-        cipherText,
-        nonce: nonce,
-        mac: Mac(mac),
-      );
+      if (clear == null) return 'DECRYPTION FAULT';
 
-      final clear = await _cipher.decrypt(
-        box,
-        secretKey: secretKey,
-      );
-
-      return utf8.decode(clear);
+      // clear already crossed the isolate boundary as a normal (unpinned)
+      // copy - that hop is outside our control (Isolate.run's own message
+      // passing). We minimize exposure by immediately moving it into
+      // RAM-locked memory and wiping the transient copy right away.
+      final pinnedClear = SecureBytes(clear);
+      zeroBytes(clear);
+      try {
+        return utf8.decode(pinnedClear.bytes);
+      } finally {
+        pinnedClear.zero();
+      }
     } catch (_) {
       return 'DECRYPTION FAULT';
     }
@@ -135,7 +169,7 @@ class CryptoEngine {
     return base64.encode(fullPackage.toBytes());
   }
 
-  static const int passwordLength = 6;
+  static const int passwordLength = 8;
 
   static int lockoutSecondsForAttempt(int attemptNumber) {
     if (attemptNumber < 2) return 0;
@@ -149,7 +183,7 @@ class CryptoEngine {
   static final RegExp _lowerPattern = RegExp(r'[a-z]');
   static final RegExp _digitPattern = RegExp(r'[0-9]');
   static final RegExp _symbolPattern = RegExp(r'[!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]');
-  static final RegExp _fullAllowedPattern = RegExp(r'^[A-Za-z0-9!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]{6}$');
+  static final RegExp _fullAllowedPattern = RegExp(r'^[A-Za-z0-9!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]{8}$');
 
   static bool isPasswordComplexityValid(String candidate) {
     if (!_fullAllowedPattern.hasMatch(candidate)) return false;
@@ -176,12 +210,13 @@ class CryptoEngine {
   }
 
   static Future<String> hashPinWithSalt(String pin, Uint8List saltBytes) async {
-    final key = await _authKdf.deriveKeyFromPassword(
+    final params = _activeAuthParams;
+    final hash = await CryptoIsolate.deriveKeyBytes(
       password: pin,
-      nonce: saltBytes,
+      salt: saltBytes,
+      memory: params.memory,
+      iterations: params.iterations,
     );
-
-    final hash = await key.extractBytes();
 
     return '${base64.encode(saltBytes)}:${base64.encode(hash)}';
   }
@@ -194,14 +229,24 @@ class CryptoEngine {
       final salt = base64.decode(parts[0]);
       final expected = base64.decode(parts[1]);
 
-      final key = await _authKdf.deriveKeyFromPassword(
+      final params = _activeAuthParams;
+      final actual = await CryptoIsolate.deriveKeyBytes(
         password: pin,
-        nonce: salt,
+        salt: Uint8List.fromList(salt),
+        memory: params.memory,
+        iterations: params.iterations,
       );
 
-      final actual = await key.extractBytes();
-
-      return _constantTimeEquals(actual, expected);
+      final pinnedActual = SecureBytes(actual);
+      final pinnedExpected = SecureBytes(expected);
+      zeroBytes(actual);
+      zeroBytes(expected);
+      try {
+        return _constantTimeEquals(pinnedActual.bytes, pinnedExpected.bytes);
+      } finally {
+        pinnedActual.zero();
+        pinnedExpected.zero();
+      }
     } catch (_) {
       return false;
     }
@@ -209,6 +254,92 @@ class CryptoEngine {
 
   static Uint8List extractAuthSalt(String stored) {
     return base64.decode(stored.split(':')[0]);
+  }
+
+  // Wraps an already-encrypted or plaintext string with the device's
+  // StrongBox/TEE-backed AndroidKeyStore AES key, so it can no longer be
+  // read from local storage alone (root access, ADB backup, file copy).
+  // Returns null if the hardware keystore is unavailable - callers must
+  // fall back to storing the unwrapped value in that case.
+  static Future<String?> hardwareWrap(String plaintext) async {
+    try {
+      final Uint8List plainBytes = Uint8List.fromList(utf8.encode(plaintext));
+      final result = await _secureKeystoreChannel.invokeMapMethod<String, dynamic>(
+        'hwEncrypt',
+        {'plaintext': base64.encode(plainBytes)},
+      );
+      if (result == null) return null;
+
+      final String tier = (result['tier'] ?? 'tee').toString();
+      try {
+        final box = Hive.box('rocen_settings_box');
+        await box.put('hw_key_tier', tier);
+      } catch (_) {}
+
+      final package = jsonEncode({'iv': result['iv'], 'ct': result['ciphertext']});
+      return 'HW1:${base64.encode(utf8.encode(package))}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Reverses hardwareWrap. Returns null if the value wasn't hardware-wrapped,
+  // or if the hardware key can't decrypt it (different device, wiped
+  // Keystore, StrongBox unavailable) - callers treat null as "this device
+  // can't be trusted for this value" rather than silently falling through.
+  static Future<String?> hardwareUnwrap(String wrapped) async {
+    try {
+      if (!wrapped.startsWith('HW1:')) return null;
+      final Map<String, dynamic> package = jsonDecode(utf8.decode(base64.decode(wrapped.substring(4))));
+
+      final result = await _secureKeystoreChannel.invokeMapMethod<String, dynamic>(
+        'hwDecrypt',
+        {'iv': package['iv'], 'ciphertext': package['ct']},
+      );
+      if (result == null) return null;
+
+      return utf8.decode(base64.decode(result['plaintext'].toString()));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<String> hardwareKeyTier() async {
+    try {
+      final String? tier = await _secureKeystoreChannel.invokeMethod<String>('keyTier');
+      return tier ?? 'unavailable';
+    } catch (_) {
+      return 'unavailable';
+    }
+  }
+
+  // Password verification gated on hardware device-binding. Behaves exactly
+  // like verifyPin(), plus: once a hw_wrapped_pin exists for this install, a
+  // successful password match ALSO requires the hardware key to unwrap it
+  // back to the same stored hash. If Keystore was wiped or the storage was
+  // moved to another device, this fails even with the correct password -
+  // by design, forcing the user through BIP-39 recovery instead. If no
+  // hw_wrapped_pin exists yet (fresh upgrade from a pre-hardware install),
+  // one is established transparently on this successful verify.
+  static Future<bool> verifyPinWithHardwareBinding(String pin, String storedHash) async {
+    final bool softwareValid = await verifyPin(pin, storedHash);
+    if (!softwareValid) return false;
+
+    try {
+      final box = Hive.box('rocen_settings_box');
+      final String? hwWrapped = box.get('hw_wrapped_pin');
+
+      if (hwWrapped == null) {
+        final String? wrapped = await hardwareWrap(storedHash);
+        if (wrapped != null) await box.put('hw_wrapped_pin', wrapped);
+        return true;
+      }
+
+      final String? unwrapped = await hardwareUnwrap(hwWrapped);
+      return unwrapped == storedHash;
+    } catch (_) {
+      return true;
+    }
   }
 
   static Future<Map<String, String>> wrapDeviceKey({
@@ -219,21 +350,20 @@ class CryptoEngine {
     final String combinedSecret = '$password|${mnemonicWords.join(' ').trim().toLowerCase()}';
     final wrapSalt = _generateSecureBytes(_saltLength);
     final wrapNonce = _generateSecureBytes(_nonceLength);
+    final params = _activeEncryptionParams;
 
-    final wrapKey = await _encryptionKdf.deriveKeyFromPassword(
+    final result = await CryptoIsolate.deriveAndEncrypt(
+      plaintext: authSaltBytes,
       password: combinedSecret,
-      nonce: wrapSalt,
-    );
-
-    final secretBox = await _cipher.encrypt(
-      authSaltBytes,
-      secretKey: wrapKey,
+      salt: wrapSalt,
       nonce: wrapNonce,
+      memory: params.memory,
+      iterations: params.iterations,
     );
 
     final macAndCipher = BytesBuilder()
-      ..add(secretBox.mac.bytes)
-      ..add(secretBox.cipherText);
+      ..add(result['mac']!)
+      ..add(result['cipherText']!);
 
     return {
       'wrapSalt': base64.encode(wrapSalt),
@@ -258,15 +388,18 @@ class CryptoEngine {
       final macBytes = macAndCipherBytes.sublist(0, _macLength);
       final cipherBytes = macAndCipherBytes.sublist(_macLength);
 
-      final wrapKey = await _encryptionKdf.deriveKeyFromPassword(
+      final params = _activeEncryptionParams;
+      final clear = await CryptoIsolate.deriveAndDecrypt(
+        cipherText: Uint8List.fromList(cipherBytes),
+        mac: Uint8List.fromList(macBytes),
         password: combinedSecret,
-        nonce: saltBytes,
+        salt: Uint8List.fromList(saltBytes),
+        nonce: Uint8List.fromList(nonceBytes),
+        memory: params.memory,
+        iterations: params.iterations,
       );
 
-      final box = SecretBox(cipherBytes, nonce: nonceBytes, mac: Mac(macBytes));
-      final clear = await _cipher.decrypt(box, secretKey: wrapKey);
-
-      return Uint8List.fromList(clear);
+      return clear;
     } catch (_) {
       return null;
     }

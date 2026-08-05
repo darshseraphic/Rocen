@@ -484,7 +484,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: TextField(
                               controller: pinVerifyController,
                               keyboardType: TextInputType.text,
-                              maxLength: 6,
+                              maxLength: 8,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
                               onChanged: (val) {
@@ -498,7 +498,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           IgnorePointer(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(6, (index) {
+                              children: List.generate(8, (index) {
                                 final String text = pinVerifyController.text;
                                 bool isFilled = text.length > index;
                                 bool isCurrentFocus = text.length == index;
@@ -513,8 +513,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 }
 
                                 return Container(
-                                  width: 40,
-                                  height: 44,
+                                  width: 28,
+                                  height: 28,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
@@ -539,7 +539,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -562,7 +562,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 return;
                               }
 
-                              final bool isPinValid = await CryptoEngine.verifyPin(pinVerifyController.text, globalPin);
+                              final bool isPinValid = await CryptoEngine.verifyPinWithHardwareBinding(pinVerifyController.text, globalPin);
 
                               if (isPinValid) {
                                 final String rawPassword = pinVerifyController.text;
@@ -770,7 +770,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: TextField(
                               controller: pinController,
                               keyboardType: TextInputType.text,
-                              maxLength: 6,
+                              maxLength: 8,
                               autofocus: true,
                               onChanged: (val) => setDialogState(() {}),
                               decoration: const InputDecoration(
@@ -782,7 +782,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           IgnorePointer(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(6, (index) {
+                              children: List.generate(8, (index) {
                                 final String text = pinController.text;
                                 bool isFilled = text.length > index;
                                 bool isCurrentFocus = text.length == index;
@@ -792,8 +792,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     : (isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor);
 
                                 return Container(
-                                  width: 40,
-                                  height: 44,
+                                  width: 28,
+                                  height: 28,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
@@ -825,7 +825,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         );
                       }),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -946,11 +946,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onTap: () async {
                           Navigator.pop(context);
 
+                          final settingsBox = Hive.box(_boxName);
+                          final bool rooted = await CryptoEngine.isDeviceRooted();
+                          await settingsBox.put('kdf_hardened', rooted);
+
                           final securePinHash = await CryptoEngine.hashPin(typedPin);
 
-                          final settingsBox = Hive.box(_boxName);
                           await settingsBox.put('system_crypto_pin', securePinHash);
                           await settingsBox.put('last_active_crypto_pin_snapshot', securePinHash);
+
+                          final String? hwWrappedPin = await CryptoEngine.hardwareWrap(securePinHash);
+                          if (hwWrappedPin != null) {
+                            await settingsBox.put('hw_wrapped_pin', hwWrappedPin);
+                          }
 
                           if (screenContext.mounted) {
                             _showForgotWarningDialog(screenContext);
@@ -1114,7 +1122,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: TextField(
                               controller: pinVerifyController,
                               keyboardType: TextInputType.text,
-                              maxLength: 6,
+                              maxLength: 8,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
                               onChanged: (val) {
@@ -1128,7 +1136,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           IgnorePointer(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(6, (index) {
+                              children: List.generate(8, (index) {
                                 final String text = pinVerifyController.text;
                                 bool isFilled = text.length > index;
                                 bool isCurrentFocus = text.length == index;
@@ -1143,8 +1151,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 }
 
                                 return Container(
-                                  width: 40,
-                                  height: 44,
+                                  width: 28,
+                                  height: 28,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
@@ -1169,7 +1177,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -1192,7 +1200,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 return;
                               }
 
-                              final bool isPinValid = await CryptoEngine.verifyPin(pinVerifyController.text, globalPin);
+                              final bool isPinValid = await CryptoEngine.verifyPinWithHardwareBinding(pinVerifyController.text, globalPin);
 
                               if (isPinValid) {
                                 final String rawOldPassword = pinVerifyController.text;
@@ -1291,7 +1299,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: TextField(
                               controller: pinController,
                               keyboardType: TextInputType.text,
-                              maxLength: 6,
+                              maxLength: 8,
                               autofocus: true,
                               onChanged: (val) => setDialogState(() {}),
                               decoration: const InputDecoration(counterText: '', border: InputBorder.none),
@@ -1300,7 +1308,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           IgnorePointer(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(6, (index) {
+                              children: List.generate(8, (index) {
                                 final String text = pinController.text;
                                 bool isFilled = text.length > index;
                                 bool isCurrentFocus = text.length == index;
@@ -1310,8 +1318,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     : (isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor);
 
                                 return Container(
-                                  width: 40,
-                                  height: 44,
+                                  width: 28,
+                                  height: 28,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
@@ -1332,7 +1340,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           style: const TextStyle(color: Color(0xFFEF4444), fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                         );
                       }),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -1384,20 +1392,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
     }
 
+    final bool rooted = await CryptoEngine.isDeviceRooted();
+    await settingsBox.put('kdf_hardened', rooted);
+
     final Uint8List authSalt = CryptoEngine.extractAuthSalt(oldPinHash);
     final String newPinHash = await CryptoEngine.hashPinWithSalt(newPassword, authSalt);
 
     await settingsBox.put('system_crypto_pin', newPinHash);
     await settingsBox.put('last_active_crypto_pin_snapshot', newPinHash);
 
+    final String? hwWrappedNewPin = await CryptoEngine.hardwareWrap(newPinHash);
+    if (hwWrappedNewPin != null) {
+      await settingsBox.put('hw_wrapped_pin', hwWrappedNewPin);
+    } else {
+      await settingsBox.delete('hw_wrapped_pin');
+    }
+
     final String? accessBlob = settingsBox.get('github_access_encrypted');
     if (accessBlob != null) {
       try {
-        final String accessJson = await CryptoEngine.decryptProcess(accessBlob, oldPinHash);
+        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(accessBlob);
+        final String accessJson = await CryptoEngine.decryptProcess(unwrappedForRead ?? accessBlob, oldPinHash);
         if (accessJson != 'DECRYPTION FAULT') {
           final Map<String, dynamic> access = jsonDecode(accessJson);
           final String reEncrypted = await CryptoEngine.encryptProcess(accessJson, newPinHash);
-          await settingsBox.put('github_access_encrypted', reEncrypted);
+          final String? hwWrapped = await CryptoEngine.hardwareWrap(reEncrypted);
+          await settingsBox.put('github_access_encrypted', hwWrapped ?? reEncrypted);
 
           if (!context.mounted) return;
           final List<String>? mnemonicWords = await _promptMnemonicRecovery(context);
@@ -1595,7 +1615,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: TextField(
                               controller: pinVerifyController,
                               keyboardType: TextInputType.text,
-                              maxLength: 6,
+                              maxLength: 8,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
                               onChanged: (val) {
@@ -1609,7 +1629,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           IgnorePointer(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(6, (index) {
+                              children: List.generate(8, (index) {
                                 final String text = pinVerifyController.text;
                                 bool isFilled = text.length > index;
                                 bool isCurrentFocus = text.length == index;
@@ -1624,8 +1644,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 }
 
                                 return Container(
-                                  width: 40,
-                                  height: 44,
+                                  width: 28,
+                                  height: 28,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
@@ -1650,7 +1670,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -1673,7 +1693,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 return;
                               }
 
-                              final bool isPinValid = await CryptoEngine.verifyPin(pinVerifyController.text, globalPin);
+                              final bool isPinValid = await CryptoEngine.verifyPinWithHardwareBinding(pinVerifyController.text, globalPin);
 
                               if (isPinValid) {
                                 final String rawPassword = pinVerifyController.text;
@@ -1855,7 +1875,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                             final String payload = jsonEncode({'token': token, 'repo': repo});
                             final String encrypted = await CryptoEngine.encryptProcess(payload, pinHash);
-                            await settingsBox.put('github_access_encrypted', encrypted);
+                            final String? hwWrapped = await CryptoEngine.hardwareWrap(encrypted);
+                            await settingsBox.put('github_access_encrypted', hwWrapped ?? encrypted);
 
                             if (!context.mounted) return;
                             Navigator.pop(context);
@@ -1976,6 +1997,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await settingsBox.put('system_crypto_pin', effectivePinHash);
         await settingsBox.put('last_active_crypto_pin_snapshot', effectivePinHash);
         await settingsBox.put('device_key_owned_repo', repo);
+
+        final String? hwWrappedRecoveredPin = await CryptoEngine.hardwareWrap(effectivePinHash);
+        if (hwWrappedRecoveredPin != null) {
+          await settingsBox.put('hw_wrapped_pin', hwWrappedRecoveredPin);
+        } else {
+          await settingsBox.delete('hw_wrapped_pin');
+        }
 
         final String reEncryptedAccess = await CryptoEngine.encryptProcess(
           jsonEncode({'token': token, 'repo': repo}),
@@ -2901,48 +2929,65 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               textMain: theme.textMain,
               textSub: theme.textSub,
               borderColor: theme.mainBorderColor,
-              onTap: () => _showSlidingPanel(
-                context,
-                'PRIVACY POLICY',
-                [
-                  _buildInfoSection(
-                      '01 // APPLICATION DESCRIPTION',
-                      'Rocen is a hyper-focused minimalist system blueprint designed to run high-utility tools without backend software bloat or visual clutter.',
-                      theme.textMain, theme.textSub
-                  ),
-                  _buildInfoSection(
-                      '02 // SYSTEM AUTHORSHIP',
-                      'Engineered and assembled by Darshseraphic.',
-                      theme.textMain, theme.textSub
-                  ),
-                  _buildInfoSection(
-                      '03 // PURPOSE & DESIGN METHODOLOGY',
-                      'Built to mitigate screen fatigue through a stark brutalist interface style, intentional whitespace, and highly structured typographic layouts.',
-                      theme.textMain, theme.textSub
-                  ),
-                  _buildInfoSection(
-                      '04 // DEVELOPMENT TIMELINE MATRIX',
-                      'Initial core system conceptualization, wireframing, and final architecture completion finalized over a highly compressed 24-hour rapid development sprint.',
-                      theme.textMain, theme.textSub
-                  ),
-                  _buildInfoSection(
-                      '05 // ABSOLUTE ZERO DATA ACCUMULATION',
-                      'This framework operates with a strict zero-telemetry policy. There are no analytics packages, usage tracking monitors, remote crash trackers, or cloud-based data bridges written into the codebase. All workspace activity remains strictly contained on your local device.',
-                      theme.textMain, theme.textSub
-                  ),
-                  _buildInfoSection(
-                      '06 // AIR-GAPPED HARDWARE ISOLATION',
-                      'The application runs entirely within an air-gapped system methodology. Without network permissions or server communication layers configured in its structural layer, user interactions are kept private, secure, and permanently anchored inside the isolated sandbox space of your hardware.',
-                      theme.textMain, theme.textSub
-                  ),
-                  _buildInfoSection(
-                      '07 // USER-OWNED STORAGE ARCHITECTURE',
-                      'You retain absolute, exclusive ownership of your data files. The system cannot read, change, or access stored items outside its specific offline database context. Deleting the application instantly wipes all local cache directories from internal storage arrays.',
-                      theme.textMain, theme.textSub
-                  ),
-                ],
-                isDark,
-              ),
+              onTap: () async {
+                final bool rooted = await CryptoEngine.isDeviceRooted();
+                final String hwTier = await CryptoEngine.hardwareKeyTier();
+                if (!context.mounted) return;
+                _showSlidingPanel(
+                  context,
+                  'PRIVACY POLICY',
+                  [
+                    _buildInfoSection(
+                        '01 // APPLICATION DESCRIPTION',
+                        'Rocen is a hyper-focused minimalist system blueprint designed to run high-utility tools without backend software bloat or visual clutter.',
+                        theme.textMain, theme.textSub
+                    ),
+                    _buildInfoSection(
+                        '02 // SYSTEM AUTHORSHIP',
+                        'Engineered and assembled by Darshseraphic.',
+                        theme.textMain, theme.textSub
+                    ),
+                    _buildInfoSection(
+                        '03 // PURPOSE & DESIGN METHODOLOGY',
+                        'Built to mitigate screen fatigue through a stark brutalist interface style, intentional whitespace, and highly structured typographic layouts.',
+                        theme.textMain, theme.textSub
+                    ),
+                    _buildInfoSection(
+                        '04 // DEVELOPMENT TIMELINE MATRIX',
+                        'Initial core system conceptualization, wireframing, and final architecture completion finalized over a highly compressed 24-hour rapid development sprint.',
+                        theme.textMain, theme.textSub
+                    ),
+                    _buildInfoSection(
+                        '05 // ABSOLUTE ZERO DATA ACCUMULATION',
+                        'This framework operates with a strict zero-telemetry policy. There are no analytics packages, usage tracking monitors, remote crash trackers, or cloud-based data bridges written into the codebase. All workspace activity remains strictly contained on your local device.',
+                        theme.textMain, theme.textSub
+                    ),
+                    _buildInfoSection(
+                        '06 // AIR-GAPPED HARDWARE ISOLATION',
+                        'The application runs entirely within an air-gapped system methodology. Without network permissions or server communication layers configured in its structural layer, user interactions are kept private, secure, and permanently anchored inside the isolated sandbox space of your hardware.',
+                        theme.textMain, theme.textSub
+                    ),
+                    _buildInfoSection(
+                        '07 // USER-OWNED STORAGE ARCHITECTURE',
+                        'You retain absolute, exclusive ownership of your data files. The system cannot read, change, or access stored items outside its specific offline database context. Deleting the application instantly wipes all local cache directories from internal storage arrays.',
+                        theme.textMain, theme.textSub
+                    ),
+                    if (hwTier != 'strongbox')
+                      _buildInfoSection(
+                          '08 // STRONGBOX OR TEE SUPPORT',
+                          'StrongBox security is not supported on this device. App security has transitioned to the Trusted Execution Environment (TEE).',
+                          theme.textMain, theme.textSub
+                      ),
+                    if (rooted)
+                      _buildInfoSection(
+                          '09 // DEVICE INTEGRITY NOTICE',
+                          'THIS DEVICE APPEARS TO BE ROOTED OR MODIFIED. STANDARD OPERATING SYSTEM PROTECTIONS MAY NOT FULLY APPLY. TO COMPENSATE, THE APPLICATION HAS AUTOMATICALLY INCREASED ITS ENCRYPTION STRENGTH FOR THIS DEVICE. NO FEATURES ARE RESTRICTED.',
+                          theme.textMain, theme.textSub
+                      ),
+                  ],
+                  isDark,
+                );
+              },
             ),
 
             _buildMenuTile(

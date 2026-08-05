@@ -313,14 +313,20 @@ Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
   }
 }
 
+class RefreshFailure implements Exception {
+  final String message;
+  RefreshFailure(this.message);
+}
+
 Future<void> performRefresh(
     WidgetRef ref,
     BuildContext context, {
       bool silent = false,
       void Function(String phase)? onPhase,
     }) async {
+  final isDark = ref.read(themeProvider);
+
   try {
-    final isDark = ref.read(themeProvider);
     onPhase?.call('FETCH');
 
     final bool online = await hasInternetConnection();
@@ -342,37 +348,68 @@ Future<void> performRefresh(
       return;
     }
 
-    final String? pushError = await pushAllBackupEnabledNotes(ref);
-    if (pushError != null) {
+    const int cooldownMillis = 180000;
+    final int? lastCompletedAt = settingsBox.get('last_refresh_completed_at');
+    if (lastCompletedAt != null) {
+      final int elapsed = DateTime.now().millisecondsSinceEpoch - lastCompletedAt;
+      if (elapsed < cooldownMillis) {
+        onPhase?.call('REFRESH');
+        if (!silent && context.mounted) {
+          final int remainingSeconds = ((cooldownMillis - elapsed) / 1000).ceil();
+          showAcknowledgeDialog(
+            context,
+            isDark,
+            'PLEASE WAIT',
+            'YOU CAN REFRESH AGAIN IN $remainingSeconds SECONDS.',
+          );
+        }
+        return;
+      }
+    }
+
+    Future<void> runSync() async {
+      final String? pushError = await pushAllBackupEnabledNotes(ref);
+      if (pushError != null) throw RefreshFailure(pushError);
+
+      onPhase?.call('DECRYPT');
+      final int? imported = await pullAndReconcileNotes(ref);
+      if (imported == null) throw RefreshFailure('COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
+
+      onPhase?.call('SUCCESS');
+      if (!silent && context.mounted) {
+        showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE ($imported FROM BACKUP).');
+      }
+    }
+
+    try {
+      await runSync().timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      await settingsBox.put('last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
       onPhase?.call('REFRESH');
       if (!silent && context.mounted) {
-        showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', pushError);
+        showAcknowledgeDialog(context, isDark, 'CONNECTION TOO SLOW', 'YOUR INTERNET CONNECTION IS SLOW. PLEASE TRY AGAIN.');
+      }
+      return;
+    } on RefreshFailure catch (f) {
+      await settingsBox.put('last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
+      onPhase?.call('REFRESH');
+      if (!silent && context.mounted) {
+        showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', f.message);
       }
       return;
     }
 
-    onPhase?.call('DECRYPT');
-    final int? imported = await pullAndReconcileNotes(ref);
-
-    if (imported == null) {
-      onPhase?.call('REFRESH');
-      if (!silent && context.mounted) {
-        showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', 'COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
-      }
-      return;
-    }
-
-    onPhase?.call('SUCCESS');
-    if (!silent && context.mounted) {
-      showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE ($imported FROM BACKUP).');
-    }
+    await settingsBox.put('last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
     await Future.delayed(const Duration(milliseconds: 900));
     onPhase?.call('REFRESH');
   } catch (e) {
     debugPrint('REFRESH UNCAUGHT EXCEPTION: $e');
+    try {
+      await Hive.box('rocen_settings_box').put('last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {
+    }
     onPhase?.call('REFRESH');
     if (!silent && context.mounted) {
-      final isDark = ref.read(themeProvider);
       showAcknowledgeDialog(context, isDark, 'REFRESH ERROR', 'UNEXPECTED ERROR: $e');
     }
   }
@@ -668,7 +705,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             child: TextField(
                               controller: pinVerifyController,
                               keyboardType: TextInputType.text,
-                              maxLength: 6,
+                              maxLength: 8,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
                               onChanged: (val) {
@@ -687,7 +724,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                           IgnorePointer(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(6, (index) {
+                              children: List.generate(8, (index) {
                                 final String text = pinVerifyController.text;
                                 bool isFilled = text.length > index;
                                 bool isCurrentFocus = text.length == index;
@@ -702,8 +739,8 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                 }
 
                                 return Container(
-                                  width: 40,
-                                  height: 44,
+                                  width: 28,
+                                  height: 28,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
@@ -728,7 +765,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -1052,7 +1089,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
           selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFF5F0E0D),
+          selectionHandleColor: const Color(0xFF420000),
         ),
       ),
       child: Padding(
@@ -1195,7 +1232,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                               context,
                               isDark,
                               'YOU ARE OFFLINE',
-                              "BACKUP CAN'T BE ENABLED. YOU CAN SAVE IT LOCALLY AND AFTER THE INTERNET COMES BACK, GO IN THE NOTE YOU WANT TO UPLOAD AND ENABLE THE BACKUP FROM THE NOTE.",
+                              "CLOUD BACKUP IS UNAVAILABLE OFFLINE. SAVE YOUR NOTE LOCALLY NOW AND ENABLE BACKUP FROM NOTE SETTINGS ONCE RECONNECTED.",
                             );
                             return;
                           }
@@ -1586,7 +1623,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
           context,
           isDark,
           'YOU ARE OFFLINE',
-          "BACKUP CAN'T BE ENABLED. YOU CAN SAVE IT LOCALLY AND AFTER THE INTERNET COMES BACK, GO IN THE NOTE YOU WANT TO UPLOAD AND ENABLE THE BACKUP FROM THE NOTE.",
+          "CLOUD BACKUP IS UNAVAILABLE OFFLINE. SAVE YOUR NOTE LOCALLY NOW AND ENABLE BACKUP FROM NOTE SETTINGS ONCE RECONNECTED..",
         );
         return;
       }
