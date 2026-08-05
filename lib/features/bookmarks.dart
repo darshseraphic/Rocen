@@ -65,7 +65,8 @@ class TodoNotifier extends Notifier<List<TodoItem>> {
       text: text.trim(),
     );
 
-    state = [newItem, ...state];
+    // Append new item to the end of the list
+    state = [...state, newItem];
     await _saveToDisk();
   }
 
@@ -201,67 +202,71 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                     : Colors.transparent;
 
                 return Padding(
-                  // Symmetric padding places an identical gap above and below the item
                   padding: const EdgeInsets.symmetric(vertical: 6.0),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center, // Centering keeps short lines perfectly uniform
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // CUSTOM ANIMATED SQUARE TOGGLE
-                      GestureDetector(
-                        onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 350),
-                          width: 20,
-                          height: 20,
-                          // REMOVE the top margin completely so it remains geometrically centered
-                          decoration: BoxDecoration(
-                            color: boxFillColor,
-                            border: Border.all(color: boxBorderColor, width: 1.4),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-
-                      // TASK TITLE
+                      // FULL ROW CLICK AREA (BOX + TEXT + GAP)
                       Expanded(
                         child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
                           onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
-                          child: Stack(
-                            alignment: Alignment.centerLeft, // Mandates clean baseline positioning
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Text(
-                                item.text,
-                                style: TextStyle(
-                                  color: textMain,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.01,
+                              // CUSTOM ANIMATED SQUARE TOGGLE
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 350),
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  color: boxFillColor,
+                                  border: Border.all(color: boxBorderColor, width: 1.4),
                                 ),
                               ),
-                              TweenAnimationBuilder<double>(
-                                tween: Tween<double>(begin: 0.0, end: item.isCompleted ? 1.0 : 0.0),
-                                duration: const Duration(milliseconds: 600),
-                                curve: Curves.easeOutQuart,
-                                builder: (context, value, child) {
-                                  return ClipRect(
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      widthFactor: value,
-                                      child: Text(
-                                        item.text,
-                                        style: TextStyle(
-                                          color: textSub,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          letterSpacing: -0.01,
-                                          decoration: TextDecoration.lineThrough,
-                                          decorationColor: textSub,
-                                          decorationThickness: 1.5,
-                                        ),
+                              const SizedBox(width: 16),
+
+                              // TASK TITLE
+                              Expanded(
+                                child: Stack(
+                                  alignment: Alignment.centerLeft,
+                                  children: [
+                                    Text(
+                                      item.text,
+                                      style: TextStyle(
+                                        color: textMain,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: -0.01,
                                       ),
                                     ),
-                                  );
-                                },
+                                    TweenAnimationBuilder<double>(
+                                      tween: Tween<double>(begin: 0.0, end: item.isCompleted ? 1.0 : 0.0),
+                                      duration: const Duration(milliseconds: 600),
+                                      curve: Curves.easeOutQuart,
+                                      builder: (context, value, child) {
+                                        return ClipRect(
+                                          child: Align(
+                                            alignment: Alignment.centerLeft,
+                                            widthFactor: value,
+                                            child: Text(
+                                              item.text,
+                                              style: TextStyle(
+                                                color: textSub,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                letterSpacing: -0.01,
+                                                decoration: TextDecoration.lineThrough,
+                                                decorationColor: textSub,
+                                                decorationThickness: 1.5,
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -269,11 +274,11 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                       ),
                       const SizedBox(width: 12),
 
-                      // ROW ITEM TERMINATOR
+                      // ROW ITEM TERMINATOR (DELETE BUTTON)
                       GestureDetector(
                         onTap: () => ref.read(todoProvider.notifier).deleteTask(item.id),
                         child: Padding(
-                          padding: const EdgeInsets.all(4.0), // Keeps target balanced
+                          padding: const EdgeInsets.all(4.0),
                           child: Icon(Icons.close, color: textSub, size: 16),
                         ),
                       )

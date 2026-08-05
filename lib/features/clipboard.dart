@@ -149,7 +149,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     if (_thumbnailCache.containsKey(asset.id) || _loadingIds.contains(asset.id)) return;
     _loadingIds.add(asset.id);
 
-    asset.thumbnailDataWithSize(const ThumbnailSize(360, 360)).then((data) {
+    // format: png preserves alpha transparency - default (jpeg) flattens
+    // transparent PNGs onto a black backing before Flutter ever sees the bytes.
+    asset.thumbnailDataWithSize(const ThumbnailSize(360, 360), format: ThumbnailFormat.png).then((data) {
       if (data != null && mounted) {
         setState(() {
           _thumbnailCache[asset.id] = data;
@@ -349,7 +351,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                 });
                               },
                               behavior: HitTestBehavior.opaque,
-                              child: Center(
+                              child: Container(
+                                color: isDark ? Colors.black : Colors.white,
                                 child: InteractiveViewer(
                                   maxScale: 5.0,
                                   child: Image.file(file, fit: BoxFit.contain),
@@ -389,7 +392,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       future: currentAsset.file,
                       builder: (context, snapshot) {
                         final filePath = snapshot.data?.path ?? '';
-                        final folderPath = snapshot.data?.parent.path ?? '';
 
                         return Positioned(
                           bottom: 0,
@@ -413,19 +415,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                     bottom: MediaQuery.of(context).padding.bottom + 16,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF5F5F5),
+                                    color: isDark ? Colors.black : Colors.white,
                                     border: Border(top: BorderSide(color: borderColor, width: 0.8)),
                                   ),
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        'PATH: $folderPath'.toUpperCase(),
-                                        style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.03),
-                                        maxLines: 2, overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 16),
                                       Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                                         children: [
@@ -546,7 +542,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
           builder: (context, setStateDialog) {
             final currentItem = items[dialogCurrentIndex];
             final filePath = currentItem.content;
-            final folderPath = File(filePath).parent.path;
 
             return PopScope(
               canPop: true,
@@ -581,7 +576,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                             });
                           },
                           behavior: HitTestBehavior.opaque,
-                          child: Center(
+                          child: Container(
+                            color: isDark ? Colors.black : Colors.white,
                             child: InteractiveViewer(
                               maxScale: 5.0,
                               child: Image.file(File(pageItem.content), fit: BoxFit.contain),
@@ -637,19 +633,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                 bottom: MediaQuery.of(context).padding.bottom + 16,
                               ),
                               decoration: BoxDecoration(
-                                color: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF5F5F5),
+                                color: isDark ? Colors.black : Colors.white,
                                 border: Border(top: BorderSide(color: borderColor, width: 0.8)),
                               ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'PATH: $folderPath'.toUpperCase(),
-                                    style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.03),
-                                    maxLines: 2, overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 16),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                                     children: [
@@ -819,27 +809,19 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                     AspectRatio(
                       aspectRatio: calculatedRatio,
                       child: cachedBytes != null
-                          ? Image.memory(
-                        cachedBytes,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        gaplessPlayback: true,
+                          ? Container(
+                        color: isDark ? Colors.black : Colors.white,
+                        child: Image.memory(
+                          cachedBytes,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          gaplessPlayback: true,
+                        ),
                       )
                           : Container(
                         color: containerBg,
                       ),
                     ),
-                    if (columns <= 2)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(8.0),
-                        decoration: BoxDecoration(border: Border(top: BorderSide(color: borderColor, width: 0.8))),
-                        child: Text(
-                          asset.title ?? 'IMG',
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: textSub, fontSize: 10),
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -940,12 +922,15 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Image.file(
-                      File(item.content),
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(padding: const EdgeInsets.all(12), child: Text('BROKEN REF', style: TextStyle(color: Colors.red[400], fontSize: 9)));
-                      },
+                    Container(
+                      color: isDark ? Colors.black : Colors.white,
+                      child: Image.file(
+                        File(item.content),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(padding: const EdgeInsets.all(12), child: Text('BROKEN REF', style: TextStyle(color: Colors.red[400], fontSize: 9)));
+                        },
+                      ),
                     ),
                     if (columns <= 2)
                       Container(
@@ -953,16 +938,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                         padding: const EdgeInsets.all(8.0),
                         decoration: BoxDecoration(border: Border(top: BorderSide(color: borderColor, width: 0.8))),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            Expanded(
-                              child: Text(
-                                item.content.split(Platform.pathSeparator).last,
-                                maxLines: 1, overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: textSub, fontSize: 10),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
                             GestureDetector(
                               onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
                               child: Icon(Icons.close, color: textSub, size: 12),
