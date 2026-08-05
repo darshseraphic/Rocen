@@ -30,6 +30,12 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
+  // HIDE BOTTOM NAVIGATION BAR (KEPT TOP STATUS BAR)
+  await SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.manual,
+    overlays: [SystemUiOverlay.top],
+  );
+
   runApp(
     const ProviderScope(
       child: RocenApp(),
@@ -45,24 +51,35 @@ class RocenApp extends ConsumerWidget {
     final isDark = ref.watch(themeProvider);
     final activeModule = ref.watch(navigationProvider);
 
-    return MaterialApp(
-      title: 'Rocen',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: isDark ? Brightness.dark : Brightness.light,
-        scaffoldBackgroundColor:
-        isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF),
+    final backgroundColor = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness:
+        isDark ? Brightness.light : Brightness.dark,
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness:
+        isDark ? Brightness.light : Brightness.dark,
       ),
-      home: AnimatedSplashScreen(
-        child: Scaffold(
-          resizeToAvoidBottomInset: true,
-          body: SafeArea(
-            child: Column(
-              children: [
-                Expanded(child: activeModule.screen),
-                const MinimalNavbar(),
-              ],
+      child: MaterialApp(
+        title: 'Rocen',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          brightness: isDark ? Brightness.dark : Brightness.light,
+          scaffoldBackgroundColor: backgroundColor,
+        ),
+        home: AnimatedSplashScreen(
+          child: Scaffold(
+            resizeToAvoidBottomInset: true,
+            body: SafeArea(
+              child: Column(
+                children: [
+                  Expanded(child: activeModule.screen),
+                  const MinimalNavbar(),
+                ],
+              ),
             ),
           ),
         ),
