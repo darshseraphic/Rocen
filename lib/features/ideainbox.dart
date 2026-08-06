@@ -98,7 +98,7 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                 bottom: MediaQuery.of(context).viewInsets.bottom,
                 left: 24.0,
                 right: 24.0,
-                top: 24.0,
+                top: 14.0,
               ),
               child: SingleChildScrollView(
                 child: Column(
@@ -109,7 +109,7 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '$monthName $day — COMMIT BLOCK',
+                          '$monthName $day — ADDING EVENT',
                           style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
                         ),
                         IconButton(

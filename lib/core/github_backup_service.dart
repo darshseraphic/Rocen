@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'cert_pinning.dart';
 
 class GithubSyncException implements Exception {
   final String message;
@@ -14,12 +15,21 @@ class GithubBackupService {
   final String token;
   final String repoPath;
   final String branch;
+  final http.Client _client = CertPinning.createPinnedClient();
 
   GithubBackupService({
     required this.token,
     required this.repoPath,
     this.branch = 'main',
   });
+
+  // Call this when you're done with an instance (e.g. after a sync
+  // completes) to release the underlying socket/connection resources.
+  // Safe to skip - not calling it just behaves like the previous
+  // top-level http.* calls always did.
+  void dispose() {
+    _client.close();
+  }
 
   Uri _api(String path) => Uri.parse('https://api.github.com/repos/$repoPath$path');
 
@@ -30,7 +40,7 @@ class GithubBackupService {
   };
 
   Future<String?> _getBranchRefSha() async {
-    final res = await http.get(_api('/git/ref/heads/$branch'), headers: _headers);
+    final res = await _client.get(_api('/git/ref/heads/$branch'), headers: _headers);
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return (data['object'] as Map<String, dynamic>)['sha'] as String;
@@ -40,7 +50,7 @@ class GithubBackupService {
   }
 
   Future<String?> _getCommitTreeSha(String commitSha) async {
-    final res = await http.get(_api('/git/commits/$commitSha'), headers: _headers);
+    final res = await _client.get(_api('/git/commits/$commitSha'), headers: _headers);
     if (res.statusCode != 200) throw GithubSyncException('COMMIT FETCH FAILED: ${res.statusCode} ${res.body}');
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     return (data['tree'] as Map<String, dynamic>)['sha'] as String;
@@ -53,7 +63,7 @@ class GithubBackupService {
     final Map<String, dynamic> body = {'tree': entries};
     if (baseTreeSha != null) body['base_tree'] = baseTreeSha;
 
-    final res = await http.post(_api('/git/trees'), headers: _headers, body: jsonEncode(body));
+    final res = await _client.post(_api('/git/trees'), headers: _headers, body: jsonEncode(body));
     if (res.statusCode != 201) {
       final String entrySummary = entries
           .map((e) => '${e['path']}:${e['sha'] == null ? 'DELETE' : 'UPSERT'}')
@@ -66,7 +76,7 @@ class GithubBackupService {
   }
 
   Future<String> _createRootCommit({required String treeSha, required String message}) async {
-    final res = await http.post(
+    final res = await _client.post(
       _api('/git/commits'),
       headers: _headers,
       body: jsonEncode({'message': message, 'tree': treeSha, 'parents': <String>[]}),
@@ -77,14 +87,14 @@ class GithubBackupService {
 
   Future<void> _forcePushRef(String commitSha, {required bool refExists}) async {
     if (refExists) {
-      final res = await http.patch(
+      final res = await _client.patch(
         _api('/git/refs/heads/$branch'),
         headers: _headers,
         body: jsonEncode({'sha': commitSha, 'force': true}),
       );
       if (res.statusCode != 200) throw GithubSyncException('REF UPDATE FAILED: ${res.statusCode} ${res.body}');
     } else {
-      final res = await http.post(
+      final res = await _client.post(
         _api('/git/refs'),
         headers: _headers,
         body: jsonEncode({'ref': 'refs/heads/$branch', 'sha': commitSha}),
@@ -139,7 +149,7 @@ class GithubBackupService {
   }
 
   Future<Map<String, dynamic>?> fetchNoteFile(String fileName) async {
-    final res = await http.get(_api('/contents/$fileName'), headers: _headers);
+    final res = await _client.get(_api('/contents/$fileName'), headers: _headers);
     if (res.statusCode == 404) return null;
     if (res.statusCode != 200) throw GithubSyncException('FILE FETCH FAILED: ${res.statusCode} ${res.body}');
 
@@ -150,7 +160,7 @@ class GithubBackupService {
   }
 
   Future<List<String>> listNoteFiles() async {
-    final res = await http.get(_api('/contents'), headers: _headers);
+    final res = await _client.get(_api('/contents'), headers: _headers);
     debugPrint('LIST NOTE FILES: status=${res.statusCode}');
     if (res.statusCode == 404) return [];
     if (res.statusCode != 200) throw GithubSyncException('DIRECTORY LIST FAILED: ${res.statusCode} ${res.body}');

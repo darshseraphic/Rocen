@@ -29,7 +29,7 @@ class SettingsUiTheme {
     mainBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
     dialogBorderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
     dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
-    containerBg = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+    containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
   }
 }
 
@@ -955,7 +955,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           await settingsBox.put('system_crypto_pin', securePinHash);
                           await settingsBox.put('last_active_crypto_pin_snapshot', securePinHash);
 
-                          final String? hwWrappedPin = await CryptoEngine.hardwareWrap(securePinHash);
+                          final String? hwWrappedPin = await CryptoEngine.hardwareWrap(securePinHash, keyAlias: CryptoEngine.passwordKeyAlias);
                           if (hwWrappedPin != null) {
                             await settingsBox.put('hw_wrapped_pin', hwWrappedPin);
                           }
@@ -1401,7 +1401,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await settingsBox.put('system_crypto_pin', newPinHash);
     await settingsBox.put('last_active_crypto_pin_snapshot', newPinHash);
 
-    final String? hwWrappedNewPin = await CryptoEngine.hardwareWrap(newPinHash);
+    final String? hwWrappedNewPin = await CryptoEngine.hardwareWrap(newPinHash, keyAlias: CryptoEngine.passwordKeyAlias);
     if (hwWrappedNewPin != null) {
       await settingsBox.put('hw_wrapped_pin', hwWrappedNewPin);
     } else {
@@ -1411,12 +1411,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final String? accessBlob = settingsBox.get('github_access_encrypted');
     if (accessBlob != null) {
       try {
-        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(accessBlob);
+        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
         final String accessJson = await CryptoEngine.decryptProcess(unwrappedForRead ?? accessBlob, oldPinHash);
         if (accessJson != 'DECRYPTION FAULT') {
           final Map<String, dynamic> access = jsonDecode(accessJson);
           final String reEncrypted = await CryptoEngine.encryptProcess(accessJson, newPinHash);
-          final String? hwWrapped = await CryptoEngine.hardwareWrap(reEncrypted);
+          final String? hwWrapped = await CryptoEngine.hardwareWrap(reEncrypted, keyAlias: CryptoEngine.githubTokenKeyAlias);
           await settingsBox.put('github_access_encrypted', hwWrapped ?? reEncrypted);
 
           if (!context.mounted) return;
@@ -1875,7 +1875,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                             final String payload = jsonEncode({'token': token, 'repo': repo});
                             final String encrypted = await CryptoEngine.encryptProcess(payload, pinHash);
-                            final String? hwWrapped = await CryptoEngine.hardwareWrap(encrypted);
+                            final String? hwWrapped = await CryptoEngine.hardwareWrap(encrypted, keyAlias: CryptoEngine.githubTokenKeyAlias);
                             await settingsBox.put('github_access_encrypted', hwWrapped ?? encrypted);
 
                             if (!context.mounted) return;
@@ -1998,7 +1998,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await settingsBox.put('last_active_crypto_pin_snapshot', effectivePinHash);
         await settingsBox.put('device_key_owned_repo', repo);
 
-        final String? hwWrappedRecoveredPin = await CryptoEngine.hardwareWrap(effectivePinHash);
+        final String? hwWrappedRecoveredPin = await CryptoEngine.hardwareWrap(effectivePinHash, keyAlias: CryptoEngine.passwordKeyAlias);
         if (hwWrappedRecoveredPin != null) {
           await settingsBox.put('hw_wrapped_pin', hwWrappedRecoveredPin);
         } else {
@@ -2690,7 +2690,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       height: 24,
                       padding: const EdgeInsets.all(3),
                       decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF0C0F0A) : const Color(0xFFF8F8FF),
+                        color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFDDDDDD),
                         border: Border.all(color: theme.mainBorderColor, width: 0.8),
                       ),
                       child: AnimatedAlign(

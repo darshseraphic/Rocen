@@ -22,9 +22,9 @@ class MainActivity: FlutterActivity() {
     private val deviceIntegrityChannel = "com.darshseraphic.rocen/device_integrity"
     private val secureKeystoreChannel = "com.darshseraphic.rocen/secure_keystore"
 
-    private val hwKeyAlias = "rocen_hw_master_key"
+    private val defaultHwKeyAlias = "rocen_hw_master_key" // legacy fallback if a call ever omits keyAlias
     private val androidKeyStoreProvider = "AndroidKeyStore"
-    private var cachedTier: String? = null
+    private val cachedTiers = mutableMapOf<String, String>()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -54,16 +54,17 @@ class MainActivity: FlutterActivity() {
             when (call.method) {
                 "hwEncrypt" -> {
                     try {
+                        val alias = call.argument<String>("keyAlias") ?: defaultHwKeyAlias
                         val plainB64 = call.argument<String>("plaintext") ?: ""
                         val plainBytes = Base64.decode(plainB64, Base64.NO_WRAP)
-                        val key = getOrCreateHwKey()
+                        val key = getOrCreateHwKey(alias)
                         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                         cipher.init(Cipher.ENCRYPT_MODE, key)
                         val cipherBytes = cipher.doFinal(plainBytes)
                         result.success(mapOf(
                             "iv" to Base64.encodeToString(cipher.iv, Base64.NO_WRAP),
                             "ciphertext" to Base64.encodeToString(cipherBytes, Base64.NO_WRAP),
-                            "tier" to (cachedTier ?: "tee")
+                            "tier" to (cachedTiers[alias] ?: "tee")
                         ))
                     } catch (e: Exception) {
                         result.error("HW_ENCRYPT_FAILED", e.message, null)
@@ -71,9 +72,10 @@ class MainActivity: FlutterActivity() {
                 }
                 "hwDecrypt" -> {
                     try {
+                        val alias = call.argument<String>("keyAlias") ?: defaultHwKeyAlias
                         val ivBytes = Base64.decode(call.argument<String>("iv") ?: "", Base64.NO_WRAP)
                         val cipherBytes = Base64.decode(call.argument<String>("ciphertext") ?: "", Base64.NO_WRAP)
-                        val key = getOrCreateHwKey()
+                        val key = getOrCreateHwKey(alias)
                         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, ivBytes))
                         val plainBytes = cipher.doFinal(cipherBytes)
@@ -84,8 +86,9 @@ class MainActivity: FlutterActivity() {
                 }
                 "keyTier" -> {
                     try {
-                        getOrCreateHwKey()
-                        result.success(cachedTier ?: "tee")
+                        val alias = call.argument<String>("keyAlias") ?: defaultHwKeyAlias
+                        getOrCreateHwKey(alias)
+                        result.success(cachedTiers[alias] ?: "tee")
                     } catch (e: Exception) {
                         result.error("HW_KEY_UNAVAILABLE", e.message, null)
                     }
@@ -95,41 +98,43 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    // Returns the app's hardware-backed AES key, generating it once (StrongBox first,
-    // falling back to TEE) and reusing it on every later call. The key material itself
-    // never leaves AndroidKeyStore - only ciphertext crosses the platform channel.
-    private fun getOrCreateHwKey(): SecretKey {
+    // Returns the hardware-backed AES key for the given alias, generating it once per
+    // alias (StrongBox first, falling back to TEE) and reusing it on every later call.
+    // Separate aliases (password vs GitHub token) get separate, independent keys - the
+    // key material itself never leaves AndroidKeyStore, only ciphertext crosses the
+    // platform channel.
+    private fun getOrCreateHwKey(alias: String): SecretKey {
         val keyStore = KeyStore.getInstance(androidKeyStoreProvider)
         keyStore.load(null)
 
-        val existing = keyStore.getKey(hwKeyAlias, null) as? SecretKey
+        val existing = keyStore.getKey(alias, null) as? SecretKey
         if (existing != null) {
-            if (cachedTier == null) cachedTier = detectTier(existing)
+            if (cachedTiers[alias] == null) cachedTiers[alias] = detectTier(existing)
             return existing
         }
 
         val key = try {
-            val generated = generateHwKey(strongBox = true)
-            cachedTier = "strongbox"
+            val generated = generateHwKey(alias, strongBox = true)
+            cachedTiers[alias] = "strongbox"
             generated
         } catch (e: StrongBoxUnavailableException) {
-            val generated = generateHwKey(strongBox = false)
-            cachedTier = "tee"
+            val generated = generateHwKey(alias, strongBox = false)
+            cachedTiers[alias] = "tee"
             generated
         } catch (e: Exception) {
-            val generated = generateHwKey(strongBox = false)
-            cachedTier = "tee"
+            val generated = generateHwKey(alias, strongBox = false)
+            cachedTiers[alias] = "tee"
             generated
         }
 
-        cachedTier = detectTier(key)
+        cachedTiers[alias] = detectTier(key)
         return key
     }
 
-    private fun generateHwKey(strongBox: Boolean): SecretKey {
+    private fun generateHwKey(alias: String, strongBox: Boolean): SecretKey {
         val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, androidKeyStoreProvider)
         val builder = KeyGenParameterSpec.Builder(
-            hwKeyAlias,
+            alias,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -158,7 +163,7 @@ class MainActivity: FlutterActivity() {
                 if (keyInfo.isInsideSecureHardware) "tee" else "software_fallback"
             }
         } catch (e: Exception) {
-            cachedTier ?: "tee"
+            "tee"
         }
     }
 

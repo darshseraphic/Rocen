@@ -185,22 +185,59 @@ class CryptoEngine {
   static final RegExp _symbolPattern = RegExp(r'[!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]');
   static final RegExp _fullAllowedPattern = RegExp(r'^[A-Za-z0-9!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]{8}$');
 
+  // Stricter composition rule: each of the 4 categories needs at least 2
+  // characters, and those characters can't be identical to each other
+  // within their own category (no "AA", no "11"). At exactly 8 total
+  // characters, requiring 2 of each of the 4 categories uses up the whole
+  // length - so this mathematically forces EXACTLY 2 per category, not
+  // "2 or more". Also enforces: the same letter can't appear as both its
+  // uppercase and lowercase form (no "Aa" pair), so case alone can't be
+  // used to satisfy two categories with what's visually the same letter.
+  static List<String> _uniqueCharsMatching(String candidate, RegExp pattern) {
+    final matched = candidate.split('').where((c) => pattern.hasMatch(c)).toList();
+    return matched.toSet().toList();
+  }
+
   static bool isPasswordComplexityValid(String candidate) {
     if (!_fullAllowedPattern.hasMatch(candidate)) return false;
-    if (!_upperPattern.hasMatch(candidate)) return false;
-    if (!_lowerPattern.hasMatch(candidate)) return false;
-    if (!_digitPattern.hasMatch(candidate)) return false;
-    if (!_symbolPattern.hasMatch(candidate)) return false;
+
+    final upperChars = candidate.split('').where((c) => _upperPattern.hasMatch(c)).toList();
+    final lowerChars = candidate.split('').where((c) => _lowerPattern.hasMatch(c)).toList();
+    final digitChars = candidate.split('').where((c) => _digitPattern.hasMatch(c)).toList();
+    final symbolChars = candidate.split('').where((c) => _symbolPattern.hasMatch(c)).toList();
+
+    if (upperChars.length < 2 || upperChars.toSet().length < 2) return false;
+    if (lowerChars.length < 2 || lowerChars.toSet().length < 2) return false;
+    if (digitChars.length < 2 || digitChars.toSet().length < 2) return false;
+    if (symbolChars.length < 2 || symbolChars.toSet().length < 2) return false;
+
+    final lowerLetters = lowerChars.map((c) => c.toLowerCase()).toSet();
+    final upperLetters = upperChars.map((c) => c.toLowerCase()).toSet();
+    if (lowerLetters.intersection(upperLetters).isNotEmpty) return false;
+
     return true;
   }
 
   static List<String> missingPasswordRequirements(String candidate) {
     final List<String> missing = [];
     if (candidate.length != passwordLength) missing.add('$passwordLength CHARACTERS');
-    if (!_upperPattern.hasMatch(candidate)) missing.add('1 UPPERCASE');
-    if (!_lowerPattern.hasMatch(candidate)) missing.add('1 LOWERCASE');
-    if (!_digitPattern.hasMatch(candidate)) missing.add('1 DIGIT');
-    if (!_symbolPattern.hasMatch(candidate)) missing.add('1 SYMBOL');
+
+    final upperUnique = _uniqueCharsMatching(candidate, _upperPattern);
+    final lowerUnique = _uniqueCharsMatching(candidate, _lowerPattern);
+    final digitUnique = _uniqueCharsMatching(candidate, _digitPattern);
+    final symbolUnique = _uniqueCharsMatching(candidate, _symbolPattern);
+
+    if (upperUnique.length < 2) missing.add('2 UNIQUE UPPERCASE');
+    if (lowerUnique.length < 2) missing.add('2 UNIQUE LOWERCASE');
+    if (digitUnique.length < 2) missing.add('2 UNIQUE DIGITS');
+    if (symbolUnique.length < 2) missing.add('2 UNIQUE SYMBOLS');
+
+    final lowerLetters = lowerUnique.map((c) => c.toLowerCase()).toSet();
+    final upperLetters = upperUnique.map((c) => c.toLowerCase()).toSet();
+    if (lowerLetters.intersection(upperLetters).isNotEmpty) {
+      missing.add('NO SAME LETTER IN UPPER + LOWER');
+    }
+
     return missing;
   }
 
@@ -256,24 +293,30 @@ class CryptoEngine {
     return base64.decode(stored.split(':')[0]);
   }
 
+  // Two independent hardware-backed keys, one per purpose - so a key
+  // compromise (if that ever became possible) in one has zero implication
+  // for the other. Each results in its own separate AndroidKeyStore entry.
+  static const String passwordKeyAlias = 'rocen_hw_password_key';
+  static const String githubTokenKeyAlias = 'rocen_hw_github_key';
+
   // Wraps an already-encrypted or plaintext string with the device's
-  // StrongBox/TEE-backed AndroidKeyStore AES key, so it can no longer be
-  // read from local storage alone (root access, ADB backup, file copy).
-  // Returns null if the hardware keystore is unavailable - callers must
-  // fall back to storing the unwrapped value in that case.
-  static Future<String?> hardwareWrap(String plaintext) async {
+  // StrongBox/TEE-backed AndroidKeyStore AES key for the given purpose, so
+  // it can no longer be read from local storage alone (root access, ADB
+  // backup, file copy). Returns null if the hardware keystore is
+  // unavailable - callers must fall back to storing the unwrapped value.
+  static Future<String?> hardwareWrap(String plaintext, {required String keyAlias}) async {
     try {
       final Uint8List plainBytes = Uint8List.fromList(utf8.encode(plaintext));
       final result = await _secureKeystoreChannel.invokeMapMethod<String, dynamic>(
         'hwEncrypt',
-        {'plaintext': base64.encode(plainBytes)},
+        {'plaintext': base64.encode(plainBytes), 'keyAlias': keyAlias},
       );
       if (result == null) return null;
 
       final String tier = (result['tier'] ?? 'tee').toString();
       try {
         final box = Hive.box('rocen_settings_box');
-        await box.put('hw_key_tier', tier);
+        await box.put('hw_key_tier_$keyAlias', tier);
       } catch (_) {}
 
       final package = jsonEncode({'iv': result['iv'], 'ct': result['ciphertext']});
@@ -287,14 +330,14 @@ class CryptoEngine {
   // or if the hardware key can't decrypt it (different device, wiped
   // Keystore, StrongBox unavailable) - callers treat null as "this device
   // can't be trusted for this value" rather than silently falling through.
-  static Future<String?> hardwareUnwrap(String wrapped) async {
+  static Future<String?> hardwareUnwrap(String wrapped, {required String keyAlias}) async {
     try {
       if (!wrapped.startsWith('HW1:')) return null;
       final Map<String, dynamic> package = jsonDecode(utf8.decode(base64.decode(wrapped.substring(4))));
 
       final result = await _secureKeystoreChannel.invokeMapMethod<String, dynamic>(
         'hwDecrypt',
-        {'iv': package['iv'], 'ciphertext': package['ct']},
+        {'iv': package['iv'], 'ciphertext': package['ct'], 'keyAlias': keyAlias},
       );
       if (result == null) return null;
 
@@ -304,9 +347,9 @@ class CryptoEngine {
     }
   }
 
-  static Future<String> hardwareKeyTier() async {
+  static Future<String> hardwareKeyTier({String keyAlias = passwordKeyAlias}) async {
     try {
-      final String? tier = await _secureKeystoreChannel.invokeMethod<String>('keyTier');
+      final String? tier = await _secureKeystoreChannel.invokeMethod<String>('keyTier', {'keyAlias': keyAlias});
       return tier ?? 'unavailable';
     } catch (_) {
       return 'unavailable';
@@ -315,12 +358,13 @@ class CryptoEngine {
 
   // Password verification gated on hardware device-binding. Behaves exactly
   // like verifyPin(), plus: once a hw_wrapped_pin exists for this install, a
-  // successful password match ALSO requires the hardware key to unwrap it
-  // back to the same stored hash. If Keystore was wiped or the storage was
-  // moved to another device, this fails even with the correct password -
-  // by design, forcing the user through BIP-39 recovery instead. If no
-  // hw_wrapped_pin exists yet (fresh upgrade from a pre-hardware install),
-  // one is established transparently on this successful verify.
+  // successful password match ALSO requires the password-purpose hardware
+  // key to unwrap it back to the same stored hash. If Keystore was wiped or
+  // the storage was moved to another device, this fails even with the
+  // correct password - by design, forcing the user through BIP-39 recovery
+  // instead. If no hw_wrapped_pin exists yet (fresh upgrade from a
+  // pre-hardware install), one is established transparently on this
+  // successful verify.
   static Future<bool> verifyPinWithHardwareBinding(String pin, String storedHash) async {
     final bool softwareValid = await verifyPin(pin, storedHash);
     if (!softwareValid) return false;
@@ -330,12 +374,12 @@ class CryptoEngine {
       final String? hwWrapped = box.get('hw_wrapped_pin');
 
       if (hwWrapped == null) {
-        final String? wrapped = await hardwareWrap(storedHash);
+        final String? wrapped = await hardwareWrap(storedHash, keyAlias: passwordKeyAlias);
         if (wrapped != null) await box.put('hw_wrapped_pin', wrapped);
         return true;
       }
 
-      final String? unwrapped = await hardwareUnwrap(hwWrapped);
+      final String? unwrapped = await hardwareUnwrap(hwWrapped, keyAlias: passwordKeyAlias);
       return unwrapped == storedHash;
     } catch (_) {
       return true;
