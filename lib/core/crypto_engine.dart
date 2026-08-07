@@ -241,6 +241,30 @@ class CryptoEngine {
     return missing;
   }
 
+  // Same 5 rules as missingPasswordRequirements, but returns every rule's
+  // live satisfied/unsatisfied status (not just the unsatisfied ones) - for
+  // UI that shows the full checklist at all times with an animated
+  // strikethrough per rule as it becomes satisfied, rather than rules
+  // disappearing outright the instant they're met.
+  static List<(String label, bool satisfied)> passwordRequirementStatus(String candidate) {
+    final upperUnique = _uniqueCharsMatching(candidate, _upperPattern);
+    final lowerUnique = _uniqueCharsMatching(candidate, _lowerPattern);
+    final digitUnique = _uniqueCharsMatching(candidate, _digitPattern);
+    final symbolUnique = _uniqueCharsMatching(candidate, _symbolPattern);
+
+    final lowerLetters = lowerUnique.map((c) => c.toLowerCase()).toSet();
+    final upperLetters = upperUnique.map((c) => c.toLowerCase()).toSet();
+    final noSharedCaseLetter = lowerLetters.intersection(upperLetters).isEmpty;
+
+    return [
+      ('2 UNIQUE UPPERCASE', upperUnique.length >= 2),
+      ('2 UNIQUE LOWERCASE', lowerUnique.length >= 2),
+      ('2 UNIQUE DIGITS', digitUnique.length >= 2),
+      ('2 UNIQUE SYMBOLS', symbolUnique.length >= 2),
+      ('NO SAME LETTER IN UPPER + LOWER', noSharedCaseLetter),
+    ];
+  }
+
   static Future<String> hashPin(String pin) async {
     final salt = _generateSecureBytes(_saltLength);
     return hashPinWithSalt(pin, salt);

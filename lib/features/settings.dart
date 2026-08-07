@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/services.dart' show MethodChannel;
+import 'package:flutter/services.dart' show MethodChannel, HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -734,6 +734,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final theme = SettingsUiTheme(isDark);
 
     final TextEditingController pinController = TextEditingController(text: initialValue);
+    final Set<String> hapticFiredFor = {};
 
     showGeneralDialog(
       context: context,
@@ -743,6 +744,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final List<(String, bool)> statuses = CryptoEngine.passwordRequirementStatus(pinController.text);
+            final int satisfiedCount = statuses.where((s) => s.$2).length;
+            final double ratio = statuses.isEmpty ? 0.0 : satisfiedCount / statuses.length;
+            const Color weakColor = Color(0xFF7A0000);
+            final Color progressColor = Color.lerp(weakColor, theme.textMain, ratio) ?? theme.textMain;
+
+            for (final s in statuses) {
+              if (s.$2 && !hapticFiredFor.contains(s.$1)) {
+                HapticFeedback.lightImpact();
+                hapticFiredFor.add(s.$1);
+              } else if (!s.$2 && hapticFiredFor.contains(s.$1)) {
+                hapticFiredFor.remove(s.$1);
+              }
+            }
+
             return Center(
               child: Material(
                 color: Colors.transparent,
@@ -788,10 +804,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 bool isCurrentFocus = text.length == index;
 
                                 Color currentBoxBorderColor = isCurrentFocus
-                                    ? theme.textMain
-                                    : (isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor);
+                                    ? progressColor
+                                    : (isFilled ? progressColor : theme.dialogBorderColor);
 
-                                return Container(
+                                return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 400),
+                                  curve: Curves.easeOutQuart,
                                   width: 28,
                                   height: 28,
                                   alignment: Alignment.center,
@@ -804,7 +822,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   ),
                                   child: Text(
                                     isFilled ? '●' : '',
-                                    style: TextStyle(color: theme.textMain, fontSize: 10),
+                                    style: TextStyle(color: progressColor, fontSize: 10),
                                   ),
                                 );
                               }),
@@ -813,18 +831,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ],
                       ),
                       const SizedBox(height: 10),
-                      Builder(builder: (context) {
-                        final missing = CryptoEngine.missingPasswordRequirements(pinController.text);
-                        return Text(
-                          missing.isEmpty ? '' : 'MISSING: ${missing.join(', ')}',
-                          style: const TextStyle(
-                            color: Color(0xFFEF4444),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.02,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              height: 3,
+                              color: theme.dialogBorderColor,
+                              child: TweenAnimationBuilder<double>(
+                                tween: Tween<double>(begin: 0.0, end: ratio),
+                                duration: const Duration(milliseconds: 400),
+                                curve: Curves.easeOutQuart,
+                                builder: (context, value, child) {
+                                  return FractionallySizedBox(
+                                    alignment: Alignment.centerLeft,
+                                    widthFactor: value.clamp(0.0, 1.0),
+                                    child: Container(color: progressColor),
+                                  );
+                                },
+                              ),
+                            ),
                           ),
-                        );
-                      }),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${(ratio * 100).round()}%',
+                            style: TextStyle(color: progressColor, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.02),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: statuses.map((s) => _buildPasswordRequirementRow(s.$1, s.$2)).toList(),
+                      ),
                       const SizedBox(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
@@ -1334,10 +1372,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       const SizedBox(height: 10),
                       Builder(builder: (context) {
-                        final missing = CryptoEngine.missingPasswordRequirements(pinController.text);
-                        return Text(
-                          missing.isEmpty ? '' : 'MISSING: ${missing.join(', ')}',
-                          style: const TextStyle(color: Color(0xFFEF4444), fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                        final statuses = CryptoEngine.passwordRequirementStatus(pinController.text);
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: statuses.map((s) => _buildPasswordRequirementRow(s.$1, s.$2)).toList(),
                         );
                       }),
                       const SizedBox(height: 14),
@@ -2632,6 +2670,70 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text(
             body,
             style: TextStyle(color: textSub, fontSize: 11, height: 1.45),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Same strikethrough-grows-in animation as the to-do list's task
+  // completion (Stack + TweenAnimationBuilder + ClipRect/widthFactor):
+  // the red "unmet" label sits underneath permanently, and a green
+  // strikethrough copy grows left-to-right over it as the rule becomes
+  // satisfied, and shrinks back if the password changes and no longer
+  // meets it.
+  Widget _buildPasswordRequirementRow(String label, bool satisfied) {
+    const unmetColor = Color(0xFFEF4444);
+    const metColor = Color(0xFF22C55E);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('· ', style: TextStyle(color: unmetColor, fontSize: 9, fontWeight: FontWeight.w500)),
+          Expanded(
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(color: unmetColor, fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                ),
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0.0, end: satisfied ? 1.0 : 0.0),
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.easeOutQuart,
+                  builder: (context, value, child) {
+                    return ClipRect(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: value,
+                        child: Text(
+                          label,
+                          style: const TextStyle(
+                            color: metColor,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.02,
+                            decoration: TextDecoration.lineThrough,
+                            decorationColor: metColor,
+                            decorationThickness: 1.4,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          AnimatedScale(
+            scale: satisfied ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutBack,
+            child: const Text('✓', style: TextStyle(color: metColor, fontSize: 10, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
