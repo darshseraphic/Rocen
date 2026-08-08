@@ -1,12 +1,12 @@
 ### ROCEN // THE COMPLETE TECHNICAL SYSTEM MANIFESTO & REFERENCE MANUAL
 
-**DOCUMENT VERSION:** 2026.4.2
+**DOCUMENT VERSION:** 2026.8.1
 
-**CORE ENGINEER:** DARSHSERPHIC
+**CORE ENGINEER:** DARSHSERAPHIC
 
 **DESIGN MATRIX:** STRICT LOW-FI BRUTALIST ARCHITECTURE
 
-**COMPILATION STEPS:** LOCAL DEV PARTITION ASSEMBLY
+**SECURITY MODEL:** ZERO-KNOWLEDGE, HARDWARE-BOUND, GITHUB-BACKED LOCAL-FIRST WORKSPACE
 
 
 ### 01 // SYSTEM OVERVIEW & THE INTENTIONAL MANIFESTO
@@ -28,743 +28,164 @@
 
 #### 1.1 The Problem Statement
 
-Modern mobile engineering is experiencing an era of massive aesthetic and structural bloat. The consumer application marketplace is saturated with design patterns engineered to capture and monopolize human attention spans through dopamine loops, complex animations, layered drop-shadows, hyper-saturated color gradients, and unnecessary cloud interdependencies.
-
-The consequences of these trends are systemic:
-
-* **Visual Fatigue:** Continuous exposure to shifting, micro-animated user interfaces strains optical focus, generating cognitive friction during high-priority data entry sequences.
-* **Network Pollution:** Constant data background handshakes, cloud telemetry synchronization, third-party user tracking tracking tokens, and remote server validation routines increase app-to-device latency. This compromises batteries and risks data exposure.
-* **Structural Fragility:** Relational databases (SQL architectures) integrated into mobile devices impose rigid schemas. When developer codebases change, tracking migrations across production clusters introduces a massive risk of hard state failures and total user lockout.
+Modern mobile engineering is experiencing an era of massive aesthetic and structural bloat — apps saturated with dopamine-loop design patterns, layered drop-shadows, and unnecessary cloud interdependencies. A separate, quieter problem sits underneath that one: most "private" note apps ask you to trust a company's server with your data, a company's uptime with your access, and a company's business model with your privacy — forever, with no way to verify any of it yourself.
 
 #### 1.2 The Rocen Protocol
 
-**Rocen** is built as a complete counter-response to this industry bloat. It is a highly focused, low-fidelity, brutalist mobile workspace capture engine. The system operates on an absolute local-first framework, designed with the sole purpose of providing instantaneous temporal visualization and raw, uninterrupted text collection.
+**Rocen** is a highly focused, low-fidelity, brutalist mobile workspace that rejects both problems at once. It is local-first (your data lives on your device, full stop) and, for anyone who wants cross-device backup, **zero-knowledge GitHub-backed** — meaning your encrypted data can leave your device, but only into a GitHub repository *you* own, using *your* access token, encrypted with a key that never leaves your device in a form anyone else could use. Nobody — not GitHub, not the developer of this app, not anyone who gains read access to your repo — can read your notes without your password and, if needed, your 12-word recovery phrase.
 
-```
-+-----------------------------------------------------------------------+
-|  [ SYSTEM ROOT ]                                                      |
-|       |                                                               |
-|       v                                                               |
-|  [ ENGINE INITIALIZATION ] (main.dart)                                |
-|       |                                                               |
-|       +---> WidgetsFlutterBinding (Hardware Bind Layer)              |
-|       +---> Hive Storage Core (Local Binary Virtual Sandboxes)        |
-|               |                                                       |
-|               v                                                       |
-|  [ GATEWAY SEQUENCE ] (splash_screen.dart)                            |
-|       |                                                               |
-|       v                                                               |
-|  [ CORE LAYOUT ENGINE ] (MainNavigationHub)                           |
-|       |                                                               |
-|       +---> 01 / MATRIX TIMELINE CORE (13-Column Epoch Map)           |
-|       +---> 02 / QUICKNOTE SANDBOX   (Anti-Collapse Viewport)         |
-|       +---> 03 / UTILITY CONFIG PANEL (System Settings Matrix)        |
-+-----------------------------------------------------------------------+
-
-```
-
-Rocen completely discards decorative elements: there are no animations beyond rapid 200-millisecond state transitions, zero rounded button edges, zero color depth gradients, and zero background analytics relays. The app treats data entry as a raw pipeline, formatting your daily metrics and thoughts into an structured sandbox environment.
+Rocen discards decorative elements: no animations beyond deliberate, purposeful state transitions, zero rounded button edges, zero color-depth gradients. Data entry is a raw pipeline; everything about the interface is built to get out of the way of your thoughts.
 
 
+### 02 // FEATURE MATRIX
 
-### 02 // TECHNICAL STACK & SOFTWARE BLUEPRINT
+Rocen ships five focused tools inside one brutalist shell:
 
-The underlying infrastructure of Rocen is built using declarative framework layers and high-performance, single-threaded storage engines.
+| Feature | What it does |
+|---|---|
+| **QuickNote** | The core writing surface. Notes can optionally be password-encrypted and backed up to your own GitHub repo. |
+| **To-Do List** | A minimal task list with an animated completion strikethrough — check something off, watch the line grow through it. |
+| **Idea Inbox** | A calendar-anchored capture space for ideas and events tied to specific dates. |
+| **Media Registry** | Browse your device gallery and import media into the app's local workspace. Media is **never** backed up remotely — see §4.6. |
+| **Settings** | Password setup/rotation, GitHub backup configuration, recovery phrase management, and a full on-device Privacy Policy panel that reports your device's actual security posture (StrongBox vs. TEE, rooted/modified device detection). |
+
+Every screen shares the same visual language: sharp 0.8px borders, uppercase monospace-leaning type, and a signature dark-red (`#5F0E0D`) accent used consistently for text selection across every input field in the app.
+
+
+### 03 // TECHNICAL STACK
 
 ```
 +-----------------------------------------------------------------------+
 |                       ROCEN RUNTIME LAYER TREE                        |
 +-----------------------------------------------------------------------+
-| UTILITY LAYER:       Settings Screen / Sliding Full-Page Sheets       |
+| UTILITY LAYER:        Settings / Recovery / GitHub Backup Config      |
 +-----------------------------------------------------------------------+
-| INTERFACE SANDBOX:   Matrix Timeline View / QuickNote Input Buffer    |
+| INTERFACE SANDBOX:    QuickNote / To-Do / Idea Inbox / Media Registry |
 +-----------------------------------------------------------------------+
-| STATE CONTAINER:     Riverpod Reactive Notifier Engine                 |
+| STATE CONTAINER:      Riverpod Reactive Notifier Engine               |
 +-----------------------------------------------------------------------+
-| LOCAL DISK ENCLOSURE: Hive Embedded Key-Value Memory Box Containers    |
+| CRYPTOGRAPHY LAYER:   Argon2id + AES-256-GCM, isolated + RAM-pinned   |
 +-----------------------------------------------------------------------+
-| NATIVE SYSTEM ENGINE: Flutter Architecture / Dart Virtual Engine      |
+| HARDWARE TRUST LAYER: AndroidKeyStore (StrongBox / TEE)               |
 +-----------------------------------------------------------------------+
-
+| LOCAL DISK ENCLOSURE: Hive Embedded Key-Value Memory Box Containers   |
++-----------------------------------------------------------------------+
+| SYNC LAYER:           GitHub REST API, certificate-pinned, per-user   |
++-----------------------------------------------------------------------+
+| NATIVE SYSTEM ENGINE: Flutter / Dart, obfuscated release builds       |
++-----------------------------------------------------------------------+
 ```
 
-#### 2.1 Native Layout Subsystems
-
-The user interface is built via a modified version of Flutter’s hardware-accelerated Skia/Impeller layout canvas. Every visual structure maps directly onto high-contrast pixel boundaries, stripping out anti-aliasing artifacts on structural borders by enforcing exact integer sizing metrics ($0.8\text{px}$ vector calculations).
-
-#### 2.2 The Reactive State Container (Riverpod)
-
-To keep the UI snappy, data state changes never rely on deep element tree rebuilding or native state mutation loops (`setState`). Instead, state is isolated inside a global unified memory partition called **Riverpod**.
-
-Riverpod acts as an abstract reactive layer above the layout tree. It monitors data reads and database commits, broadcasting state mutations down to specific listening widgets with minimal overhead. This architectural separation completely decouples visual rendering from underlying data manipulations.
-
-#### 2.3 The Local Database Architecture (Hive)
-
-Rocen rejects relational database architectures ($SQL$/$SQLite$). It relies on an on-device embedded NoSQL engine named **Hive**.
-
-Hive is built explicitly for Dart systems, organizing data as simple key-value entries inside uncompressed binary files called **Boxes**. The operational advantages of Hive within the Rocen framework are fundamental:
-
-1. **Memory-First Performance:** When a box is opened during application boot, the entire binary data matrix is pulled directly into active system **RAM**. All subsequent search and look-up actions resolve immediately inside memory with $O(1)$ algorithmic complexity. Disk read operations drop to absolute zero during runtime.
-2. **Lazy Storage Flushing:** When a write step happens, Hive applies the change to the active memory table instantly, ensuring zero lag on the screen. It then lazily flushes the binary data down to the device's storage disk block in the background.
-3. **Schemaless Growth:** There are no fixed rows, columns, or strict tables. If an upgraded build requires new data parameters, they are injected directly into the active keys without writing database migrations. This avoids database lockouts or application thread crashes.
+- **UI:** Flutter, hardware-accelerated Skia/Impeller rendering, strict integer/0.8px sizing to keep every border crisp.
+- **State:** Riverpod — no `setState` tree-walking, state mutations broadcast directly to listening widgets.
+- **Local storage:** Hive, an embedded NoSQL key-value store. No SQL schema, no migrations to maintain, memory-resident once a box is opened.
+- **Cryptography:** the `cryptography` Dart package (Argon2id, AES-GCM), `crypto` (SHA-256, used for certificate pin hashing), `ffi` (native RAM-locking).
 
 
+### 04 // SECURITY ARCHITECTURE — THE FULL BREAKDOWN
 
-### 03 // DETAILED COMPONENT ARCHITECTURE & CORE CODEBASES
+This is the part that actually matters, so it gets the longest section. Every claim below reflects what the code actually does, not aspirational design goals.
 
-The code structural layout of Rocen is organized into isolated component silos. Below is the complete reference documentation for the core logic layers of the workspace.
+#### 4.1 The Password
 
-#### 3.1 The System Boot Engine (`lib/main.dart`)
+Your cryptography password is exactly **8 ASCII characters**, but composition is deliberately strict — not just "one of each type," but:
 
-This file is the root boot controller for the entire application environment. It runs platform setup, builds local cache handshakes, manages theme states, and fires up the core interface shell.
+- 2 **unique** uppercase letters (not the same letter twice)
+- 2 **unique** lowercase letters
+- 2 **unique** digits
+- 2 **unique** symbols
+- The same letter can't appear as both its uppercase and lowercase form (no `Aa` pairs padding out two categories with what's visually one letter)
 
-```dart
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'features/splash_screen.dart'; 
+At exactly 8 characters, requiring 2 of each of 4 categories uses the entire length — so this isn't "at least," it mathematically forces **exactly** 2 of each. The password-creation screen shows all 5 rules live, each one animating a strikethrough as it's satisfied, with the 8 input boxes themselves tinting from dark red toward neutral as your password gets stronger.
 
-// =====================================================================
-// STATE MANAGEMENT CONFIGURATION (THEME CONTROLLERS)
-// =====================================================================
+#### 4.2 Key Derivation & Encryption
 
-class ThemeNotifier extends StateNotifier<bool> {
-  ThemeNotifier() : super(true) {
-    _initTheme();
-  }
+- **KDF:** Argon2id, both for the local authentication hash and for deriving the AES key used per encryption operation. Parameters are **adaptive**: standard cost on a normal device, automatically bumped to a higher memory/iteration cost if the device is detected as rooted (§4.5) — raising the bar for brute-force specifically on devices where the OS itself may already be compromised.
+- **Cipher:** AES-256-GCM. Every encryption operation generates a fresh random salt and nonce — nothing is ever reused across notes or across saves of the same note.
+- **Storage format:** `[version byte][salt][nonce][MAC][ciphertext]`, base64-encoded. Versioned from day one so the format can evolve without breaking old data.
+- **Password verification:** constant-time comparison — no early-exit byte comparison that could leak timing information about how much of a guess was correct.
+- **Brute-force throttling:** failed attempts trigger exponential lockout (30s → 60s → 300s, doubling from there), not a flat retry limit.
 
-  // Load user's persistent theme preference from disk
-  void _initTheme() {
-    final box = Hive.box('system_settings');
-    state = box.get('isDark', defaultValue: true);
-  }
+#### 4.3 Isolated Cryptography
 
-  // Toggle interface colors across the entire widget tree instantly
-  void toggleTheme() {
-    state = !state;
-    final box = Hive.box('system_settings');
-    box.put('isDark', state);
-  }
-}
+Argon2id and AES-GCM never run on the UI thread. Every derive/encrypt/decrypt call runs inside a spawned Dart `Isolate` — a separate memory space from the main app, created fresh for that operation and torn down when it's done. This keeps the (relatively expensive, deliberately slow) Argon2id computation from ever freezing the interface, and keeps derived key material physically separated from the isolate handling your UI and network calls.
 
-final themeProvider = StateNotifierProvider<ThemeNotifier, bool>((ref) {
-  return ThemeNotifier();
-});
+#### 4.4 Memory Hygiene: Zeroing and RAM Pinning
 
-// =====================================================================
-// APPLICATION ENTRYPOINT ENGINE
-// =====================================================================
+Two layers here, working together:
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  try {
-    // Initialize physical disk caching layers safely
-    await Hive.initFlutter();
-    await Hive.openBox('system_settings');
-  } catch (e) {
-    // Failsafe: Reset storage if files get corrupted during hard restarts
-    debugPrint("Hive storage reset triggered: $e");
-    await Hive.deleteBoxFromDisk('system_settings');
-    await Hive.openBox('system_settings');
-  }
+- **Explicit zeroing:** every sensitive byte buffer — derived keys, decrypted plaintext, the comparison hashes used during password verification — is overwritten with zeros the moment it's no longer needed, inside `try/finally` blocks so zeroing happens even if an error occurs mid-operation.
+- **RAM pinning:** those same buffers are allocated on the *native* heap (outside Dart's garbage collector, via direct FFI calls to `mlock`/`munlock`) and best-effort locked into physical RAM so the OS can't page them out to disk/swap while they're live. This is genuinely best-effort — `mlock` is denied outright on plenty of stock Android ROMs (`RLIMIT_MEMLOCK` caps) — and when it's denied, encryption/decryption proceeds completely normally regardless. Pinning succeeding or failing never blocks or breaks the app; it's a bonus hardening layer, not a dependency.
 
-  runApp(
-    const ProviderScope(
-      child: RocenWorkspaceApp(),
-    ),
-  );
-}
+**The one honest limitation this can't reach:** the password *as you type it*, and decrypted note text *as displayed on screen*, live in Dart's native `String` type at some point — and Dart Strings are immutable and garbage-collected, meaning they can't be forcibly zeroed or pinned by application code. This is a structural constraint of the language runtime, not a gap in effort — every byte buffer that *can* be controlled, is.
 
-class RocenWorkspaceApp extends ConsumerWidget {
-  const RocenWorkspaceApp({super.key});
+#### 4.5 Root & Tamper Detection
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = ref.watch(themeProvider);
+On launch, Rocen checks for common root indicators — `su` binaries in standard paths, known root-management packages (Magisk, SuperSU, and others), `test-keys` build tags. The response is **adaptive, not punitive**: a rooted device isn't locked out or feature-restricted. Detecting root silently raises the Argon2id cost parameters for that device, and the on-device Privacy Policy panel discloses the detection plainly to the user rather than pretending the device is in a fully trusted state.
 
-    return MaterialApp(
-      title: 'Rocen',
-      debugShowCheckedModeBanner: false,
-      
-      // Strict layout styling mapping to high-contrast theme states
-      themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
-      ),
-      theme: ThemeData(
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: Colors.white,
-      ),
-      
-      // THE ENTRY ENGINE: Runs splash fade, then drops cleanly into your true app components
-      home: const AnimatedSplashScreen(
-        child: MainNavigationHub(), 
-      ),
-    );
-  }
-}
+#### 4.6 Hardware-Backed Key Storage (StrongBox / TEE)
+
+Two **independent** AndroidKeyStore AES-256-GCM keys, separate aliases, one per purpose:
+
+- One protects the local password-verification chain.
+- One protects your stored GitHub access token.
+
+Compromising one key has zero implication for the other. Key generation tries **StrongBox** first (a physically separate secure-element chip, where present) and falls back to the **TEE** (Trusted Execution Environment) if StrongBox isn't available on that specific device — the tier actually achieved is independently verified via `KeyInfo`, not just inferred from which code branch ran, and the Privacy Policy panel reports which tier your device landed on.
+
+Password verification is **hardware-bound**: a correct password match is necessary but not sufficient — the app also has to successfully unwrap a hardware-encrypted copy of the stored hash using that device's specific Keystore key. If the Keystore entry is gone (app reinstall, factory reset, or the storage being moved to a different device entirely), that check **intentionally fails even with the correct password**, and the user is routed to recovery via the BIP-39 phrase (§4.7) instead. This is a deliberate design tradeoff: it means storage theft alone — pulling the Hive box off the device via root or ADB backup — is never enough to get in, even with a correct password in hand, because the hardware half of the check can't be extracted or replicated off-device.
+
+#### 4.7 Recovery: BIP-39
+
+A 12-word recovery phrase is generated at setup. Combined with your password, it's used to wrap your local authentication salt for cross-device recovery — this is the sanctioned path back in if local storage and hardware keys are both lost (new phone, factory reset, reinstall). Without both the password *and* the phrase, there's no backdoor — including for the developer of this app.
+
+#### 4.8 GitHub Backup: Zero-Knowledge By Architecture
+
+If you choose to enable it, backup works like this:
 
 ```
-
-### 3.2 The Master Config Panels (`lib/features/settings.dart`)
-
-This component governs utility management, system documentation views, and high-performance interface inversion toggles. It details all operations within dedicated fullscreen right-to-left animation sliders.
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../main.dart';
-
-class SettingsScreen extends ConsumerWidget {
-  const SettingsScreen({super.key});
-
-  // CUSTOM ROUTE BUILDER FOR THE RIGHT-TO-LEFT SMOOTH TAB SLIDE EFFECT (100% FULL PAGE)
-  void _showSlidingPanel(BuildContext context, String title, List<Widget> children, bool isDark) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: false,
-        pageBuilder: (context, animation, secondaryAnimation) {
-          final panelBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
-          final textMain = isDark ? Colors.white : Colors.black;
-          final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-
-          return Scaffold(
-            backgroundColor: Colors.transparent, 
-            body: Stack(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.of(context).pop(),
-                  child: Container(color: Colors.transparent),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FractionallySizedBox(
-                    widthFactor: 1.0, 
-                    heightFactor: 1.0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: panelBg,
-                      ),
-                      child: SafeArea(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // PANEL HEADER BACK NAVIGATION TAB
-                            Padding(
-                              padding: const EdgeInsets.all(20.0),
-                              child: Row(
-                                children: [
-                                  GestureDetector(
-                                    onTap: () => Navigator.of(context).pop(),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: BoxDecoration(
-                                        border: Border.all(color: borderColor, width: 0.8),
-                                      ),
-                                      child: Icon(Icons.arrow_back, size: 14, color: textMain),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Text(
-                                    title,
-                                    style: TextStyle(
-                                      color: textMain,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.02,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Divider(color: borderColor, height: 1, thickness: 0.8),
-                            
-                            // SCROLLABLE PANEL CONTENT BLOCK
-                            Expanded(
-                              child: ListView(
-                                physics: const BouncingScrollPhysics(),
-                                padding: const EdgeInsets.all(24.0),
-                                children: children,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          const begin = Offset(1.0, 0.0);
-          const end = Offset.zero;
-          const curve = Curves.fastOutSlowIn;
-          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-      ),
-    );
-  }
-
-  // MINIMAL UTILITY BUILDER FOR COMING SOON PROMPTS
-  void _showComingSoonDialog(BuildContext context, String featureTitle, bool isDark) {
-    final textMain = isDark ? Colors.white : Colors.black;
-    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    final dialogBg = isDark ? const Color(0xFF0F0F0F) : Colors.white;
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: dialogBg,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            border: Border.all(color: borderColor, width: 0.8),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'SYSTEM STATUS',
-                style: TextStyle(color: textSub, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.05),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$featureTitle IS COMING SOON',
-                style: TextStyle(color: textMain, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: -0.01),
-              ),
-              const SizedBox(height: 24),
-              Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  onTap: () => Navigator.of(context).pop(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: textMain,
-                    ),
-                    child: Text(
-                      'ACKNOWLEDGE',
-                      style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              )
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // REUSABLE STRUCTURAL TILES FACTORY
-  Widget _buildMenuTile({
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    required Color textMain,
-    required Color textSub,
-    required Color borderColor,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(top: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: borderColor, width: 0.8),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.03),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(color: textSub, fontSize: 10),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, size: 14, color: textSub),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoSection(String header, String body, Color textMain, Color textSub) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            header,
-            style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.05),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            body,
-            style: TextStyle(color: textSub, fontSize: 11, height: 1.4),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = ref.watch(themeProvider);
-
-    final textMain = isDark ? Colors.white : Colors.black;
-    final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    final containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
-
-    return Scaffold(
-      backgroundColor: isDark ? Colors.black : Colors.white,
-      body: SafeArea(
-        child: ListView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(24.0),
-          children: [
-            Text(
-              'SYSTEM SETTINGS',
-              style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
-            ),
-            const SizedBox(height: 24),
-
-            // SYSTEM-WIDE DARK THEME CONFIG
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: containerBg,
-                border: Border.all(color: borderColor, width: 0.8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'DARK INTERFACE',
-                        style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.05),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Toggle system-wide dark mode',
-                        style: TextStyle(color: textSub, fontSize: 10),
-                      ),
-                    ],
-                  ),
-
-                  GestureDetector(
-                    onTap: () {
-                      ref.read(themeProvider.notifier).toggleTheme();
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
-                      width: 44,
-                      height: 24,
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFDDDDDD),
-                        border: Border.all(color: borderColor, width: 0.8),
-                      ),
-                      child: AnimatedAlign(
-                        duration: const Duration(milliseconds: 120),
-                        alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          width: 16,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            color: isDark ? Colors.white : Colors.black,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 12),
-            Divider(color: borderColor, thickness: 0.8),
-            
-            // [01] USER GUIDE
-            _buildMenuTile(
-              title: 'USER GUIDE',
-              subtitle: 'Overview of system infrastructure panels',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
-              onTap: () => _showSlidingPanel(
-                context, 
-                'USER GUIDE', 
-                [
-                  _buildInfoSection(
-                    '01 // SYSTEM ROOT ENGINE', 
-                    'Initializes state tracking and dynamic configuration variables via Riverpod. Sets up persistent disk storage boxes via Hive locally with absolute zero background network pollution or tracker threads. Contains an active corruption bypass pipeline to prevent app thread hangs.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '02 // GATEWAY LAYER (SPLASH SCREEN)', 
-                    'Intercepts platform load phases. Executes a sequential 2-second opacity mapping (Fade-In -> Visual Hold -> Fade-Out) that updates background hexes to light or dark instantly depending on your previous system selection to kill boot flashes. Destroys itself from device memory once done.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '03 // STRUCTURAL HUB NAVIGATION', 
-                    'A minimal, low-fatigue typography navigation track managing screen selections. Enforces absolute scaffold layout parameter overrides that allow keyboard assemblies to slide in cleanly as structural overlays instead of physically compressing navigation bars or breaking view alignments.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '04 // MATRIX TIMELINE COMPONENT', 
-                    'Renders an expansive 13-column structural timeline array mapping out all 365 calendar segments simultaneously. Shaded block indicators illustrate elapsed timelines, while open blocks map operational capacity limits left in the active calendar phase.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '05 // QUICKNOTE SANDBOX MODULE', 
-                    'Features an advanced anti-collapse text scroll viewport framework (using explicit Expanded boundaries and SingleChildScrollView parameters). This forces text input metrics to dynamically scale and stay safely visible inside remaining boundaries when system keyboards push bottom navigation paths up.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '06 // INTERFACE REGULATION CONTROLS', 
-                    'Manages immediate UI inversion variables. Hooks sub-sheets into dedicated right-to-left animation pipelines locked at a 1.0 width Factor constraint to seamlessly map panels across 100% of the display boundaries, blocking out background layouts and dropping heavy dropshadow rendering tasks completely.', 
-                    textMain, textSub
-                  ),
-                ], 
-                isDark,
-              ),
-            ),
-
-            // [02] DATA SECURITY
-            _buildMenuTile(
-              title: 'DATA SECURITY',
-              subtitle: 'Information encryption & local cache schemas',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
-              onTap: () => _showSlidingPanel(
-                context, 
-                'DATA SECURITY', 
-                [
-                  _buildInfoSection(
-                    '01 // STORAGE PIPELINE (NOSQL ENGINE)', 
-                    'Rocen bypasses heavy, slow relational SQL frameworks completely. The system utilizes a lightweight NoSQL key-value database engine called Hive. Data maps directly into flat binary blocks written strictly onto internal device hardware partitions. Cloud synchronization pipelines, servers, and telemetry relays are 100% omitted from the application code.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '02 // BOX CONTAINER MATRIX', 
-                    'Instead of complex relational SQL tables, records are organized into isolated data compartments called "Boxes" (e.g., system_settings). Rows and columns are replaced by lightning-fast, schemaless key-value indexes. This allows seamless framework growth without the threat of database schema crashes.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '03 // MEMORY-FIRST PIPELINE', 
-                    'To optimize interface speed, boxes are buffered entirely inside the device\'s active RAM memory on boot. Queries and data reads execute with absolute zero disk delay. Writes update the memory registry instantly for immediate UI rendering, then lazily flush the changes down to physical binary disk partitions in the background.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '04 // CORRUPTION REPAIR FAILSAFE', 
-                    'If a data commit sequence gets interrupted (such as a sudden device shutdown), a custom try-catch engine monitors the handshake during the next boot phase. If file corruption is detected, the broken block is instantly isolated, purged from the disk, and a fresh data box is initialized to safeguard the core application runtime.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '05 // APPLICATION PERMISSIONS OUTLINE', 
-                    'Network traffic tracking descriptors, background web scraping handshakes, and third-party tracking assets are strictly excluded from compile manifests to preserve full data isolation.', 
-                    textMain, textSub
-                  ),
-                ], 
-                isDark,
-              ),
-            ),
-
-            // [03] PRIVACY POLICY
-            _buildMenuTile(
-              title: 'PRIVACY POLICY',
-              subtitle: 'Application definitions and core manifest details',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
-              onTap: () => _showSlidingPanel(
-                context, 
-                'PRIVACY POLICY', 
-                [
-                  _buildInfoSection(
-                    '01 // APPLICATION DESCRIPTION', 
-                    'Rocen is an integrated, low-fi brutalist system blueprint built to run high-utility tools without backend pollution or network bloat.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '02 // SYSTEM AUTHOR', 
-                    'Developed entirely by Darshseraphic.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '03 // PURPOSE & NEED', 
-                    'Engineered to defeat visual fatigue by utilizing stark, clean interfaces and intentional data layouts.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '04 // DEVELOPMENT MATRIX', 
-                    'Initial platform conceptualization to complete assembly overhaul completed in a pure 24-hour rapid deployment sequence.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '05 // ABSOLUTE ZERO DATA COLLECTION', 
-                    'The workspace architecture maintains a strict zero-collection manifest. The source framework is built with no telemetry tracking scripts, analytical tokens, crash report transmitters, or third-party background scraper threads. User data never leaves your hardware.', 
-                    textMain, textSub
-                  ),
-                  _buildInfoSection(
-                    '06 // AIR-GAPPED NETWORK ISOLATION', 
-                    'Rocen operates under a complete air-gapped data methodology. Because no network permission structures or communication handlers are compiled into the operational database layer, user inputs are strictly safe, immutable, and 100% locked within the offline secure sandbox directory of the local device.', 
-                    textMain, textSub
-                  ),
-                ], 
-                isDark,
-              ),
-            ),
-
-            // [04] WEBSITE
-            _buildMenuTile(
-              title: 'WEBSITE',
-              subtitle: 'Access outward system project portals',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
-              onTap: () => _showComingSoonDialog(context, 'PROJECT PORTAL WEBPAGE', isDark),
-            ),
-
-            // [05] FEEDBACK
-            _buildMenuTile(
-              title: 'FEEDBACK',
-              subtitle: 'Report pipeline anomalies or system logs',
-              textMain: textMain,
-              textSub: textSub,
-              borderColor: borderColor,
-              onTap: () => _showComingSoonDialog(context, 'FEEDBACK PIPELINE INTERFACE', isDark),
-            ),
-
-            const SizedBox(height: 48),
-
-            // THE SYSTEM SIGNATURE STAMP
-            Center(
-              child: Text(
-                'BUILD BY DARSHSERPHIC',
-                style: TextStyle(
-                  color: textSub.withOpacity(0.5),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.12,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
+      [ YOUR DEVICE ]                          [ YOUR GITHUB REPO ]
+   password + AES-GCM  ------ciphertext------>   encrypted notes
+   never leaves device        only                device_key.json
+                          (your token,             (itself encrypted,
+                        your repo, your auth)      Argon2id-wrapped)
 ```
 
+- **You bring your own GitHub Personal Access Token and repository.** The developer of this app never sees, stores, receives, or has any access path to any user's token, repo, or data — there is no shared server in this picture at all.
+- **Only ciphertext is ever written.** Note content is AES-GCM encrypted before it's pushed. `device_key.json` — the file that lets a *different* device recover access — is itself wrapped via Argon2id-derived-from-(password + recovery phrase), never stored raw.
+- **Single-commit-amend sync strategy:** each sync force-pushes a fresh root commit rather than growing an ever-longer commit history — keeps the repo lean indefinitely regardless of how many times you sync over the years.
+- **Certificate pinning:** the connection to `api.github.com` pins the server's public key, so even a compromised or otherwise-OS-trusted rogue Certificate Authority can't transparently intercept sync traffic. This is leaf-certificate pinning (a real `dart:io` platform constraint means true CA-level pinning isn't achievable in pure Dart) with two pin slots and, critically, an **auto-expiring, fail-open safety valve**: past a fixed date, or if the pin is never configured, pinning silently deactivates back to completely ordinary system TLS trust. It can only ever make an already-working connection *more* resistant to interception for a bounded window — it can never turn a working connection into a broken one, at any point, even if the pin is never renewed again.
+- **Media is never synced.** Photos and other media stay 100% local, by design — git and GitHub's API aren't built for many-small-binary-blob workloads, and keeping media out of the sync payload entirely means the repo never bloats regardless of how much media you accumulate locally over time.
 
-### 04 // DATA PIPELINE PROTOCOLS & ARCHITECTURE
+**Why this scales to any number of users with zero added cost or risk to anyone:** because every install talks only to its own owner's GitHub repo via its own owner's token, there is no shared backend to overload, no central database, and no server the developer runs or pays for. The load on GitHub's infrastructure from 10 installs versus 10 million installs is identical *per user* — there's no aggregation point where usage could ever bottleneck.
 
-The data layer within Rocen operates with deterministic, air-gapped performance. To accurately detail data life cycles for the user guide, this section breaks down key-value storage behaviors and states.
+#### 4.9 Release Build Hardening
 
-#### 4.1 SQL Relational Databases vs. Hive NoSQL Architecture
+- **R8/ProGuard:** minification and resource shrinking enabled on release builds.
+- **Dart obfuscation:** release APKs are built with `--obfuscate`, scrambling class/method/variable names in the compiled code, paired with `--split-debug-info` so crash stack traces can still be decoded from developer-held symbol files that are never shipped inside the APK itself.
+- **Native symbol stripping:** handled automatically by the Android build toolchain (AGP) as part of a properly configured release build.
 
-The foundational architecture choice of Rocen relies on a key-value data structure. The structural mapping below shows how conventional relational elements translate onto Rocen’s NoSQL layer:
+#### 4.10 The Honest Threat Model
 
-```
-+-------------------------------------------------------------+
-| RELATIONAL SQL MATRIX        | HIVE BINARY SANDBOX (NOSQL)  |
-+------------------------------+------------------------------+
-| Database Enclosure Server    | Local Sandbox Engine Path    |
-| Table Index Framework        | Single Data Box Container    |
-| Data Row / Primary Key Entry | Singular Map Key Variable    |
-| Data Object Cell Attribute   | Directly Assigned Value String|
-+-------------------------------------------------------------+
+Every security system protects against *something*, not *everything* — stating the boundary plainly is more trustworthy than pretending it doesn't exist.
 
-```
+**Rocen protects against:**
+- Physical device theft or loss
+- Storage extraction (ADB backup, direct file copy, forensic imaging of a powered-off device)
+- A compromised or rogue Certificate Authority intercepting the GitHub sync connection
+- Someone with read access to your GitHub repo (including the repo host itself) reading your actual note content
+- Casual or automated scraping — there is no telemetry, no analytics, no tracking of any kind
 
-Because there is no parsing layer, execution pipelines eliminate query optimization bottlenecks.
+**Rocen does not, and structurally cannot, protect against:**
+- A fully compromised operating system — root-level malware or a hostile ROM reading its own process memory while the app is actively unlocked and running
+- The moment of correct password entry itself being observed, keylogged, or shoulder-surfed
+- A person being coerced into revealing their password or recovery phrase
 
-#### 4.2 The Memory Optimization Pipeline
-
-To prevent read-write cycle delays from dropping frame updates below the device's target refresh rate ($60\text{Hz}$ to $120\text{Hz}$), data mutations utilize memory-first staging:
-
-$$\text{Data Input} \longrightarrow \text{State Register (RAM)} \xrightarrow[\text{Background Pipeline}]{\text{Lazy Flush}} \text{Encrypted Local Storage File}$$
-
-1. **Memory Staging Phase:** Input mutations from fields write directly to the primary RAM table registers. Frame generation trees update execution tracks within 8 milliseconds.
-2. **Lazy Serialization Block:** While the display system handles user interface logic, background worker loops serialize key data blocks into raw binary representations.
-3. **Physical Commit Sequence:** Changes are flushed down to disk clusters using sequential file appending. This limits read-write wear on hardware components.
-
+If a device is rooted, Rocen doesn't lower its guard silently — it detects the condition, raises its own cost parameters in response, and discloses it to the user (§4.5). That's the most honest position available to any app running inside an environment it doesn't fully control.
 
 
-### 5 // SYSTEM SECURITY PROTOCOLS & PRIVACY MATRIX
+### 05 // FAILSAFE & RECOVERY BEHAVIOR
 
-#### 5.1 Comprehensive Air-Gap Verification
-
-Rocen enforces a strict network boundary policy. The compilation matrix leaves out all internet communication plugins and networking hooks.
-
-```
-       +-------------------------------------------------+
-       |         ISOLATED PHONE STORAGE BOUNDARY         |
-       |                                                 |
-       |  +-------------------+   +-------------------+  |
-       |  |   QUICKNOTE FIELD  |   | MATRIX TIMELINE   |  |
-       |  +---------+---------+   +---------+---------+  |
-       |            |                       |            |
-       |            v                       v            |
-       |  +-------------------------------------------+  |
-       |  |       ACTIVE PHONE MEMORY TREE (RAM)       |  |
-       |  +---------------------+---------------------+  |
-       |                        |                        |
-       |                        v                        |
-       |  +-------------------------------------------+  |
-       |  |      HIVE EMBEDDED BINARY DISK FILE       |  |
-       |  +-------------------------------------------+  |
-       +-------------------------------------------------+
-                                X
-                                X <--- [ PHYSICAL AIR-GAP BOUNDARY ]
-                                X
-       +-------------------------------------------------+
-       |               EXTERNAL INTERNET                 |
-       |                                                 |
-       |           [ REMOTE SERVER TELEMETRY ]           |
-       +-------------------------------------------------+
-
-```
-
-Because tracking endpoints are completely missing from the binary code, it is physically impossible for user records to be leaked, intercepted, or analyzed by third-party tracking scrapers.
-
-### 5.2 Device Cache Verification & Failsafe Sequence
-
-If a data write is interrupted (such as during a sudden phone battery drainage), the file header can get broken. To prevent this from causing permanent application crashes, Rocen uses a custom boot filter:
+If a local write is interrupted (a sudden battery cutout mid-save, for example), Rocen runs an integrity check on boot:
 
 ```
                   [ COLD RESTART INITIATION ]
@@ -784,87 +205,138 @@ If a data write is interrupted (such as during a sudden phone battery drainage),
                                                |
                                                v
                                      [ ENGINE RESET BOOT ]
-
 ```
 
-This recovery process bypasses app hanging issues entirely, ensuring the app remains usable and secure over long lifetimes.
+This prevents a single corrupted local write from ever hard-locking the app.
 
 
-### 06 // USER GUIDE DOCUMENTATION
+### 06 // PRIVACY POLICY
 
-This text is formatted to be dropped straight into the application's configuration variables or used as physical instruction text.
+**What Rocen collects:** nothing. There is no analytics SDK, no crash reporter phoning home, no usage telemetry, no advertising identifier, no third-party tracking of any kind compiled into this app. This isn't a settings toggle you can find and disable — the code paths simply don't exist.
 
-#### 6.1 Core Tool Navigation Rules
+**What leaves your device:** only what you explicitly choose to back up, and only in encrypted form. If you never enable GitHub backup, nothing about your notes, tasks, or ideas ever touches a network connection. If you do enable it, the only things that leave your device are:
+- AES-256-GCM encrypted note content (§4.2) — unreadable without your password
+- `device_key.json` — your recovery data, itself wrapped via Argon2id-derived key material (§4.7), never stored in a usable raw form
 
-The system dashboard contains three primary functional areas. Access tokens are located on the minimal navigation line at the bottom of the display window.
+**Who can access your data:** you, and only you, with your password (plus your 12-word recovery phrase if you're restoring on a new device). The developer of this app has no account system, no server, and no technical mechanism to view, access, or recover any user's data — GitHub sync goes directly from your device to a repository you own, using a token you generated and control. Support requests along the lines of "can you recover my notes" have exactly one honest answer: only if you still have your password or recovery phrase, because nobody else ever holds a copy of either.
 
-#### Subsystem 1: Temporal Matrix Viewport
+**Media (photos/gallery imports):** stays 100% local, always. It is never included in any backup, never encrypted for transit, never leaves your device through this app under any circumstance — this is a deliberate design choice, not a missing feature (§4.8).
 
-* **Purpose:** Provides a high-level view of time utilization, displaying all 365 days of the calendar year simultaneously across a structured 13-column layout grid.
-* **Interpreting Metrics:** Fully shaded boxes show time intervals that have already passed, while open boxes represent remaining productivity capacity in your current work sprint.
+**Root/tamper detection:** the app checks for signs your device may be rooted or modified, purely to adapt its own encryption cost parameters upward (§4.5). This check never phones out, never reports anything to anyone — it's a purely local, defensive decision your device makes about itself.
 
-#### Subsystem 2: QuickNote Workspace Sandbox
-
-* **Purpose:** A raw text processing field designed for capturing input without layout delays or formatting popups.
-* **Interface Safety Features:** The layout includes an anti-collapse view system that automatically shrinks the text input window when the on-screen keyboard opens. This keeps your active lines safely in view, preventing text from slipping off-screen.
-
-#### Subsystem 3: Local Parameter Matrix
-
-* **Purpose:** Provides access to deep system utility settings, design credits, interface inversion tools, and data privacy records.
-* **Navigation Actions:** Tapping any section link opens a smooth right-to-left fullscreen window panel, bringing the documentation into view instantly.
+**Third parties in this picture:** exactly one — GitHub, because that's where *you* chose to store *your* encrypted backup, under *your* account. Rocen's author is not a third party in your data's story at all; there is no path by which we receive it.
 
 
-### 07 // DEVELOPMENT TIMELINE, REFACTORING HISTORY, AND PRODUCTION MATRIX
+### 07 // HOW YOUR DATA IS ACTUALLY PROTECTED (PLAIN-LANGUAGE VERSION)
 
-#### 7.1 The 24-Hour Sprint Breakdown
+Section §04 above is the full technical breakdown. If you want the short version:
 
-Rocen was conceptualized, structured, tested, and polished into its current production build within a continuous 24-hour development window. This speed run required cutting out all non-essential features and focusing purely on robust code architecture:
-
-* **Hours 01–04 // Core Architecture Setup:** Setup Flutter engine layer mappings, initialized clean state container boundaries using Riverpod, and linked localized target storage locations to on-device binary Hive box pathways.
-* **Hours 05–10 // Viewport Layout Assembly:** Developed high-contrast brutalist design grids ($0.8\text{px}$ black dividers, zero-radius rectangles, crisp monospace font definitions). Built the 13-column calendar grid calculations.
-* **Hours 11–16 // Keyboard Interface Adjustments:** Refactored text fields using explicit view container wrappers and responsive padding offsets to fix keyboard display bugs on mobile layouts.
-* **Hours 17–20 // Safety Layer Integration:** Built exception loops into the initialization sequences, creating automatic recovery paths that handle local storage corruption errors without crashing the main thread.
-* **Hours 21–24 // Layout Cleanup & Signature Build:** Integrated right-to-left sliding document panels, expanded user guides, verified air-gapped data safety, and stamped the final release version build tag: `BUILD BY DARSHSERPHIC`.
+1. **Your notes are encrypted with a key derived from your password** — not the password itself, a key mathematically derived from it using Argon2id, a deliberately slow, memory-hungry algorithm built specifically to resist brute-force guessing.
+2. **That password is also bound to your specific phone's hardware** — even someone who steals your password *and* your phone's storage still can't get in without the physical device's secure hardware chip cooperating (§4.6).
+3. **If your device is compromised (rooted), the app doesn't pretend everything's fine** — it quietly makes the encryption harder to break as a direct response (§4.5).
+4. **If you lose your phone entirely,** your 12-word recovery phrase — which only you have, written down somewhere safe — is the one and only way back in. There is no "forgot password" email link, because that would mean someone else could access your data too.
+5. **If you back up to GitHub,** what lands there is meaningless ciphertext to anyone but you — including to GitHub itself, and including to the developer of this app.
 
 
+### 08 // USER GUIDE — SETTING UP AND USING ROCEN AT MAXIMUM SECURITY
 
-### 08 // COMPREHENSIVE CODE VERIFICATION & MAINTENANCE SYSTEM
+#### 8.1 First Launch: Creating Your Password
 
-#### 8.1 Build Pipeline Optimization Checklist
+You'll be asked to create an 8-character password meeting 5 composition rules (§4.1) — the setup screen shows you live, animated feedback for each one as you type, so you'll know immediately what's still missing. A few honest notes:
 
-Before pushing the codebase updates out to target devices, your build pipeline should run through this complete checklist to ensure maximum stability and style continuity:
+- This password cannot be recovered by anyone if you forget it and also lose your recovery phrase. Choose something you can reliably remember, or store it in a password manager you trust — don't rely on memory alone for something this consequential.
+- Longer isn't an option here by design (exactly 8 characters) — the security comes from Argon2id's computational cost and the strict character diversity rules, not from raw length.
 
-```
-+-------------------------------------------------------------------------+
-|                  PRODUCTION BUILD VERIFICATION METRICS                  |
-+-------------------------------------------------------------------------+
-| [ ] PERMISSIONS: Check AndroidManifest.xml / Info.plist. Ensure all     |
-|     networking hooks are completely omitted to maintain isolation.       |
-+-------------------------------------------------------------------------+
-| [ ] LAYOUT: Inspect box structures. Verify all border strokes are fixed  |
-|     at exactly 0.8px with explicit width alignments.                     |
-+-------------------------------------------------------------------------+
-| [ ] TYPOGRAPHY: Confirm that all text elements map cleanly to mono      |
-|     stacks and all structural headers use uppercase string styling.     |
-+-------------------------------------------------------------------------+
-| [ ] PERSISTENCE: Run database initialization integration checks. Verify |
-|     corrupted state exceptions clear safely without app crashes.        |
-+-------------------------------------------------------------------------+
-| [ ] CREDITS: Confirm that the system signature block text is anchored   |
-|     cleanly at the bottom of the Settings view: BUILD BY DARSHSERPHIC.  |
-+-------------------------------------------------------------------------+
+#### 8.2 Your Recovery Phrase — The Single Most Important Step
 
-```
+Immediately after password setup, you'll be shown a 12-word BIP-39 recovery phrase (§4.7). This is not optional busywork:
 
-By adhering strictly to these engineering parameters, Rocen remains an uncompromised tool for maximum text capture and time tracking efficiency. This documentation layout provides a transparent, end-to-end view of the platform's features, data structures, and overall design philosophy.
+- **Write it down physically.** Paper, notebook, whatever — something that isn't a screenshot, isn't in cloud photo backup, isn't in a notes app on the same or another connected device.
+- **Store it somewhere separate from your phone.** If your phone and your recovery phrase are lost together, both are gone together.
+- **Never type it into anything except Rocen's own recovery screen.** No legitimate reason will ever exist for this phrase to be requested by email, chat, or any website.
+- **This phrase, combined with your password, is the only way to regain access** if your phone is lost, factory reset, or the app is reinstalled. There is no other recovery mechanism — that absence is what makes the encryption meaningful in the first place.
 
-## License
+#### 8.3 Enabling GitHub Backup (Optional, Recommended for Cross-Device Safety)
 
-Copyright (c) 2026 darshseraphic. All Rights Reserved.
+1. Create a **dedicated GitHub repository** for this purpose — ideally **private**, and ideally not reused for anything else.
+2. Generate a **Personal Access Token** scoped as narrowly as GitHub allows — repository-level access to that one repo is enough; avoid tokens with broad account-wide permissions if you can help it. A leaked narrow-scope token is a much smaller problem than a leaked broad one.
+3. Enter the token and repository path in Rocen's settings. From this point, your notes sync automatically as encrypted ciphertext (§4.8).
+4. If you ever suspect your token has leaked, **revoke it immediately** from GitHub's own settings (Settings → Developer settings → Personal access tokens) — this takes effect instantly and costs you nothing but re-entering a fresh token in the app.
 
-This project is proprietary software. Viewing the source is permitted for
-educational reference only. No rights are granted to use, copy, modify,
-or distribute. See [LICENSE](./LICENSE) for full terms.
+#### 8.4 Daily Use
+
+Encryption and decryption happen transparently once you're unlocked — you won't see Argon2id or AES-GCM at work, you'll just see your notes. A few things worth knowing:
+
+- The app will feel briefly "slow" specifically during password verification and note decryption — that's Argon2id being deliberately expensive on purpose (§4.2). This is a feature working correctly, not a performance bug.
+- Backup happens on your explicit action (saving a backup-enabled note, or manually refreshing) — not as a constant background process draining your battery or data.
+- If you're offline, backup-dependent actions will tell you plainly rather than fail silently or queue up unpredictably.
+
+#### 8.5 Changing Your Password
+
+Settings → change password. Your existing notes remain accessible — the underlying encryption key derivation is re-anchored to your new password, not thrown away and rebuilt from scratch. Your recovery phrase stays valid throughout.
+
+#### 8.6 If Something Goes Wrong
+
+| Situation | What to do |
+|---|---|
+| Forgot your password, still have your phone | Use "Forgot Password" → recovery phrase flow in-app |
+| Lost or replaced your phone | Install Rocen on the new device → recovery phrase + GitHub repo restores your data |
+| Suspect your GitHub token leaked | Revoke it immediately in GitHub settings, generate a fresh one, re-enter it in Rocen |
+| Suspect your device itself is compromised | Change your password from a device you trust, and treat anything typed on the suspect device as potentially exposed — no app-level fix changes that |
+| Lost both your password AND your recovery phrase | There is no recovery path. This is intentional — the alternative would mean someone else could also get in |
+
+#### 8.7 The "Maximum Security" Checklist
+
+- Password meets all 5 composition rules (the app won't let you proceed otherwise)
+- Recovery phrase written down physically, stored separately from your phone
+- GitHub backup enabled to a **private**, dedicated repository
+- GitHub token scoped as narrowly as possible
+- You understand that a rooted or compromised device changes what this app can promise you, no matter how strong the encryption is (§4.10)
+- You haven't stored your recovery phrase anywhere digital, searchable, or cloud-synced
+
+
+### 09 // LICENSE
+
+PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 Darshseraphic. All Rights Reserved.
+
+NOTICE: All information contained herein is, and remains the property of
+Darshseraphic. The intellectual and technical concepts contained herein are
+proprietary to Darshseraphic and may be covered by applicable intellectual
+property laws. Dissemination of this information or reproduction of this
+material is strictly forbidden unless prior written permission is obtained
+from Darshseraphic.
+
+RESTRICTIONS:
+
+1. You may not copy, modify, merge, distribute, sublicense, sell, or
+   transfer this software or any portion of it without explicit prior
+   written permission from the copyright holder.
+
+2. You may not reverse engineer, decompile, disassemble, or attempt to
+   derive the source code of this software.
+
+3. You may not create derivative works based on this software.
+
+4. You may not use this software or any portion of it for commercial
+   purposes without explicit prior written permission from the copyright
+   holder.
+
+5. Viewing the source code on a public repository does not grant any
+   rights to use, copy, modify, or distribute the software.
+
+PERMISSION:
+
+Personal, non-commercial viewing of the source code is permitted solely
+for educational reference. No other rights are granted.
+
+DISCLAIMER:
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For permissions, contact: Darsh.seraphic@gmail.com
+
 
 <p align="center">
 DEVELOPED BY <b>DARSHSERAPHIC</b>

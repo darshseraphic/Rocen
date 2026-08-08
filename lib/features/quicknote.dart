@@ -29,6 +29,9 @@ class SecurityUiTheme {
 void showMissingKeyUiDialog(BuildContext context, bool isDark, {String? message}) {
   final theme = SecurityUiTheme(isDark);
   final String bodyMessage = message ?? 'SET KEY FIRST FROM SETTING TO USE THIS FEATURE';
+  final Color buttonBg = isDark ? Colors.white : Colors.black;
+  final Color buttonText = isDark ? Colors.black : Colors.white;
+
   showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -47,31 +50,30 @@ void showMissingKeyUiDialog(BuildContext context, bool isDark, {String? message}
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
                   'SECURITY LOCK OUTCAST',
+                  textAlign: TextAlign.center,
                   style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   bodyMessage,
+                  textAlign: TextAlign.center,
                   style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, letterSpacing: 0.02, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 24),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: InkWell(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: theme.borderColor, width: 0.8),
-                      ),
-                      child: Text('ACKNOWLEDGE', style: TextStyle(color: theme.textMain, fontSize: 10, fontWeight: FontWeight.bold)),
-                    ),
+                InkWell(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    color: buttonBg,
+                    child: Text('ACKNOWLEDGE', style: TextStyle(color: buttonText, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
-                )
+                ),
               ],
             ),
           ),
@@ -83,6 +85,9 @@ void showMissingKeyUiDialog(BuildContext context, bool isDark, {String? message}
 
 void showAcknowledgeDialog(BuildContext context, bool isDark, String title, String message) {
   final theme = SecurityUiTheme(isDark);
+  final Color buttonBg = isDark ? Colors.white : Colors.black;
+  final Color buttonText = isDark ? Colors.black : Colors.white;
+
   showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -101,31 +106,30 @@ void showAcknowledgeDialog(BuildContext context, bool isDark, String title, Stri
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
                   title,
+                  textAlign: TextAlign.center,
                   style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   message,
+                  textAlign: TextAlign.center,
                   style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, letterSpacing: 0.02, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 24),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: InkWell(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: theme.borderColor, width: 0.8),
-                      ),
-                      child: Text('ACKNOWLEDGE', style: TextStyle(color: theme.textMain, fontSize: 10, fontWeight: FontWeight.bold)),
-                    ),
+                InkWell(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    color: buttonBg,
+                    child: Text('ACKNOWLEDGE', style: TextStyle(color: buttonText, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
-                )
+                ),
               ],
             ),
           ),

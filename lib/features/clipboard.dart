@@ -89,6 +89,72 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
+  // SIGNATURE APP DIALOG - ACKNOWLEDGE ONLY, USED FOR PERMISSION DENIALS
+  // AND VALIDATION MESSAGES INSTEAD OF THE STOCK ANDROID SNACKBAR.
+  void _showAcknowledgeDialog(String title, String message) {
+    final isDark = ref.read(themeProvider);
+    final Color bg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final Color textMain = isDark ? Colors.white : Colors.black;
+    final Color textSub = isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
+    final Color dialogBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final Color buttonBg = isDark ? Colors.white : Colors.black;
+    final Color buttonText = isDark ? Colors.black : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: bg,
+                border: Border.all(color: dialogBorderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: textSub, fontSize: 11, height: 1.4),
+                  ),
+                  const SizedBox(height: 20),
+                  InkWell(
+                    onTap: () => Navigator.pop(dialogContext),
+                    child: Container(
+                      width: double.infinity,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      color: buttonBg,
+                      child: Text(
+                        'ACKNOWLEDGE',
+                        style: TextStyle(color: buttonText, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // CORE ENGINE: FETCH ALL FILE POINTERS AT ONCE
   Future<void> _fetchEntireGalleryAllAtOnce() async {
     if (_isLoadingGallery) return;
@@ -110,7 +176,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
             _currentAlbum = albums.first;
           }
         } else {
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PERMISSION DENIED')));
+          if (mounted) {
+            _showAcknowledgeDialog('PERMISSION DENIED', 'MEDIA ACCESS PERMISSION WAS DENIED. GRANT ACCESS TO VIEW YOUR DEVICE GALLERY.');
+          }
           setState(() => _isLoadingGallery = false);
           return;
         }
@@ -190,8 +258,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
 
   // --- REGISTRY BULK PROCESSING MATRIX ENGINES ---
   Future<void> _handleBulkDelete() async {
+    final bool hasSelection = _activePageIndex == 0 ? _selectedGalleryIds.isNotEmpty : _selectedImportedIds.isNotEmpty;
+    if (!hasSelection) {
+      _showAcknowledgeDialog('NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
+      return;
+    }
+
     if (_activePageIndex == 0) {
-      if (_selectedGalleryIds.isEmpty) return;
       try {
         final List<String> result = await PhotoManager.editor.deleteWithIds(_selectedGalleryIds.toList());
         if (result.isNotEmpty) {
@@ -227,8 +300,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   Future<void> _handleBulkLike() async {
+    final bool hasSelection = _activePageIndex == 0 ? _selectedGalleryIds.isNotEmpty : _selectedImportedIds.isNotEmpty;
+    if (!hasSelection) {
+      _showAcknowledgeDialog('NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
+      return;
+    }
+
     if (_activePageIndex == 0) {
-      if (_selectedGalleryIds.isEmpty) return;
       List<String> pathsToInsert = [];
       for (final id in _selectedGalleryIds) {
         final asset = _galleryAssets.firstWhere((e) => e.id == id, orElse: () => _galleryAssets.first);
@@ -254,11 +332,16 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   Future<void> _handleBulkDislike() async {
+    final bool hasSelection = _activePageIndex == 0 ? _selectedGalleryIds.isNotEmpty : _selectedImportedIds.isNotEmpty;
+    if (!hasSelection) {
+      _showAcknowledgeDialog('NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
+      return;
+    }
+
     final allItems = ref.read(localDatabaseProvider);
     int counter = 0;
 
     if (_activePageIndex == 0) {
-      if (_selectedGalleryIds.isEmpty) return;
       for (final id in _selectedGalleryIds) {
         final asset = _galleryAssets.firstWhere((e) => e.id == id, orElse: () => _galleryAssets.first);
         final file = await asset.file;
@@ -485,41 +568,79 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   // GALLERY DELETION CONFIRMATION DIALOG BOX
   void _confirmDeleteGalleryAsset(AssetEntity asset) {
     final isDark = ref.read(themeProvider);
-    showDialog(
+    final Color bg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final Color textMain = isDark ? Colors.white : Colors.black;
+    final Color textSub = isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
+    final Color dialogBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+
+    showGeneralDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
-        shape: RoundedRectangleBorder(side: BorderSide(color: isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5), width: 0.8)),
-        title: Text('DELETE IMAGE', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 12, fontWeight: FontWeight.bold)),
-        content: Text('ARE YOU SURE YOU WANT TO DELETE THIS IMAGE FROM YOUR DEVICE CORES?', style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 11)),
-        actions: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text('CANCEL', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 11)),
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: bg,
+                border: Border.all(color: dialogBorderColor, width: 0.8),
               ),
-              TextButton(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  try {
-                    final List<String> result = await PhotoManager.editor.deleteWithIds([asset.id]);
-                    if (result.isNotEmpty) {
-                      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-                      if (mounted) Navigator.pop(context);
-                      _refreshGallery();
-                    }
-                  } catch (e) {
-                    debugPrint('Native deletion exception: $e');
-                  }
-                },
-                child: const Text('DELETE', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('DELETE IMAGE', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Text(
+                    'ARE YOU SURE YOU WANT TO DELETE THIS IMAGE FROM YOUR DEVICE CORES?',
+                    style: TextStyle(color: textSub, fontSize: 11, height: 1.4),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      InkWell(
+                        onTap: () => Navigator.pop(dialogContext),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(border: Border.all(color: dialogBorderColor, width: 0.8)),
+                          child: Text('CANCEL', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () async {
+                          Navigator.pop(dialogContext);
+                          try {
+                            final List<String> result = await PhotoManager.editor.deleteWithIds([asset.id]);
+                            if (result.isNotEmpty) {
+                              SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                              if (mounted) Navigator.pop(context);
+                              _refreshGallery();
+                            }
+                          } catch (e) {
+                            debugPrint('Native deletion exception: $e');
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(border: Border.all(color: Colors.red, width: 0.8)),
+                          child: const Text('DELETE', style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -698,42 +819,80 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   // IMPORTED MEDIA CONTEXT DELETION CONFIRMATION DIALOG BOX
   void _confirmDeleteImportedItem(CaptureItem item) {
     final isDark = ref.read(themeProvider);
-    showDialog(
+    final Color bg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
+    final Color textMain = isDark ? Colors.white : Colors.black;
+    final Color textSub = isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
+    final Color dialogBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+
+    showGeneralDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
-        shape: RoundedRectangleBorder(side: BorderSide(color: isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5), width: 0.8)),
-        title: Text('DELETE IMAGE', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 12, fontWeight: FontWeight.bold)),
-        content: Text('ARE YOU SURE YOU WANT TO WIPE THIS REFS MATRIX OUT OF THE APPLICATION PERSISTENT STORAGE AND DISK DEVICE MEMORY?', style: TextStyle(color: isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252), fontSize: 11)),
-        actions: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text('CANCEL', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 11)),
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: bg,
+                border: Border.all(color: dialogBorderColor, width: 0.8),
               ),
-              TextButton(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  try {
-                    final file = File(item.content);
-                    if (await file.exists()) {
-                      await file.delete();
-                    }
-                    await ref.read(localDatabaseProvider.notifier).deleteItem(item.id);
-                    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-                    if (mounted) Navigator.pop(context);
-                  } catch (e) {
-                    debugPrint('Local file deletion error: $e');
-                  }
-                },
-                child: const Text('DELETE', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('DELETE IMAGE', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Text(
+                    'ARE YOU SURE YOU WANT TO WIPE THIS REFS MATRIX OUT OF THE APPLICATION PERSISTENT STORAGE AND DISK DEVICE MEMORY?',
+                    style: TextStyle(color: textSub, fontSize: 11, height: 1.4),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      InkWell(
+                        onTap: () => Navigator.pop(dialogContext),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(border: Border.all(color: dialogBorderColor, width: 0.8)),
+                          child: Text('CANCEL', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () async {
+                          Navigator.pop(dialogContext);
+                          try {
+                            final file = File(item.content);
+                            if (await file.exists()) {
+                              await file.delete();
+                            }
+                            await ref.read(localDatabaseProvider.notifier).deleteItem(item.id);
+                            SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                            if (mounted) Navigator.pop(context);
+                          } catch (e) {
+                            debugPrint('Local file deletion error: $e');
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(border: Border.all(color: Colors.red, width: 0.8)),
+                          child: const Text('DELETE', style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
