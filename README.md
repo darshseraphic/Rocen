@@ -96,6 +96,8 @@ Your cryptography password is exactly **8 ASCII characters**, but composition is
 - 2 **unique** symbols
 - The same letter can't appear as both its uppercase and lowercase form (no `Aa` pairs padding out two categories with what's visually one letter)
 
+**In plain terms:** no character category can be satisfied by repeating the same key twice. `AA12!!bb` fails — the uppercase pair and symbol pair each repeat the same character. `AB12!@bc` passes — every character within each category is genuinely different from its pair.
+
 At exactly 8 characters, requiring 2 of each of 4 categories uses the entire length — so this isn't "at least," it mathematically forces **exactly** 2 of each. The password-creation screen shows all 5 rules live, each one animating a strikethrough as it's satisfied, with the 8 input boxes themselves tinting from dark red toward neutral as your password gets stronger.
 
 #### 4.2 Key Derivation & Encryption
@@ -287,56 +289,130 @@ Settings → change password. Your existing notes remain accessible — the unde
 
 #### 8.7 The "Maximum Security" Checklist
 
-- Password meets all 5 composition rules (the app won't let you proceed otherwise)
-- Recovery phrase written down physically, stored separately from your phone
-- GitHub backup enabled to a **private**, dedicated repository
-- GitHub token scoped as narrowly as possible
-- You understand that a rooted or compromised device changes what this app can promise you, no matter how strong the encryption is (§4.10)
-- You haven't stored your recovery phrase anywhere digital, searchable, or cloud-synced
+- [ ] Password meets all 5 composition rules (the app won't let you proceed otherwise)
+- [ ] Recovery phrase written down physically, stored separately from your phone
+- [ ] GitHub backup enabled to a **private**, dedicated repository
+- [ ] GitHub token scoped as narrowly as possible
+- [ ] You understand that a rooted or compromised device changes what this app can promise you, no matter how strong the encryption is (§4.10)
+- [ ] You haven't stored your recovery phrase anywhere digital, searchable, or cloud-synced
 
 
-### 09 // LICENSE
+### 09 // CROSS-DEVICE SYNC, OFFLINE ENCRYPTION & DATA PORTABILITY
 
-PROPRIETARY SOFTWARE LICENSE
+**Cross-device use:** your notes aren't tied to one phone. Install Rocen on a new device, choose recovery during setup, enter your password and 12-word phrase, and the app pulls `device_key.json` from your GitHub repo, unwraps it, and reconstructs local access — same notes, same password, different hardware. The device-binding described in §4.6 is specific to *that device's* Keystore; the recovery phrase is what makes moving between devices possible at all.
+
+**Offline encryption:** encryption and decryption are entirely local operations — Argon2id and AES-GCM run on-device regardless of whether you have a network connection. You can create, edit, and read encrypted notes with your phone in airplane mode all day long. The *only* thing that requires connectivity is the GitHub sync step itself — pushing or pulling ciphertext. If you're offline, the app tells you plainly (§8.4) rather than pretending to sync and failing silently.
+
+**Data export & import:** independent of GitHub backup, Rocen can export your captured items (notes, tasks, ideas) to a portable JSON schema, and import from that same format back in. This exists as a personal-backup/migration path that doesn't depend on GitHub at all — useful if you want a local file copy, or you're moving data between two independently-configured installs. Note that export produces the data in the form the app holds it in at rest; if you have password-encrypted notes, exported content reflects that encryption, not plaintext.
+
+
+### 10 // WHY THE INTERFACE FEELS SMOOTH (PERFORMANCE ARCHITECTURE)
+
+None of this is accidental — each area got specific engineering attention:
+
+**Media Registry (gallery):**
+- Thumbnails are cached in-memory the first time they're loaded (keyed by asset ID), so scrolling back to an already-seen image never re-decodes it.
+- `gaplessPlayback` is enabled on every thumbnail `Image` widget — this prevents the brief blank/flicker frame Flutter normally shows while an image is reloading or being replaced.
+- Thumbnails are explicitly requested in **PNG format**, not the platform default (JPEG) — this matters specifically because JPEG has no alpha channel, so a transparent-background image would otherwise get flattened onto a black backing by the OS *before Flutter ever sees it*. Requesting PNG preserves real transparency all the way through.
+- A loading-state tracker ensures the same thumbnail is never fetched twice concurrently if you scroll past it quickly and back.
+
+**To-Do List:**
+- Task completion uses a `TweenAnimationBuilder` driving a `ClipRect`/`Align(widthFactor: ...)` strikethrough that animates left-to-right over ~600ms with an `easeOutQuart` curve — the line doesn't just appear, it *grows through* the text.
+- The checkbox itself uses `AnimatedContainer` for its fill/border transition — both animations run on the compositor, not via full-widget rebuilds, which is why they stay smooth even on modest hardware.
+
+**Idea Inbox (calendar):**
+- Date math (day-of-year, leap-year handling) is done with lightweight local calculation rather than pulling in a heavy date-arithmetic library — keeps the calendar view snappy since there's no library overhead on every render.
+- "Add Event" capture is a focused two-field (title/description) flow rather than a heavy form, so idea capture stays fast specifically because it doesn't try to do more than it needs to.
+
+
+### 11 // COMPLETE CRYPTOGRAPHIC WORKFLOW — STEP BY STEP
+
+**What actually happens when you create your password:**
+1. You type an 8-character password meeting all 5 composition rules (§4.1).
+2. A random salt is generated.
+3. Argon2id derives a hash from your password + that salt, using standard or hardened cost parameters depending on whether root was detected (§4.5) — this runs inside a spawned Isolate (§4.3), never on the UI thread.
+4. The salt and hash are stored together (`salt:hash` format) — never your raw password.
+5. That same hash gets hardware-wrapped (§4.6) using your device's password-purpose AndroidKeyStore key, and the wrapped result is stored alongside it as an additional device-binding layer.
+6. A 12-word BIP-39 phrase is generated and shown to you once (§4.7) — combined with your password, it wraps your auth salt into `device_key.json`, ready to push to GitHub if/when you enable backup.
+
+**What happens every time you unlock the app:**
+1. You type your password.
+2. Argon2id re-derives a hash from your input + your stored salt (same cost parameters as setup).
+3. That result is compared to your stored hash using a **constant-time comparison** (§4.2) — timing-safe, so a partial match can't be inferred from response speed.
+4. If it matches, the app additionally hardware-unwraps your stored wrapped-hash (§4.6) and confirms it matches too — both checks have to pass.
+5. Every buffer touched in this process — the freshly derived hash, the stored comparison hash — is zeroed and RAM-unpinned the instant the comparison finishes (§4.4).
+
+**What happens when you save an encrypted note:**
+1. A fresh random salt and nonce are generated for *this specific save* — never reused, even for the same note's next edit.
+2. Argon2id derives an AES-256 key from your password + that new salt, inside an isolate.
+3. AES-GCM encrypts your note content with that key and nonce, producing ciphertext + an authentication tag (MAC).
+4. Everything is packed into `[version][salt][nonce][MAC][ciphertext]` and base64-encoded for storage.
+5. The derived key is zeroed and released from RAM-pinned memory immediately after the encrypt call returns.
+
+**What happens when you open an encrypted note:**
+1. The stored package is unpacked back into its salt/nonce/MAC/ciphertext components.
+2. Argon2id re-derives the same AES key from your password + the note's stored salt.
+3. AES-GCM decrypts and verifies the MAC in one step — if the ciphertext or MAC has been altered even slightly, decryption fails outright rather than returning corrupted plaintext.
+4. The decrypted bytes are copied into RAM-pinned memory, decoded to text, and the original (unpinned) copy that crossed the isolate boundary is zeroed immediately (§4.4) — the one hop that can't be fully closed, by Dart's own design.
+
+
+### 12 // SCREEN SECURITY: SCREENSHOT PREVENTION & BACKGROUND BLACKOUT
+
+Rocen can toggle Android's native `FLAG_SECURE` window flag on sensitive screens. Two effects come from this one flag, together:
+
+- **Screenshots and screen recordings are blocked system-wide** while it's active — any attempt returns a black or empty capture, enforced by Android itself, not something a malicious app on the same device could bypass through the screenshot API.
+- **The app's preview in the Recents/app-switcher view is blanked to a black rectangle** instead of showing your actual notes — this is standard OS behavior tied to the same flag, not a separate mechanism Rocen built. The practical effect: someone picking up your unlocked phone and swiping through your open apps sees a blank tile where your notes would otherwise be visible, rather than a live preview of whatever you were last reading.
+
+
+### 13 // THE GITHUB SYNC PIPELINE — FETCH, PUSH, AND WHY --AMEND
+
+**Reading data (fetch):**
+- `listNoteFiles()` — lists everything in your repo's contents directory.
+- `fetchNoteFile(name)` — pulls one file, base64-decodes it, parses it back into structured data.
+
+Both go through the certificate-pinned client (§4.8) and your Personal Access Token in the request headers — nothing here is anonymous or unauthenticated.
+
+**Writing data (the sync/upload process):**
+1. Fetch the current branch ref's commit SHA (if the branch already exists).
+2. Fetch that commit's tree SHA — this becomes the `base_tree`, i.e., everything currently in the repo that isn't being touched by this particular sync.
+3. Build a list of tree entries for whatever actually changed: files to upsert (new content), files to delete, files to rename.
+4. Create a **new tree** combining the base tree with those changes.
+5. Create a **new commit** pointing at that tree — with **no parent commit** (`parents: []`), meaning every single commit Rocen ever creates is a fresh root commit, not a continuation of history.
+6. **Force-push** the branch reference to point at this new commit, overwriting whatever it pointed to a moment ago.
+
+**Why this "force-push a fresh root commit" strategy, instead of normal incremental commits:**
+- **The repo never grows a commit history**, no matter how many times you sync over years of daily use — every push replaces the previous state rather than stacking on top of it. A repo synced daily for five years looks identical, size-wise, to one synced once.
+- **No merge conflicts, ever** — since each push is a clean snapshot built from the *current* remote tree, there's no divergent-history scenario to reconcile.
+- **Simpler mental model for a security tool specifically:** the repository *is* your current encrypted state, not an auditable log of every past state. For most apps that's a downside; for a zero-knowledge backup tool, minimizing how much old ciphertext lingers around by default is the right instinct.
+
+**The honest caveat, stated plainly because this is a security document:** force-pushing over a ref doesn't *instantly* destroy the previous commit — the old commit object becomes unreachable ("dangling") from the branch, but it can still exist on GitHub's servers until their own periodic garbage collection eventually cleans it up. In practice this is a narrow, time-limited window and the dangling object is still just ciphertext (meaningless without your password), not a meaningful exposure — but "gone the instant you push" would be an overstatement, and this document would rather be exactly accurate than reassuring.
+
+
+### 14 // LICENSE
+
+**PROPRIETARY SOFTWARE LICENSE**
 
 Copyright (c) 2026 Darshseraphic. All Rights Reserved.
 
-NOTICE: All information contained herein is, and remains the property of
-Darshseraphic. The intellectual and technical concepts contained herein are
-proprietary to Darshseraphic and may be covered by applicable intellectual
-property laws. Dissemination of this information or reproduction of this
-material is strictly forbidden unless prior written permission is obtained
-from Darshseraphic.
+**NOTICE:** All information contained herein is, and remains the property of Darshseraphic. The intellectual and technical concepts contained herein are proprietary to Darshseraphic and may be covered by applicable intellectual property laws. Dissemination of this information or reproduction of this material is strictly forbidden unless prior written permission is obtained from Darshseraphic.
 
-RESTRICTIONS:
+**RESTRICTIONS:**
 
-1. You may not copy, modify, merge, distribute, sublicense, sell, or
-   transfer this software or any portion of it without explicit prior
-   written permission from the copyright holder.
-
-2. You may not reverse engineer, decompile, disassemble, or attempt to
-   derive the source code of this software.
-
+1. You may not copy, modify, merge, distribute, sublicense, sell, or transfer this software or any portion of it without explicit prior written permission from the copyright holder.
+2. You may not reverse engineer, decompile, disassemble, or attempt to derive the source code of this software.
 3. You may not create derivative works based on this software.
+4. You may not use this software or any portion of it for commercial purposes without explicit prior written permission from the copyright holder.
+5. Viewing the source code on a public repository does not grant any rights to use, copy, modify, or distribute the software.
 
-4. You may not use this software or any portion of it for commercial
-   purposes without explicit prior written permission from the copyright
-   holder.
+**PERMISSION:**
 
-5. Viewing the source code on a public repository does not grant any
-   rights to use, copy, modify, or distribute the software.
+Personal, non-commercial viewing of the source code is permitted solely for educational reference. No other rights are granted.
 
-PERMISSION:
-
-Personal, non-commercial viewing of the source code is permitted solely
-for educational reference. No other rights are granted.
-
-DISCLAIMER:
+**DISCLAIMER:**
 
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-For permissions, contact: Darsh.seraphic@gmail.com
-
+For permissions, contact: **Darsh.seraphic@gmail.com**
 
 <p align="center">
 DEVELOPED BY <b>DARSHSERAPHIC</b>
