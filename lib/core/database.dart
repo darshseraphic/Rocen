@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -10,6 +11,7 @@ class CaptureItem {
   final String type;
   final DateTime timestamp;
   final bool backupEnabled;
+  final String? remoteFileId;
 
   CaptureItem({
     required this.id,
@@ -18,6 +20,7 @@ class CaptureItem {
     required this.type,
     required this.timestamp,
     this.backupEnabled = false,
+    this.remoteFileId,
   });
 
   Map<String, dynamic> toMap() {
@@ -28,6 +31,7 @@ class CaptureItem {
       'type': type,
       'timestamp': timestamp.toIso8601String(),
       'backupEnabled': backupEnabled,
+      'remoteFileId': remoteFileId,
     };
   }
 
@@ -41,6 +45,7 @@ class CaptureItem {
           ? (DateTime.tryParse(map['timestamp'].toString()) ?? DateTime.now())
           : DateTime.now(),
       backupEnabled: map['backupEnabled'] == true,
+      remoteFileId: map['remoteFileId'] as String?,
     );
   }
 }
@@ -164,7 +169,30 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     await box.put('items', state.map((e) => e.toMap()).toList());
   }
 
-  static String noteFileName(String title) {
+  // Stable, opaque, randomly-generated GitHub filename - deliberately
+  // carries zero information about the note's title or content, unlike the
+  // old title-derived scheme. Generated once per note when backup is first
+  // enabled, and never changes again for that note's lifetime (a title edit
+  // no longer requires a remote rename).
+  static String generateRemoteFileId() {
+    final rnd = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '$hex.json';
+  }
+
+  // Matches only properly-generated opaque ids from generateRemoteFileId().
+  // Anything else stored in remoteFileId - including a legacy title-based
+  // name that ended up there via a pull/restore before this note was ever
+  // pushed under a fresh opaque id - is treated as still needing migration.
+  static final RegExp _opaqueRemoteIdPattern = RegExp(r'^[0-9a-f]{32}\.json$');
+  static bool isOpaqueRemoteFileId(String? value) => value != null && _opaqueRemoteIdPattern.hasMatch(value);
+
+  // Legacy filename derivation - the old title-based scheme, which exposed
+  // note titles in plaintext via the GitHub file listing. Kept only so
+  // migration can locate and delete notes still sitting under their old
+  // title-based name; never used to create new files.
+  static String legacyNoteFileName(String title) {
     final cleaned = title.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
     return '$cleaned.json';
   }
@@ -212,29 +240,20 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     await box.put(_syncQueueKey, jsonEncode({'deleted': deleted, 'renamed': renamed}));
   }
 
-  Future<void> _queueRemoteRename(String oldFileName, String newFileName) async {
-    final box = await _getBox();
-    final queue = await _readSyncQueue(box);
-    final List<String> deleted = queue['deleted'];
-    final Map<String, String> renamed = queue['renamed'];
-
-    deleted.remove(oldFileName);
-    renamed[oldFileName] = newFileName;
-
-    await box.put(_syncQueueKey, jsonEncode({'deleted': deleted, 'renamed': renamed}));
-  }
-
-  Future<bool> insertItem(String content, String type, {String title = '', bool backupEnabled = false}) async {
+  Future<bool> insertItem(String content, String type, {String title = '', bool backupEnabled = false, String? remoteFileId, DateTime? timestamp}) async {
     if (backupEnabled && title.trim().isEmpty) return false;
     if (backupEnabled && titleExists(title)) return false;
+
+    final DateTime resolvedTimestamp = timestamp ?? DateTime.now();
 
     final newItem = CaptureItem(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       title: title,
       content: content,
       type: type,
-      timestamp: DateTime.now(),
+      timestamp: resolvedTimestamp,
       backupEnabled: backupEnabled,
+      remoteFileId: backupEnabled ? (remoteFileId ?? generateRemoteFileId()) : remoteFileId,
     );
 
     state = [newItem, ...state];
@@ -244,7 +263,7 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     return true;
   }
 
-  Future<bool> updateItem(String id, String newContent, {String? title, bool? backupEnabled}) async {
+  Future<bool> updateItem(String id, String newContent, {String? title, bool? backupEnabled, String? remoteFileId, DateTime? timestamp}) async {
     CaptureItem? previous;
     for (final item in state) {
       if (item.id == id) {
@@ -256,9 +275,21 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
 
     final String resolvedTitle = title ?? previous.title;
     final bool resolvedBackup = backupEnabled ?? previous.backupEnabled;
+    // Defaults to "now" for a normal user edit. Callers applying a remote
+    // version during conflict resolution pass the remote's own timestamp
+    // explicitly instead, so it isn't misrepresented as freshly edited.
+    final DateTime resolvedTimestamp = timestamp ?? DateTime.now();
 
     if (resolvedBackup && resolvedTitle.trim().isEmpty) return false;
     if (resolvedBackup && titleExists(resolvedTitle, excludingId: id)) return false;
+
+    // Prefer an explicitly-supplied id (the caller may have already computed
+    // one to keep the local record and the actual GitHub push perfectly in
+    // sync), then fall back to whatever this item already had, and only
+    // auto-generate as a last resort for callers that don't track this.
+    final String? resolvedRemoteFileId = resolvedBackup
+        ? (remoteFileId ?? previous.remoteFileId ?? generateRemoteFileId())
+        : previous.remoteFileId;
 
     bool stateMutationOccurred = false;
 
@@ -270,8 +301,9 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
           title: resolvedTitle,
           content: newContent,
           type: item.type,
-          timestamp: item.timestamp,
+          timestamp: resolvedTimestamp,
           backupEnabled: resolvedBackup,
+          remoteFileId: resolvedRemoteFileId,
         );
       }
       return item;
@@ -279,19 +311,57 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
 
     if (!stateMutationOccurred) return false;
 
-    if (previous.backupEnabled && !resolvedBackup) {
-      await _queueRemoteDeletion(noteFileName(previous.title));
-    } else if (previous.backupEnabled &&
-        resolvedBackup &&
-        previous.title.trim() != resolvedTitle.trim()) {
-      await _queueRemoteRename(noteFileName(previous.title), noteFileName(resolvedTitle));
+    if (previous.backupEnabled && !resolvedBackup && previous.remoteFileId != null) {
+      await _queueRemoteDeletion(previous.remoteFileId!);
     }
+    // Title changes no longer require a remote rename - the remote filename
+    // is a stable opaque id decoupled from the title (see generateRemoteFileId),
+    // so a title-only edit is just a normal content update at the same file.
 
     state = updatedCollection;
 
     final box = await _getBox();
     await box.put('items', state.map((e) => e.toMap()).toList());
     return true;
+  }
+
+  // One-time migration helper: assigns a fresh opaque remoteFileId to any
+  // backup-enabled item that doesn't have a properly-generated one yet -
+  // either it never had one (pre-remoteFileId note), or it was restored via
+  // pull with its remoteFileId set to a legacy title-based name. Returns the
+  // legacy filename actually sitting on GitHub right now so the caller can
+  // queue it for deletion once the note is re-pushed under its new name.
+  Future<String?> migrateLegacyRemoteFileId(String id) async {
+    int index = -1;
+    for (int i = 0; i < state.length; i++) {
+      if (state[i].id == id) {
+        index = i;
+        break;
+      }
+    }
+    if (index == -1 || isOpaqueRemoteFileId(state[index].remoteFileId)) return null;
+
+    final CaptureItem target = state[index];
+    final String legacyName = target.remoteFileId ?? legacyNoteFileName(target.title);
+
+    final CaptureItem migrated = CaptureItem(
+      id: target.id,
+      title: target.title,
+      content: target.content,
+      type: target.type,
+      timestamp: target.timestamp,
+      backupEnabled: target.backupEnabled,
+      remoteFileId: generateRemoteFileId(),
+    );
+
+    final List<CaptureItem> newState = List<CaptureItem>.from(state);
+    newState[index] = migrated;
+    state = newState;
+
+    final box = await _getBox();
+    await box.put('items', state.map((e) => e.toMap()).toList());
+
+    return legacyName;
   }
 
   Future<void> deleteItem(String id) async {
@@ -310,8 +380,8 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     final box = await _getBox();
     await box.put('items', state.map((e) => e.toMap()).toList());
 
-    if (target.backupEnabled) {
-      await _queueRemoteDeletion(noteFileName(target.title));
+    if (target.backupEnabled && target.remoteFileId != null) {
+      await _queueRemoteDeletion(target.remoteFileId!);
     }
   }
 }

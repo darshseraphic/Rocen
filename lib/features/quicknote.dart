@@ -9,6 +9,26 @@ import '../core/crypto_engine.dart';
 import '../core/github_backup_service.dart';
 import '../main.dart';
 
+// Combines a note's title and body into one string before it's encrypted
+// (or, for unlocked-but-backed-up notes, before it's pushed as-is) for
+// GitHub sync specifically - this keeps the title out of the plaintext
+// GitHub filename entirely, since the remote filename is now a random
+// opaque id (see DatabaseNotifier.generateRemoteFileId) with zero
+// relationship to the note's content. Local storage is untouched by this -
+// it keeps encrypting/storing the body alone, exactly as before.
+const String _kTitleBodySeparator = '\u0000\u0000ROCEN_TITLE_SPLIT\u0000\u0000';
+
+String _combineTitleAndBody(String title, String body) => '$title$_kTitleBodySeparator$body';
+
+({String title, String body}) _splitTitleAndBody(String combined) {
+  final int idx = combined.indexOf(_kTitleBodySeparator);
+  if (idx == -1) return (title: '', body: combined);
+  return (
+  title: combined.substring(0, idx),
+  body: combined.substring(idx + _kTitleBodySeparator.length),
+  );
+}
+
 class SecurityUiTheme {
   final bool isDark;
   late final Color textMain;
@@ -204,17 +224,41 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
     }
 
     final backedUpItems = ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
+    final notifier = ref.read(localDatabaseProvider.notifier);
 
     final Map<String, String> upsertFiles = {};
+    final List<String> legacyFilesToDelete = [];
+
     for (final item in backedUpItems) {
       try {
+        String? remoteId = item.remoteFileId;
+        if (!DatabaseNotifier.isOpaqueRemoteFileId(remoteId)) {
+          // Either this note was synced before remoteFileId existed, or it
+          // was restored via pull and ended up with a legacy title-based
+          // name - either way, it's still sitting on GitHub under a
+          // title-exposing filename. Assign it a fresh opaque id now and
+          // queue the old file for deletion once re-pushed under the new one.
+          final String? legacyName = await notifier.migrateLegacyRemoteFileId(item.id);
+          if (legacyName != null) legacyFilesToDelete.add(legacyName);
+          final CaptureItem refreshed = ref.read(localDatabaseProvider).firstWhere((e) => e.id == item.id);
+          remoteId = refreshed.remoteFileId;
+        }
+        if (remoteId == null) continue;
+
         final Map<String, String> fields;
         if (item.type == 'encrypted_note') {
-          fields = CryptoEngine.splitForBackup(item.content);
+          final String decryptedBody = await CryptoEngine.decryptProcess(item.content, globalPin);
+          if (decryptedBody == 'DECRYPTION FAULT') {
+            debugPrint('SKIPPING NOTE "${item.title}" - COULD NOT DECRYPT FOR RE-PACKAGING');
+            continue;
+          }
+          final String combined = _combineTitleAndBody(item.title, decryptedBody);
+          final String reEncrypted = await CryptoEngine.encryptProcess(combined, globalPin);
+          fields = {...CryptoEngine.splitForBackup(reEncrypted), 'timestamp': item.timestamp.toIso8601String()};
         } else {
-          fields = {'salt': '', 'nonce': '', 'cyphertext': item.content};
+          fields = {'salt': '', 'nonce': '', 'cyphertext': _combineTitleAndBody(item.title, item.content), 'timestamp': item.timestamp.toIso8601String()};
         }
-        upsertFiles[DatabaseNotifier.noteFileName(item.title)] = jsonEncode(fields);
+        upsertFiles[remoteId] = jsonEncode(fields);
       } catch (e) {
         debugPrint('SKIPPING CORRUPTED NOTE "${item.title}" DURING PUSH: $e');
         continue;
@@ -222,12 +266,12 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
     }
 
     final service = GithubBackupService(token: token, repoPath: repo);
-    final notifier = ref.read(localDatabaseProvider.notifier);
     final queue = await notifier.getSyncQueue();
+    final List<String> deleteList = [...List<String>.from(queue['deleted']), ...legacyFilesToDelete];
 
     await service.amendSync(
       upsertFiles: upsertFiles,
-      deleteFiles: List<String>.from(queue['deleted']),
+      deleteFiles: deleteList,
       renameFiles: Map<String, String>.from(queue['renamed']),
       message: 'refresh sync',
     );
@@ -239,7 +283,33 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
   }
 }
 
-Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
+class NoteConflict {
+  final String localId;
+  final String title;
+  final DateTime localTimestamp;
+  final DateTime remoteTimestamp;
+  final String remoteFileId;
+  final String remoteType;
+  final String remoteLocalReadyContent;
+
+  NoteConflict({
+    required this.localId,
+    required this.title,
+    required this.localTimestamp,
+    required this.remoteTimestamp,
+    required this.remoteFileId,
+    required this.remoteType,
+    required this.remoteLocalReadyContent,
+  });
+}
+
+class PullResult {
+  final int syncedCount;
+  final List<NoteConflict> conflicts;
+  PullResult({required this.syncedCount, required this.conflicts});
+}
+
+Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
   try {
     final settingsBox = Hive.box('rocen_settings_box');
     final String? globalPin = settingsBox.get('system_crypto_pin');
@@ -260,10 +330,12 @@ Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
     final notifier = ref.read(localDatabaseProvider.notifier);
     final currentBackedUpItems = ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
 
-    final Map<String, CaptureItem> localByTitle = {
-      for (final item in currentBackedUpItems) item.title.trim().toLowerCase(): item,
+    final Map<String, CaptureItem> localByRemoteId = {
+      for (final item in currentBackedUpItems)
+        if (item.remoteFileId != null) item.remoteFileId!: item,
     };
     final Set<String> matchedIds = {};
+    final List<NoteConflict> conflicts = [];
 
     await notifier.clearSyncQueue();
 
@@ -276,30 +348,81 @@ Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
         final String salt = (data['salt'] ?? '').toString();
         final String nonce = (data['nonce'] ?? '').toString();
         final String cyphertext = (data['cyphertext'] ?? '').toString();
-        final String title = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
+        final DateTime remoteTimestamp = DateTime.tryParse((data['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
 
-        String content;
+        String remotePlainBody;
+        String localReadyContent;
         String type;
+        String noteTitle;
+
         if (salt.isEmpty) {
-          content = cyphertext;
+          final split = _splitTitleAndBody(cyphertext);
+          noteTitle = split.title;
+          remotePlainBody = split.body;
+          localReadyContent = split.body;
           type = 'note';
         } else {
           final String merged = CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
-          final String testDecrypt = await CryptoEngine.decryptProcess(merged, globalPin);
-          if (testDecrypt == 'DECRYPTION FAULT') continue;
-          content = merged;
+          final String decryptedCombined = await CryptoEngine.decryptProcess(merged, globalPin);
+          if (decryptedCombined == 'DECRYPTION FAULT') continue;
+
+          final split = _splitTitleAndBody(decryptedCombined);
+          noteTitle = split.title;
+          remotePlainBody = split.body;
+          // Local storage keeps encrypting the body alone, consistent with
+          // every other note on this device - re-encrypt just the body
+          // (fresh salt/nonce) rather than storing the combined blob locally.
+          localReadyContent = await CryptoEngine.encryptProcess(split.body, globalPin);
           type = 'encrypted_note';
         }
 
-        final CaptureItem? existing = localByTitle[title.trim().toLowerCase()];
-        if (existing != null && !matchedIds.contains(existing.id)) {
-          matchedIds.add(existing.id);
-          final bool updated = await notifier.updateItem(existing.id, content, title: title, backupEnabled: true);
-          if (updated) syncedCount++;
-        } else {
-          final bool inserted = await notifier.insertItem(content, type, title: title, backupEnabled: true);
-          if (inserted) syncedCount++;
+        if (noteTitle.trim().isEmpty) {
+          // No embedded title found - this file predates the title-encryption
+          // change and is still sitting under its old title-based filename.
+          // Fall back to the legacy behavior (title derived from filename) so
+          // it still restores correctly; it'll be re-pushed under a proper
+          // opaque id (with the title actually embedded) on the next sync.
+          noteTitle = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
         }
+
+        final CaptureItem? existing = localByRemoteId[fileName];
+
+        if (existing == null) {
+          // Clean new note from another device - nothing local to conflict with.
+          final bool inserted = await notifier.insertItem(
+            localReadyContent, type,
+            title: noteTitle, backupEnabled: true, remoteFileId: fileName, timestamp: remoteTimestamp,
+          );
+          if (inserted) syncedCount++;
+          continue;
+        }
+
+        if (matchedIds.contains(existing.id)) continue;
+        matchedIds.add(existing.id);
+
+        // Compare actual plaintext body, not raw ciphertext - AES-GCM uses a
+        // fresh nonce every encryption, so two ciphertexts of identical text
+        // would never byte-match even when nothing actually changed.
+        String existingPlainBody;
+        if (existing.type == 'encrypted_note') {
+          final String decrypted = await CryptoEngine.decryptProcess(existing.content, globalPin);
+          existingPlainBody = decrypted == 'DECRYPTION FAULT' ? '\u0000\u0000UNREADABLE\u0000\u0000' : decrypted;
+        } else {
+          existingPlainBody = existing.content;
+        }
+
+        final bool contentMatches = existingPlainBody == remotePlainBody && existing.title.trim() == noteTitle.trim();
+        if (contentMatches) continue;
+
+        conflicts.add(NoteConflict(
+          localId: existing.id,
+          title: noteTitle.isNotEmpty ? noteTitle : existing.title,
+          localTimestamp: existing.timestamp,
+          remoteTimestamp: remoteTimestamp,
+          remoteFileId: fileName,
+          remoteType: type,
+          remoteLocalReadyContent: localReadyContent,
+        ));
       } catch (_) {
         continue;
       }
@@ -311,7 +434,7 @@ Future<int?> pullAndReconcileNotes(WidgetRef ref) async {
       }
     }
 
-    return syncedCount;
+    return PullResult(syncedCount: syncedCount, conflicts: conflicts);
   } catch (_) {
     return null;
   }
@@ -322,6 +445,175 @@ class RefreshFailure implements Exception {
   RefreshFailure(this.message);
 }
 
+String _formatTimeAgo(DateTime timestamp) {
+  final Duration diff = DateTime.now().difference(timestamp);
+  if (diff.inMinutes < 1) return 'JUST NOW';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} MIN AGO';
+  if (diff.inHours < 24) return '${diff.inHours} HR AGO';
+  if (diff.inDays < 30) return '${diff.inDays} DAY${diff.inDays == 1 ? '' : 'S'} AGO';
+  return '${(diff.inDays / 30).floor()} MO AGO';
+}
+
+// Sync-conflict resolution dialog - only ever shown when pullAndReconcileNotes
+// found notes that exist on both this device and GitHub with genuinely
+// different content. No Cancel button by design: unchecked notes simply stay
+// as their local version (nothing happens to them), checked notes get
+// replaced with the GitHub version - either way every note ends up
+// consistent, so there's nothing a "cancel" would meaningfully undo.
+Future<void> showConflictResolutionDialog(
+    BuildContext context,
+    WidgetRef ref,
+    bool isDark,
+    List<NoteConflict> conflicts,
+    ) async {
+  final theme = SecurityUiTheme(isDark);
+  final Set<String> selectedForReplace = {};
+
+  await showGeneralDialog(
+    context: context,
+    barrierDismissible: false,
+    barrierLabel: 'Dismiss',
+    barrierColor: Colors.black54,
+    pageBuilder: (dialogContext, anim1, anim2) {
+      return StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          return Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 320,
+                constraints: const BoxConstraints(maxHeight: 480),
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: theme.dialogBg,
+                  border: Border.all(color: theme.borderColor, width: 0.8),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SYNC CONFLICTS FOUND',
+                      style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'THESE NOTES DIFFER BETWEEN THIS DEVICE AND YOUR BACKUP. CHECK ANY NOTE YOU WANT REPLACED WITH THE BACKUP VERSION - LEAVE UNCHECKED TO KEEP WHAT\'S ON THIS DEVICE.',
+                      style: TextStyle(color: theme.textMain, fontSize: 11, height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: conflicts.map((c) {
+                            final bool isSelected = selectedForReplace.contains(c.remoteFileId);
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8.0),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  setDialogState(() {
+                                    if (isSelected) {
+                                      selectedForReplace.remove(c.remoteFileId);
+                                    } else {
+                                      selectedForReplace.add(c.remoteFileId);
+                                    }
+                                  });
+                                },
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    AnimatedContainer(
+                                      duration: const Duration(milliseconds: 250),
+                                      width: 18,
+                                      height: 18,
+                                      margin: const EdgeInsets.only(top: 1),
+                                      decoration: BoxDecoration(
+                                        color: isSelected ? theme.textMain : Colors.transparent,
+                                        border: Border.all(color: theme.textMain, width: 1.2),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            c.title.isEmpty ? '(UNTITLED)' : c.title,
+                                            style: TextStyle(color: theme.textMain, fontSize: 12, fontWeight: FontWeight.w600),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'THIS DEVICE: ${_formatTimeAgo(c.localTimestamp)}   ·   BACKUP: ${_formatTimeAgo(c.remoteTimestamp)}',
+                                            style: TextStyle(color: theme.textMain.withOpacity(0.6), fontSize: 9, letterSpacing: 0.02),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    InkWell(
+                      onTap: () async {
+                        final notifier = ref.read(localDatabaseProvider.notifier);
+                        for (final c in conflicts) {
+                          if (selectedForReplace.contains(c.remoteFileId)) {
+                            await notifier.updateItem(
+                              c.localId,
+                              c.remoteLocalReadyContent,
+                              title: c.title,
+                              backupEnabled: true,
+                              remoteFileId: c.remoteFileId,
+                              timestamp: c.remoteTimestamp,
+                            );
+                          }
+                          // Unselected conflicts are left exactly as they are -
+                          // the local version stays, nothing to do here.
+                        }
+
+                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+
+                        // Push the final resolved state back to GitHub, so the
+                        // notes the user chose to KEEP LOCAL also overwrite
+                        // whatever was on GitHub - otherwise the very next
+                        // refresh would hit this exact same conflict again.
+                        await pushAllBackupEnabledNotes(ref);
+
+                        if (context.mounted) {
+                          showAcknowledgeDialog(
+                            context, isDark, 'CONFLICTS RESOLVED',
+                            '${selectedForReplace.length} NOTE${selectedForReplace.length == 1 ? '' : 'S'} REPLACED WITH BACKUP. YOUR CHOICES HAVE BEEN SYNCED.',
+                          );
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        color: isDark ? Colors.white : Colors.black,
+                        child: Text(
+                          'ACCEPTANCE',
+                          style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
 Future<void> performRefresh(
     WidgetRef ref,
     BuildContext context, {
@@ -329,6 +621,7 @@ Future<void> performRefresh(
       void Function(String phase)? onPhase,
     }) async {
   final isDark = ref.read(themeProvider);
+  List<NoteConflict>? pendingConflicts;
 
   try {
     onPhase?.call('FETCH');
@@ -376,12 +669,20 @@ Future<void> performRefresh(
       if (pushError != null) throw RefreshFailure(pushError);
 
       onPhase?.call('DECRYPT');
-      final int? imported = await pullAndReconcileNotes(ref);
-      if (imported == null) throw RefreshFailure('COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
+      final PullResult? result = await pullAndReconcileNotes(ref);
+      if (result == null) throw RefreshFailure('COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
 
       onPhase?.call('SUCCESS');
+
+      if (result.conflicts.isNotEmpty) {
+        // Hand off to the conflict dialog outside the network timeout below -
+        // this is now waiting on a human decision, not a network call.
+        pendingConflicts = result.conflicts;
+        return;
+      }
+
       if (!silent && context.mounted) {
-        showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE ($imported FROM BACKUP).');
+        showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE (${result.syncedCount} FROM BACKUP).');
       }
     }
 
@@ -406,6 +707,13 @@ Future<void> performRefresh(
     await settingsBox.put('last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
     await Future.delayed(const Duration(milliseconds: 900));
     onPhase?.call('REFRESH');
+
+    // Conflicts are surfaced regardless of `silent` - unlike the purely
+    // informational dialogs above, this requires an actual decision, so it
+    // isn't something a background/auto refresh should suppress and lose.
+    if (pendingConflicts != null && pendingConflicts!.isNotEmpty && context.mounted) {
+      await showConflictResolutionDialog(context, ref, isDark, pendingConflicts!);
+    }
   } catch (e) {
     debugPrint('REFRESH UNCAUGHT EXCEPTION: $e');
     try {
@@ -423,29 +731,6 @@ Future<bool> hasInternetConnection() async {
   try {
     final result = await InternetAddress.lookup('github.com').timeout(const Duration(seconds: 4));
     return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
-  } catch (_) {
-    return false;
-  }
-}
-
-Future<bool> isTitleTakenRemotely(String title) async {
-  try {
-    final settingsBox = Hive.box('rocen_settings_box');
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-    if (globalPin == null || accessBlob == null) return false;
-
-    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
-    if (accessJson == 'DECRYPTION FAULT') return false;
-
-    final Map<String, dynamic> access = jsonDecode(accessJson);
-    final String? token = access['token'] as String?;
-    final String? repo = access['repo'] as String?;
-    if (token == null || token.isEmpty || repo == null || repo.isEmpty) return false;
-
-    final service = GithubBackupService(token: token, repoPath: repo);
-    final remote = await service.fetchNoteFile(DatabaseNotifier.noteFileName(title));
-    return remote != null;
   } catch (_) {
     return false;
   }
@@ -514,12 +799,13 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   }
 
   Future<void> _performTitleCheck(String title) async {
-    if (ref.read(localDatabaseProvider.notifier).titleExists(title)) {
-      if (mounted) setState(() => _titleCheckStatus = 'TAKEN');
-      return;
-    }
-
-    final bool taken = await isTitleTakenRemotely(title);
+    // Remote uniqueness can no longer be cheaply checked - GitHub filenames
+    // are now opaque random ids with no relationship to title, so there's
+    // no single targeted lookup to make. Local uniqueness (this device) is
+    // still enforced; duplicate titles across un-synced devices are now
+    // simply allowed, since each note is identified by its own stable
+    // remoteFileId regardless of title.
+    final bool taken = ref.read(localDatabaseProvider.notifier).titleExists(title);
     if (mounted) setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
   }
 
@@ -591,31 +877,31 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
         return;
       }
-
-      if (await isTitleTakenRemotely(cleanTitle)) {
-        if (!context.mounted) return;
-        showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
-        return;
-      }
     }
+
+    final String? generatedRemoteId = _isBackupEnabled ? DatabaseNotifier.generateRemoteFileId() : null;
+    final DateTime saveTimestamp = DateTime.now();
 
     final bool inserted = await ref.read(localDatabaseProvider.notifier).insertItem(
       finalPayload,
       _isNoteLocked ? 'encrypted_note' : 'note',
       title: cleanTitle,
       backupEnabled: _isBackupEnabled,
+      remoteFileId: generatedRemoteId,
+      timestamp: saveTimestamp,
     );
 
     if (!inserted) return;
 
-    if (_isBackupEnabled) {
+    if (_isBackupEnabled && generatedRemoteId != null) {
+      final String combined = _combineTitleAndBody(cleanTitle, cleanBody);
       final Map<String, String> backupFields = _isNoteLocked
-          ? CryptoEngine.splitForBackup(finalPayload)
-          : {'salt': '', 'nonce': '', 'cyphertext': cleanBody};
+          ? {...CryptoEngine.splitForBackup(await CryptoEngine.encryptProcess(combined, globalPin!)), 'timestamp': saveTimestamp.toIso8601String()}
+          : {'salt': '', 'nonce': '', 'cyphertext': combined, 'timestamp': saveTimestamp.toIso8601String()};
 
       await attemptGithubSync(
         ref,
-        upsert: {DatabaseNotifier.noteFileName(cleanTitle): jsonEncode(backupFields)},
+        upsert: {generatedRemoteId: jsonEncode(backupFields)},
       );
     }
 
@@ -1550,12 +1836,10 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   }
 
   Future<void> _performTitleCheck(String title) async {
-    if (ref.read(localDatabaseProvider.notifier).titleExists(title, excludingId: widget.item.id)) {
-      if (mounted) setState(() => _titleCheckStatus = 'TAKEN');
-      return;
-    }
-
-    final bool taken = await isTitleTakenRemotely(title);
+    // See note in the create-note screen's _performTitleCheck - remote
+    // uniqueness is no longer cheaply checkable now that filenames are
+    // opaque, so this is local-only.
+    final bool taken = ref.read(localDatabaseProvider.notifier).titleExists(title, excludingId: widget.item.id);
     if (mounted) setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
   }
 
@@ -1711,20 +1995,28 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                     showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
                     return;
                   }
-                  if (cleanTitle != widget.item.title.trim() && await isTitleTakenRemotely(cleanTitle)) {
-                    if (!context.mounted) return;
-                    showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN', 'CHOOSE A DIFFERENT NOTE TITLE.');
-                    return;
-                  }
                 }
 
                 bool success;
+
+                // Remote filename is a stable opaque id, decoupled from
+                // title - carry the existing one forward whenever possible
+                // so a lock-status change doesn't orphan the already-synced
+                // remote file under a second, abandoned filename.
+                final String? existingRemoteId = widget.item.remoteFileId;
+                final String? remoteIdForThisSave = _isBackupEnabled
+                    ? (existingRemoteId ?? DatabaseNotifier.generateRemoteFileId())
+                    : null;
+                final DateTime saveTimestamp = DateTime.now();
+
                 if (_isNoteLocked == originalIsLocked) {
                   success = await ref.read(localDatabaseProvider.notifier).updateItem(
                     widget.item.id,
                     contentToPersist,
                     title: cleanTitle,
                     backupEnabled: _isBackupEnabled,
+                    remoteFileId: remoteIdForThisSave,
+                    timestamp: saveTimestamp,
                   );
                 } else {
                   await ref.read(localDatabaseProvider.notifier).deleteItem(widget.item.id);
@@ -1733,19 +2025,22 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                     _isNoteLocked ? 'encrypted_note' : 'note',
                     title: cleanTitle,
                     backupEnabled: _isBackupEnabled,
+                    remoteFileId: remoteIdForThisSave,
+                    timestamp: saveTimestamp,
                   );
                 }
 
                 if (!success) return;
 
-                if (_isBackupEnabled) {
+                if (_isBackupEnabled && remoteIdForThisSave != null) {
+                  final String combined = _combineTitleAndBody(cleanTitle, rawBody);
                   final Map<String, String> backupFields = _isNoteLocked
-                      ? CryptoEngine.splitForBackup(contentToPersist)
-                      : {'salt': '', 'nonce': '', 'cyphertext': rawBody};
+                      ? {...CryptoEngine.splitForBackup(await CryptoEngine.encryptProcess(combined, globalPin ?? '')), 'timestamp': saveTimestamp.toIso8601String()}
+                      : {'salt': '', 'nonce': '', 'cyphertext': combined, 'timestamp': saveTimestamp.toIso8601String()};
 
                   await attemptGithubSync(
                     ref,
-                    upsert: {DatabaseNotifier.noteFileName(cleanTitle): jsonEncode(backupFields)},
+                    upsert: {remoteIdForThisSave: jsonEncode(backupFields)},
                   );
                 } else {
                   unawaited(attemptGithubSync(ref));

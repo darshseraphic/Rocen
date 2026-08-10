@@ -3061,12 +3061,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                     _buildInfoSection(
                         '05 // ABSOLUTE ZERO DATA ACCUMULATION',
-                        'This framework operates with a strict zero-telemetry policy. There are no analytics packages, usage tracking monitors, remote crash trackers, or cloud-based data bridges written into the codebase. All workspace activity remains strictly contained on your local device.',
+                        'This framework operates with a strict zero-telemetry policy. There are no analytics packages, usage tracking monitors, or remote crash trackers written into the codebase. No usage data, behavior, or metadata is ever collected, transmitted, or accessible to the developer, under any circumstance.',
                         theme.textMain, theme.textSub
                     ),
                     _buildInfoSection(
-                        '06 // AIR-GAPPED HARDWARE ISOLATION',
-                        'The application runs entirely within an air-gapped system methodology. Without network permissions or server communication layers configured in its structural layer, user interactions are kept private, secure, and permanently anchored inside the isolated sandbox space of your hardware.',
+                        '06 // ZERO-KNOWLEDGE NETWORK ARCHITECTURE',
+                        'This application is not air-gapped. A single network channel exists, used exclusively to synchronize AES-256-GCM encrypted data with a GitHub repository you own and control, over a certificate-pinned connection. No server operated by this application\'s developer ever receives, stores, or has access to your data or credentials. Disabling backup removes this channel entirely, returning the application to fully local, offline operation.',
                         theme.textMain, theme.textSub
                     ),
                     _buildInfoSection(
