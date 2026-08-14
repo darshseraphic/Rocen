@@ -169,7 +169,8 @@ Future<void> attemptGithubSync(WidgetRef ref, {Map<String, String>? upsert}) asy
       return;
     }
 
-    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+    final String accessJson = await CryptoEngine.decryptProcess(unwrappedAccessBlob ?? accessBlob, globalPin);
     if (accessJson == 'DECRYPTION FAULT') {
       debugPrint('GITHUB SYNC ABORTED: stored access blob failed to decrypt with the current PIN');
       return;
@@ -212,7 +213,8 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
       return 'GITHUB CREDENTIALS ARE MISSING LOCALLY.';
     }
 
-    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+    final String accessJson = await CryptoEngine.decryptProcess(unwrappedAccessBlob ?? accessBlob, globalPin);
     if (accessJson == 'DECRYPTION FAULT') {
       return 'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD. RE-ENTER YOUR TOKEN IN GITHUB TOKEN STORE.';
     }
@@ -228,6 +230,7 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
 
     final Map<String, String> upsertFiles = {};
     final List<String> legacyFilesToDelete = [];
+    final List<({String id, DateTime timestamp})> pushedItems = [];
 
     for (final item in backedUpItems) {
       try {
@@ -247,18 +250,27 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
 
         final Map<String, String> fields;
         if (item.type == 'encrypted_note') {
-          final String decryptedBody = await CryptoEngine.decryptProcess(item.content, globalPin);
-          if (decryptedBody == 'DECRYPTION FAULT') {
-            debugPrint('SKIPPING NOTE "${item.title}" - COULD NOT DECRYPT FOR RE-PACKAGING');
-            continue;
+          if (item.pendingReviewAfterSync) {
+            // Content is already the exact combined-encrypted package from a
+            // zero-decrypt swap and hasn't been reopened since - push it
+            // through unchanged. Decrypting and re-combining here would
+            // double-embed the title inside content that already has one.
+            fields = {...CryptoEngine.splitForBackup(item.content), 'timestamp': item.timestamp.toIso8601String()};
+          } else {
+            final String decryptedBody = await CryptoEngine.decryptProcess(item.content, globalPin);
+            if (decryptedBody == 'DECRYPTION FAULT') {
+              debugPrint('SKIPPING NOTE "${item.title}" - COULD NOT DECRYPT FOR RE-PACKAGING');
+              continue;
+            }
+            final String combined = _combineTitleAndBody(item.title, decryptedBody);
+            final String reEncrypted = await CryptoEngine.encryptProcess(combined, globalPin);
+            fields = {...CryptoEngine.splitForBackup(reEncrypted), 'timestamp': item.timestamp.toIso8601String()};
           }
-          final String combined = _combineTitleAndBody(item.title, decryptedBody);
-          final String reEncrypted = await CryptoEngine.encryptProcess(combined, globalPin);
-          fields = {...CryptoEngine.splitForBackup(reEncrypted), 'timestamp': item.timestamp.toIso8601String()};
         } else {
           fields = {'salt': '', 'nonce': '', 'cyphertext': _combineTitleAndBody(item.title, item.content), 'timestamp': item.timestamp.toIso8601String()};
         }
         upsertFiles[remoteId] = jsonEncode(fields);
+        pushedItems.add((id: item.id, timestamp: item.timestamp));
       } catch (e) {
         debugPrint('SKIPPING CORRUPTED NOTE "${item.title}" DURING PUSH: $e');
         continue;
@@ -276,6 +288,18 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
       message: 'refresh sync',
     );
 
+    // Mark every successfully-pushed note as caught up as of its own current
+    // timestamp - this becomes the new "last known common state" baseline
+    // for zero-decrypt conflict detection on the next pull.
+    for (final pushed in pushedItems) {
+      await notifier.updateItem(
+        pushed.id,
+        ref.read(localDatabaseProvider).firstWhere((e) => e.id == pushed.id).content,
+        timestamp: pushed.timestamp,
+        lastSyncedTimestamp: pushed.timestamp,
+      );
+    }
+
     await notifier.clearSyncQueue();
     return null;
   } catch (e) {
@@ -290,7 +314,9 @@ class NoteConflict {
   final DateTime remoteTimestamp;
   final String remoteFileId;
   final String remoteType;
-  final String remoteLocalReadyContent;
+  final String remoteSalt;
+  final String remoteNonce;
+  final String remoteCyphertext;
 
   NoteConflict({
     required this.localId,
@@ -299,7 +325,9 @@ class NoteConflict {
     required this.remoteTimestamp,
     required this.remoteFileId,
     required this.remoteType,
-    required this.remoteLocalReadyContent,
+    required this.remoteSalt,
+    required this.remoteNonce,
+    required this.remoteCyphertext,
   });
 }
 
@@ -309,6 +337,38 @@ class PullResult {
   PullResult({required this.syncedCount, required this.conflicts});
 }
 
+// Applies a remote note's raw (still-encrypted, for locked notes) payload
+// directly to local storage with zero decryption - a byte-level ciphertext
+// copy for locked notes, a plain string split (no cryptographic operation)
+// for unlocked ones. The note's local plaintext title is deliberately left
+// untouched; pendingReviewAfterSync marks that its content may no longer
+// match that title until the note is actually reopened.
+Future<void> _applyRemoteSwap(
+    DatabaseNotifier notifier, {
+      required String localId,
+      required String remoteFileId,
+      required String remoteType,
+      required String salt,
+      required String nonce,
+      required String cyphertext,
+      required DateTime remoteTimestamp,
+    }) async {
+  final String newContent = salt.isEmpty
+      ? _splitTitleAndBody(cyphertext).body
+      : CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
+
+  await notifier.updateItem(
+    localId,
+    newContent,
+    type: remoteType,
+    backupEnabled: true,
+    remoteFileId: remoteFileId,
+    timestamp: remoteTimestamp,
+    lastSyncedTimestamp: remoteTimestamp,
+    pendingReviewAfterSync: true,
+  );
+}
+
 Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
   try {
     final settingsBox = Hive.box('rocen_settings_box');
@@ -316,7 +376,8 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
     final String? accessBlob = settingsBox.get('github_access_encrypted');
     if (globalPin == null || accessBlob == null) return null;
 
-    final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+    final String accessJson = await CryptoEngine.decryptProcess(unwrappedAccessBlob ?? accessBlob, globalPin);
     if (accessJson == 'DECRYPTION FAULT') return null;
     final Map<String, dynamic> access = jsonDecode(accessJson);
     final String? token = access['token'] as String?;
@@ -349,49 +410,37 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
         final String nonce = (data['nonce'] ?? '').toString();
         final String cyphertext = (data['cyphertext'] ?? '').toString();
         final DateTime remoteTimestamp = DateTime.tryParse((data['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
-
-        String remotePlainBody;
-        String localReadyContent;
-        String type;
-        String noteTitle;
-
-        if (salt.isEmpty) {
-          final split = _splitTitleAndBody(cyphertext);
-          noteTitle = split.title;
-          remotePlainBody = split.body;
-          localReadyContent = split.body;
-          type = 'note';
-        } else {
-          final String merged = CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
-          final String decryptedCombined = await CryptoEngine.decryptProcess(merged, globalPin);
-          if (decryptedCombined == 'DECRYPTION FAULT') continue;
-
-          final split = _splitTitleAndBody(decryptedCombined);
-          noteTitle = split.title;
-          remotePlainBody = split.body;
-          // Local storage keeps encrypting the body alone, consistent with
-          // every other note on this device - re-encrypt just the body
-          // (fresh salt/nonce) rather than storing the combined blob locally.
-          localReadyContent = await CryptoEngine.encryptProcess(split.body, globalPin);
-          type = 'encrypted_note';
-        }
-
-        if (noteTitle.trim().isEmpty) {
-          // No embedded title found - this file predates the title-encryption
-          // change and is still sitting under its old title-based filename.
-          // Fall back to the legacy behavior (title derived from filename) so
-          // it still restores correctly; it'll be re-pushed under a proper
-          // opaque id (with the title actually embedded) on the next sync.
-          noteTitle = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
-        }
+        final String remoteType = salt.isEmpty ? 'note' : 'encrypted_note';
 
         final CaptureItem? existing = localByRemoteId[fileName];
 
         if (existing == null) {
-          // Clean new note from another device - nothing local to conflict with.
+          // Genuinely new note from another device - there's no local
+          // counterpart to compare against or preserve a title for, so this
+          // is the one case that still requires an actual decrypt (same as
+          // opening any note for the first time would).
+          String noteTitle;
+          String localReadyContent;
+          if (salt.isEmpty) {
+            final split = _splitTitleAndBody(cyphertext);
+            noteTitle = split.title;
+            localReadyContent = split.body;
+          } else {
+            final String merged = CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
+            final String decryptedCombined = await CryptoEngine.decryptProcess(merged, globalPin);
+            if (decryptedCombined == 'DECRYPTION FAULT') continue;
+            final split = _splitTitleAndBody(decryptedCombined);
+            noteTitle = split.title;
+            localReadyContent = await CryptoEngine.encryptProcess(split.body, globalPin);
+          }
+          if (noteTitle.trim().isEmpty) {
+            noteTitle = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
+          }
+
           final bool inserted = await notifier.insertItem(
-            localReadyContent, type,
-            title: noteTitle, backupEnabled: true, remoteFileId: fileName, timestamp: remoteTimestamp,
+            localReadyContent, remoteType,
+            title: noteTitle, backupEnabled: true, remoteFileId: fileName,
+            timestamp: remoteTimestamp, lastSyncedTimestamp: remoteTimestamp,
           );
           if (inserted) syncedCount++;
           continue;
@@ -400,28 +449,58 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
         if (matchedIds.contains(existing.id)) continue;
         matchedIds.add(existing.id);
 
-        // Compare actual plaintext body, not raw ciphertext - AES-GCM uses a
-        // fresh nonce every encryption, so two ciphertexts of identical text
-        // would never byte-match even when nothing actually changed.
-        String existingPlainBody;
-        if (existing.type == 'encrypted_note') {
-          final String decrypted = await CryptoEngine.decryptProcess(existing.content, globalPin);
-          existingPlainBody = decrypted == 'DECRYPTION FAULT' ? '\u0000\u0000UNREADABLE\u0000\u0000' : decrypted;
-        } else {
-          existingPlainBody = existing.content;
+        // Zero-decrypt three-way comparison: everything here is plain
+        // timestamp metadata, never note content.
+        final DateTime? lastSynced = existing.lastSyncedTimestamp;
+
+        if (lastSynced == null) {
+          // No sync history for this note yet (pre-existing note, or first
+          // pull since this tracking was added) - fall back to a simple
+          // newest-wins fast-forward rather than flagging every note as a
+          // conflict on the first run after this update.
+          if (remoteTimestamp.isAfter(existing.timestamp)) {
+            await _applyRemoteSwap(
+              notifier, localId: existing.id, remoteFileId: fileName, remoteType: remoteType,
+              salt: salt, nonce: nonce, cyphertext: cyphertext, remoteTimestamp: remoteTimestamp,
+            );
+            syncedCount++;
+          }
+          continue;
         }
 
-        final bool contentMatches = existingPlainBody == remotePlainBody && existing.title.trim() == noteTitle.trim();
-        if (contentMatches) continue;
+        final bool localChanged = existing.timestamp.isAfter(lastSynced);
+        final bool remoteChanged = remoteTimestamp.isAfter(lastSynced);
 
+        if (!localChanged && !remoteChanged) continue; // nothing to do
+
+        if (!localChanged && remoteChanged) {
+          // Clean fast-forward - local hasn't diverged, safe to auto-apply.
+          await _applyRemoteSwap(
+            notifier, localId: existing.id, remoteFileId: fileName, remoteType: remoteType,
+            salt: salt, nonce: nonce, cyphertext: cyphertext, remoteTimestamp: remoteTimestamp,
+          );
+          syncedCount++;
+          continue;
+        }
+
+        if (localChanged && !remoteChanged) {
+          // Local is ahead; the next push will bring GitHub up to date.
+          continue;
+        }
+
+        // Both sides changed independently since the last known sync point -
+        // a genuine conflict. Title shown is always the LOCAL title, since
+        // the remote title is never decrypted at this stage.
         conflicts.add(NoteConflict(
           localId: existing.id,
-          title: noteTitle.isNotEmpty ? noteTitle : existing.title,
+          title: existing.title,
           localTimestamp: existing.timestamp,
           remoteTimestamp: remoteTimestamp,
           remoteFileId: fileName,
-          remoteType: type,
-          remoteLocalReadyContent: localReadyContent,
+          remoteType: remoteType,
+          remoteSalt: salt,
+          remoteNonce: nonce,
+          remoteCyphertext: cyphertext,
         ));
       } catch (_) {
         continue;
@@ -564,13 +643,15 @@ Future<void> showConflictResolutionDialog(
                         final notifier = ref.read(localDatabaseProvider.notifier);
                         for (final c in conflicts) {
                           if (selectedForReplace.contains(c.remoteFileId)) {
-                            await notifier.updateItem(
-                              c.localId,
-                              c.remoteLocalReadyContent,
-                              title: c.title,
-                              backupEnabled: true,
+                            await _applyRemoteSwap(
+                              notifier,
+                              localId: c.localId,
                               remoteFileId: c.remoteFileId,
-                              timestamp: c.remoteTimestamp,
+                              remoteType: c.remoteType,
+                              salt: c.remoteSalt,
+                              nonce: c.remoteNonce,
+                              cyphertext: c.remoteCyphertext,
+                              remoteTimestamp: c.remoteTimestamp,
                             );
                           }
                           // Unselected conflicts are left exactly as they are -
@@ -1094,6 +1175,18 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   String rawContent = '';
                                   try {
                                     rawContent = await CryptoEngine.decryptProcess(item.content, globalPin);
+                                    if (rawContent != 'DECRYPTION FAULT' && item.pendingReviewAfterSync) {
+                                      // Content was swapped in from backup without decryption during
+                                      // conflict resolution - it may still be in the combined
+                                      // title+body format used for the GitHub payload. Strip that
+                                      // back down to just the body for display/editing, and clear
+                                      // the pending flag now that the real content has been seen.
+                                      rawContent = _splitTitleAndBody(rawContent).body;
+                                      await ref.read(localDatabaseProvider.notifier).updateItem(
+                                        item.id, item.content,
+                                        pendingReviewAfterSync: false,
+                                      );
+                                    }
                                   } catch (_) {
                                     rawContent = 'DECRYPTION FAULT';
                                   }
@@ -1165,6 +1258,16 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     String decryptedContent = '';
     try {
       decryptedContent = await CryptoEngine.decryptProcess(item.content, pin);
+      if (decryptedContent != 'DECRYPTION FAULT' && item.pendingReviewAfterSync) {
+        // Same handling as the edit-open path - strip the combined
+        // title+body format back to just the body if present, and clear
+        // the pending flag now that the real content has been seen.
+        decryptedContent = _splitTitleAndBody(decryptedContent).body;
+        await ref.read(localDatabaseProvider.notifier).updateItem(
+          item.id, item.content,
+          pendingReviewAfterSync: false,
+        );
+      }
     } catch (e) {
       decryptedContent = 'DECRYPTION FAULT';
     }
@@ -1622,6 +1725,16 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                             letterSpacing: 0.02,
                                           ),
                                         ),
+                                        if (item.pendingReviewAfterSync)
+                                          TextSpan(
+                                            text: '-- UPDATED  ',
+                                            style: TextStyle(
+                                              color: theme.textMain.withOpacity(0.7),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 0.03,
+                                            ),
+                                          ),
                                         TextSpan(
                                           text: formattedDate,
                                           style: TextStyle(

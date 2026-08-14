@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import '../core/database.dart';
 import '../core/crypto_engine.dart';
 import '../core/github_backup_service.dart';
+import 'quicknote.dart';
 import '../main.dart';
 
 class SettingsUiTheme {
@@ -226,52 +227,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pushFullBackupSync() async {
-    try {
-      final settingsBox = Hive.box(_boxName);
-      final String? globalPin = settingsBox.get('system_crypto_pin');
-      final String? accessBlob = settingsBox.get('github_access_encrypted');
-      if (globalPin == null || accessBlob == null) return;
-
-      final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
-      if (accessJson == 'DECRYPTION FAULT') return;
-      final Map<String, dynamic> access = jsonDecode(accessJson);
-      final String? token = access['token'] as String?;
-      final String? repo = access['repo'] as String?;
-      if (token == null || repo == null) return;
-
-      final backedUpItems = ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
-      if (backedUpItems.isEmpty) return;
-
-      final Map<String, String> upsertFiles = {};
-      for (final item in backedUpItems) {
-        try {
-          final Map<String, String> fields;
-          if (item.type == 'encrypted_note') {
-            fields = CryptoEngine.splitForBackup(item.content);
-          } else {
-            fields = {'salt': '', 'nonce': '', 'cyphertext': item.content};
-          }
-          upsertFiles[DatabaseNotifier.noteFileName(item.title)] = jsonEncode(fields);
-        } catch (e) {
-          debugPrint('SKIPPING CORRUPTED NOTE "${item.title}" DURING EXPORT PUSH: $e');
-          continue;
-        }
-      }
-
-      final service = GithubBackupService(token: token, repoPath: repo);
-      final notifier = ref.read(localDatabaseProvider.notifier);
-      final queue = await notifier.getSyncQueue();
-
-      await service.amendSync(
-        upsertFiles: upsertFiles,
-        deleteFiles: List<String>.from(queue['deleted']),
-        renameFiles: Map<String, String>.from(queue['renamed']),
-        message: 'full export sync',
-      );
-
-      await notifier.clearSyncQueue();
-    } catch (_) {
-    }
+    // Delegates to the single, fully up-to-date push implementation in
+    // quicknote.dart (opaque remoteFileId filenames, encrypted title
+    // embedding, timestamps, legacy migration, zero-decrypt guard for
+    // notes pending review) rather than maintaining a second copy of this
+    // logic here that can silently drift out of sync with it.
+    await pushAllBackupEnabledNotes(ref);
   }
 
   Future<void> _handleDataExport() async {
@@ -446,7 +407,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 6-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
@@ -574,7 +535,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 if (!screenContext.mounted) return;
 
                                 try {
-                                  final String accessJson = await CryptoEngine.decryptProcess(accessBlob, globalPin);
+                                  final String? unwrappedForRestore = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+                                  final String accessJson = await CryptoEngine.decryptProcess(unwrappedForRestore ?? accessBlob, globalPin);
                                   if (accessJson == 'DECRYPTION FAULT') {
                                     if (screenContext.mounted) {
                                       _showStatusDialog(screenContext, 'RESTORE ERROR', 'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD.');
@@ -1608,14 +1570,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     showGeneralDialog(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 6-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
@@ -1804,7 +1766,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     if (accessBlob != null) {
       try {
-        final String decoded = await CryptoEngine.decryptProcess(accessBlob, pinHash);
+        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+        final String decoded = await CryptoEngine.decryptProcess(unwrappedForRead ?? accessBlob, pinHash);
         final Map<String, dynamic> access = jsonDecode(decoded);
         initialToken = (access['token'] ?? '').toString();
         initialRepo = (access['repo'] ?? '').toString();
@@ -1911,16 +1874,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               return;
                             }
 
+                            Navigator.pop(context);
+                            if (!screenContext.mounted) return;
+
+                            bool savingDialogVisible = true;
+                            void closeSavingDialogIfOpen() {
+                              if (savingDialogVisible && screenContext.mounted) {
+                                savingDialogVisible = false;
+                                Navigator.of(screenContext, rootNavigator: true).pop();
+                              }
+                            }
+                            _showSavingIndicatorDialog(screenContext, isDark);
+
                             final String payload = jsonEncode({'token': token, 'repo': repo});
                             final String encrypted = await CryptoEngine.encryptProcess(payload, pinHash);
                             final String? hwWrapped = await CryptoEngine.hardwareWrap(encrypted, keyAlias: CryptoEngine.githubTokenKeyAlias);
                             await settingsBox.put('github_access_encrypted', hwWrapped ?? encrypted);
 
-                            if (!context.mounted) return;
-                            Navigator.pop(context);
-
                             if (!screenContext.mounted) return;
-                            await _handlePostSaveGithubSync(screenContext, token, repo, rawPassword, pinHash, pullAfterKeySetup: false);
+                            await _handlePostSaveGithubSync(
+                              screenContext, token, repo, rawPassword, pinHash,
+                              pullAfterKeySetup: false,
+                              onBeforeUserPrompt: closeSavingDialogIfOpen,
+                            );
+                            closeSavingDialogIfOpen();
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -1948,6 +1925,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       String currentPinHash, {
         bool isExplicitRestore = false,
         bool pullAfterKeySetup = true,
+        VoidCallback? onBeforeUserPrompt,
       }) async {
     final service = GithubBackupService(token: token, repoPath: repo);
     final settingsBox = Hive.box(_boxName);
@@ -1959,6 +1937,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     Future<void> finish(String title) async {
+      onBeforeUserPrompt?.call();
       if (isExplicitRestore && context.mounted) {
         _showDiagnosticLogDialog(context, title, syncLog);
       }
@@ -2001,6 +1980,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         }
 
         if (context.mounted) {
+          onBeforeUserPrompt?.call();
           await _showMnemonicDisplayDialog(context, mnemonicWords);
         }
       } else if (!ownsThisRepoKey) {
@@ -2009,6 +1989,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           log('context unmounted before mnemonic prompt, aborting');
           return;
         }
+        onBeforeUserPrompt?.call();
         final List<String>? recoveredWords = await _promptMnemonicRecovery(context);
         if (recoveredWords == null) {
           log('mnemonic dialog closed without submitting (cancelled or dismissed)');
@@ -2056,6 +2037,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       if (!pullAfterKeySetup) {
         log('pullAfterKeySetup is false, stopping after key setup/recovery');
+        onBeforeUserPrompt?.call();
         return;
       }
 
@@ -2072,6 +2054,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       if (filesToImport.isEmpty) {
         log('nothing to import, stopping');
+        onBeforeUserPrompt?.call();
         if (isExplicitRestore && context.mounted) {
           _showAcknowledgeDialog(context, 'BACKUP SIGN-IN SUCCESSFUL', '0 NOTES FOUND IN THIS BACKUP.');
         }
@@ -2125,6 +2108,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
 
       log('done, importedCount=$importedCount');
+      onBeforeUserPrompt?.call();
       if (context.mounted) {
         _showAcknowledgeDialog(context, 'RESTORE COMPLETE', 'IMPORTED $importedCount NOTE(S) FROM BACKUP.');
       }
@@ -2134,10 +2118,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       syncLog.add('STACK TRACE: $stackTrace');
       debugPrint('SYNC UNCAUGHT EXCEPTION: $e');
       debugPrint('$stackTrace');
+      onBeforeUserPrompt?.call();
       if (isExplicitRestore && context.mounted) {
         _showDiagnosticLogDialog(context, 'SYNC ERROR', syncLog);
       }
     }
+  }
+
+  // Non-dismissible loading indicator shown while token/repo/recovery data
+  // is actually being written to local storage and pushed to GitHub - the
+  // whole point is that background tapping does nothing here, matching the
+  // same protection as the rest of this setup flow.
+  void _showSavingIndicatorDialog(BuildContext context, bool isDark) {
+    final theme = SettingsUiTheme(isDark);
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      pageBuilder: (context, anim1, anim2) {
+        return PopScope(
+          canPop: false,
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 240,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: theme.dialogBg,
+                  border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: theme.textMain),
+                    ),
+                    const SizedBox(width: 14),
+                    Text(
+                      'SAVING...',
+                      style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showDiagnosticLogDialog(BuildContext context, String title, List<String> log) {

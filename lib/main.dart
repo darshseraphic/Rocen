@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'navbar.dart';
 import 'features/splashscreen.dart';
+import 'core/cert_pinning.dart';
 
 class ThemeNotifier extends Notifier<bool> {
   @override
@@ -23,6 +24,14 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   await Hive.openBox('rocen_settings_box');
+
+  // TEMP-VERIFY: remove this block once you've copied the printed
+  // certificate into cert_pinning.dart's _pinnedCertificatesDerBase64 list.
+  CertPinning.debugFetchCurrentCertificate().then((cert) {
+    print('[cert_pinning] CERT: $cert');
+  }).catchError((e) {
+    print('[cert_pinning] fetch failed: $e');
+  });
 
   // FORCE HARDWARE WINDOW MANAGER TO PIN INTERFACE STRICLY TO VERTICAL AXIS
   await SystemChrome.setPreferredOrientations([

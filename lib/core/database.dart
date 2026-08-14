@@ -12,6 +12,15 @@ class CaptureItem {
   final DateTime timestamp;
   final bool backupEnabled;
   final String? remoteFileId;
+  // Last timestamp known to match between this device and GitHub - the
+  // "common ancestor" point used for zero-decrypt three-way conflict
+  // detection during pull (see pullAndReconcileNotes).
+  final DateTime? lastSyncedTimestamp;
+  // True when this note's content was replaced via a zero-decrypt ciphertext
+  // swap during conflict resolution and hasn't been reopened since - the
+  // local plaintext title field is untouched, but the actual content may no
+  // longer match it until the note is opened (which clears this).
+  final bool pendingReviewAfterSync;
 
   CaptureItem({
     required this.id,
@@ -21,6 +30,8 @@ class CaptureItem {
     required this.timestamp,
     this.backupEnabled = false,
     this.remoteFileId,
+    this.lastSyncedTimestamp,
+    this.pendingReviewAfterSync = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -32,6 +43,8 @@ class CaptureItem {
       'timestamp': timestamp.toIso8601String(),
       'backupEnabled': backupEnabled,
       'remoteFileId': remoteFileId,
+      'lastSyncedTimestamp': lastSyncedTimestamp?.toIso8601String(),
+      'pendingReviewAfterSync': pendingReviewAfterSync,
     };
   }
 
@@ -46,6 +59,10 @@ class CaptureItem {
           : DateTime.now(),
       backupEnabled: map['backupEnabled'] == true,
       remoteFileId: map['remoteFileId'] as String?,
+      lastSyncedTimestamp: map['lastSyncedTimestamp'] != null
+          ? DateTime.tryParse(map['lastSyncedTimestamp'].toString())
+          : null,
+      pendingReviewAfterSync: map['pendingReviewAfterSync'] == true,
     );
   }
 }
@@ -240,7 +257,7 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     await box.put(_syncQueueKey, jsonEncode({'deleted': deleted, 'renamed': renamed}));
   }
 
-  Future<bool> insertItem(String content, String type, {String title = '', bool backupEnabled = false, String? remoteFileId, DateTime? timestamp}) async {
+  Future<bool> insertItem(String content, String type, {String title = '', bool backupEnabled = false, String? remoteFileId, DateTime? timestamp, DateTime? lastSyncedTimestamp, bool pendingReviewAfterSync = false}) async {
     if (backupEnabled && title.trim().isEmpty) return false;
     if (backupEnabled && titleExists(title)) return false;
 
@@ -254,6 +271,8 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
       timestamp: resolvedTimestamp,
       backupEnabled: backupEnabled,
       remoteFileId: backupEnabled ? (remoteFileId ?? generateRemoteFileId()) : remoteFileId,
+      lastSyncedTimestamp: lastSyncedTimestamp,
+      pendingReviewAfterSync: pendingReviewAfterSync,
     );
 
     state = [newItem, ...state];
@@ -263,7 +282,7 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     return true;
   }
 
-  Future<bool> updateItem(String id, String newContent, {String? title, bool? backupEnabled, String? remoteFileId, DateTime? timestamp}) async {
+  Future<bool> updateItem(String id, String newContent, {String? title, String? type, bool? backupEnabled, String? remoteFileId, DateTime? timestamp, DateTime? lastSyncedTimestamp, bool? pendingReviewAfterSync}) async {
     CaptureItem? previous;
     for (final item in state) {
       if (item.id == id) {
@@ -274,11 +293,14 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     if (previous == null) return false;
 
     final String resolvedTitle = title ?? previous.title;
+    final String resolvedType = type ?? previous.type;
     final bool resolvedBackup = backupEnabled ?? previous.backupEnabled;
     // Defaults to "now" for a normal user edit. Callers applying a remote
     // version during conflict resolution pass the remote's own timestamp
     // explicitly instead, so it isn't misrepresented as freshly edited.
     final DateTime resolvedTimestamp = timestamp ?? DateTime.now();
+    final DateTime? resolvedLastSynced = lastSyncedTimestamp ?? previous.lastSyncedTimestamp;
+    final bool resolvedPendingReview = pendingReviewAfterSync ?? previous.pendingReviewAfterSync;
 
     if (resolvedBackup && resolvedTitle.trim().isEmpty) return false;
     if (resolvedBackup && titleExists(resolvedTitle, excludingId: id)) return false;
@@ -300,10 +322,12 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
           id: item.id,
           title: resolvedTitle,
           content: newContent,
-          type: item.type,
+          type: resolvedType,
           timestamp: resolvedTimestamp,
           backupEnabled: resolvedBackup,
           remoteFileId: resolvedRemoteFileId,
+          lastSyncedTimestamp: resolvedLastSynced,
+          pendingReviewAfterSync: resolvedPendingReview,
         );
       }
       return item;
