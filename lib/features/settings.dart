@@ -102,6 +102,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _showAcknowledgeDialog(BuildContext context, String title, String message) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
+    final buttonBg = isDark ? Colors.white : Colors.black;
+    final buttonText = isDark ? Colors.black : Colors.white;
 
     showGeneralDialog(
       context: context,
@@ -121,32 +123,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
                     title,
+                    textAlign: TextAlign.center,
                     style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     message,
+                    textAlign: TextAlign.center,
                     style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: InkWell(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        decoration: BoxDecoration(color: theme.textMain),
-                        child: Text(
-                          'ACKNOWLEDGE',
-                          style: TextStyle(
-                            color: isDark ? Colors.black : Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  InkWell(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(color: buttonBg),
+                      alignment: Alignment.center,
+                      child: Text(
+                        'ACKNOWLEDGE',
+                        style: TextStyle(
+                          color: buttonText,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.06,
                         ),
                       ),
                     ),
@@ -407,7 +411,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER 6-CHARACTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
@@ -991,6 +995,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _showForgotWarningDialog(BuildContext context) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
+    final buttonBg = isDark ? Colors.white : Colors.black;
+    final buttonText = isDark ? Colors.black : Colors.white;
 
     showGeneralDialog(
       context: context,
@@ -998,49 +1004,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 300,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.dialogBg,
-                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'CRITICAL NOTICE',
-                    style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'IF YOU FORGOT THE PASSWORD YOU HAVE TO TAP THE CLEAR',
-                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
-                  ),
-                  const SizedBox(height: 24),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: InkWell(
+        return PopScope(
+          canPop: false,
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 300,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: theme.dialogBg,
+                  border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      'CRITICAL NOTICE',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'IF YOU FORGET YOUR PASSWORD, YOUR 12-WORD RECOVERY PHRASE IS THE ONLY WAY BACK IN. WITHOUT IT, YOUR LOCAL DATA CANNOT BE RECOVERED - ONLY CLEARED AND RESTARTED FROM SCRATCH.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
+                    ),
+                    const SizedBox(height: 24),
+                    InkWell(
                       onTap: () => Navigator.pop(context),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        decoration: BoxDecoration(color: theme.textMain),
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        decoration: BoxDecoration(color: buttonBg),
+                        alignment: Alignment.center,
                         child: Text(
                           'ACKNOWLEDGE',
                           style: TextStyle(
-                            color: isDark ? Colors.black : Colors.white,
+                            color: buttonText,
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
+                            letterSpacing: 0.06,
                           ),
                         ),
                       ),
                     ),
-                  )
-                ],
+                  ],
+                ),
               ),
             ),
           ),
