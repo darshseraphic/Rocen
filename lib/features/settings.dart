@@ -404,14 +404,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     showGeneralDialog(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 6-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
@@ -918,7 +918,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'ARE YOU SURE TO ADD THIS PASSWORD?',
+                    'ARE YOU SURE YOU WANT TO SET THIS PASSWORD?',
                     style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
@@ -1088,7 +1088,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     showGeneralDialog(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
       pageBuilder: (context, anim1, anim2) {
@@ -1481,12 +1481,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'SYSTEM DESTRUCTION WARN',
+                    'SYSTEM DESTRUCTION WARNING',
                     style: TextStyle(color: Color(0xFFEF4444), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'THIS PROCESS IN NOT REVERSABLE, ALL ENCRYPTED FILE WILL REMOVED',
+                    'THIS PROCESS IS NOT REVERSIBLE. ALL ENCRYPTED FILES WILL BE PERMANENTLY REMOVED.',
                     style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
@@ -2866,7 +2866,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 return _buildMenuTile(
                   title: 'CRYPTOGRAPHIC ACCESS PASSWORD',
                   subtitle: currentPin.isEmpty
-                      ? 'SETUP REQUIRED // 6-CHARACTER SECURITY KEY'
+                      ? 'SETUP REQUIRED // 8-CHARACTER SECURITY KEY'
                       : 'ACTIVE // MODIFY SECURE TERMINAL DEPLOYMENT KEY',
                   textMain: theme.textMain,
                   textSub: currentPin.isEmpty ? const Color(0xFFEF4444) : theme.textSub,
@@ -3158,7 +3158,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             Center(
               child: Text(
-                'BUILD BY DARSHSERPHIC',
+                'BUILD BY DARSHSERAPHIC',
                 style: TextStyle(
                   color: theme.textSub.withOpacity(0.5),
                   fontSize: 9,

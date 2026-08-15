@@ -48,7 +48,7 @@ class SecurityUiTheme {
 
 void showMissingKeyUiDialog(BuildContext context, bool isDark, {String? message}) {
   final theme = SecurityUiTheme(isDark);
-  final String bodyMessage = message ?? 'SET KEY FIRST FROM SETTING TO USE THIS FEATURE';
+  final String bodyMessage = message ?? 'SET KEY FIRST FROM SETTINGS TO USE THIS FEATURE';
   final Color buttonBg = isDark ? Colors.white : Colors.black;
   final Color buttonText = isDark ? Colors.black : Colors.white;
 
@@ -726,7 +726,7 @@ Future<void> performRefresh(
       return;
     }
 
-    const int cooldownMillis = 180000;
+    const int cooldownMillis = 5;
     final int? lastCompletedAt = settingsBox.get('last_refresh_completed_at');
     if (lastCompletedAt != null) {
       final int elapsed = DateTime.now().millisecondsSinceEpoch - lastCompletedAt;
@@ -1037,7 +1037,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 6-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
