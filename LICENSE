@@ -32,6 +32,13 @@ PERMISSION:
 Personal, non-commercial viewing of the source code is permitted solely
 for educational reference. No other rights are granted.
 
+GOVERNING LAW & JURISDICTION:
+
+This license shall be governed by and construed in accordance with the laws of India. Any legal action or proceeding arising under this license will be brought exclusively in the competent courts located in Pune, Maharashtra, India.
+
+TERMINATION:
+Any breach of these terms automatically terminates the limited viewing permission granted herein.
+
 DISCLAIMER:
 
 THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
@@ -43,3 +50,50 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 For permissions, contact: Darsh.seraphic@gmail.com
+This updated legal agreement plugs vulnerabilities surrounding clean-room implementations, competitive benchmarking, execution rights, AI model training, and injunctive remedies:
+
+---
+
+**PROPRIETARY SOFTWARE LICENSE AND END-USER AGREEMENT**
+
+Copyright (c) 2026 Darshseraphic. All Rights Reserved.
+
+**1. DEFINITIONS**
+"Software" refers to all source code, object code, compiled binaries, documentation, algorithms, trade secrets, data structures, user interface designs, visual assets, APIs, and associated proprietary logic owned by Darshseraphic.
+
+**2. INTELLECTUAL PROPERTY RIGHTS**
+All right, title, interest, and intellectual property in and to the Software—including trade secrets, copyrights, and technical concepts—remain exclusively with Darshseraphic. Dissemination or reproduction of this material is strictly forbidden unless prior written permission is obtained from Darshseraphic.
+
+**3. RESTRICTIONS AND PROHIBITED ACTIONS**
+
+* **No Copying or Modification:** You may not copy, modify, adapt, translate, merge, distribute, sublicense, sell, rent, lease, or transfer the Software or any portion thereof.
+
+* **No Reverse Engineering or Extraction:** You may not reverse engineer, decompile, disassemble, decipher, or attempt to derive the source code, underlying ideas, or architectural structure of the Software by any means.
+
+* **No Black-Box or Clean-Room Replicas:** You may not inspect, trace network traffic, monitor APIs, perform clean-room design, or conduct competitive analysis/benchmarking of the Software to create a functionally similar or competing product.
+
+* **No Machine Learning or AI Harvesting:** You may not harvest, scrape, or ingest any portion of the Software or its assets into any machine learning dataset or artificial intelligence model.
+
+* **No Commercial Exploitation:** You may not use the Software or any derived assets for commercial, revenue-generating, or operational purposes without explicit prior written consent.
+
+* **Public Repository Disclaimer:** Display of the source code on a public platform (e.g., GitHub, GitLab) does not grant, convey, or imply any operational rights, licenses, or rights of use beyond passive, personal viewing.
+
+**4. LIMITED PERMISSIONS**
+Personal, non-commercial viewing of the source code is permitted solely for individual educational reference. Running, compiling, hosting, or executing the Software binary or source code is strictly prohibited without a separate written license agreement.
+
+**5. INJUNCTIVE RELIEF**
+You acknowledge that any unauthorized use, copy, or disclosure of the Software will cause irreparable harm to Darshseraphic for which monetary damages alone are inadequate. Darshseraphic shall be entitled to seek immediate temporary and permanent injunctive relief in any court of competent jurisdiction without the requirement of posting a bond.
+
+**6. TERMINATION**
+Any violation of these terms automatically terminates the limited permission granted herein. Upon termination, you must immediately destroy all full or partial copies of the Software in your possession or control.
+
+**7. GOVERNING LAW AND EXCLUSIVE VENUE**
+This license shall be governed by and construed exclusively in accordance with the laws of India. Any legal action, suit, or proceeding arising under this license will be brought exclusively in the competent courts located in Pune, Maharashtra, India, and you waive any jurisdictional or venue objections.
+
+**8. SEVERABILITY**
+If any provision of this license is determined to be invalid, illegal, or unenforceable, the validity, legality, and enforceability of the remaining provisions shall remain in full force and effect.
+
+**9. DISCLAIMER OF WARRANTIES AND LIMITATION OF LIABILITY**
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL DARSHSERAPHIC BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM OR IN CONNECTION WITH THE SOFTWARE.
+
+For permissions and commercial licensing contact: Darsh.seraphic@gmail.com
