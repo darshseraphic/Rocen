@@ -3,10 +3,6 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'secure_bytes.dart';
 
-// SecureBytes below is now backed by native, RAM-locked (mlock) memory
-// instead of a plain Dart Uint8List - no call-site changes needed here,
-// zero() already zeroes+releases in a try/finally at both usages.
-
 class CryptoIsolate {
   static Future<Map<String, Uint8List>> deriveAndEncrypt({
     required Uint8List plaintext,
@@ -17,13 +13,20 @@ class CryptoIsolate {
     required int iterations,
   }) {
     return Isolate.run(() async {
-      final kdf = Argon2id(memory: memory, iterations: iterations, parallelism: 1, hashLength: 32);
-      final secretKey = await kdf.deriveKeyFromPassword(password: password, nonce: salt);
-      final keyBytes = SecureBytes(Uint8List.fromList(await secretKey.extractBytes()));
+      final kdf = Argon2id(
+          memory: memory,
+          iterations: iterations,
+          parallelism: 1,
+          hashLength: 32);
+      final secretKey =
+          await kdf.deriveKeyFromPassword(password: password, nonce: salt);
+      final keyBytes =
+          SecureBytes(Uint8List.fromList(await secretKey.extractBytes()));
 
       try {
         final cipher = AesGcm.with256bits();
-        final box = await cipher.encrypt(plaintext, secretKey: SecretKey(keyBytes.bytes), nonce: nonce);
+        final box = await cipher.encrypt(plaintext,
+            secretKey: SecretKey(keyBytes.bytes), nonce: nonce);
 
         return {
           'cipherText': Uint8List.fromList(box.cipherText),
@@ -45,14 +48,21 @@ class CryptoIsolate {
     required int iterations,
   }) {
     return Isolate.run(() async {
-      final kdf = Argon2id(memory: memory, iterations: iterations, parallelism: 1, hashLength: 32);
-      final secretKey = await kdf.deriveKeyFromPassword(password: password, nonce: salt);
-      final keyBytes = SecureBytes(Uint8List.fromList(await secretKey.extractBytes()));
+      final kdf = Argon2id(
+          memory: memory,
+          iterations: iterations,
+          parallelism: 1,
+          hashLength: 32);
+      final secretKey =
+          await kdf.deriveKeyFromPassword(password: password, nonce: salt);
+      final keyBytes =
+          SecureBytes(Uint8List.fromList(await secretKey.extractBytes()));
 
       try {
         final cipher = AesGcm.with256bits();
         final box = SecretBox(cipherText, nonce: nonce, mac: Mac(mac));
-        final clear = await cipher.decrypt(box, secretKey: SecretKey(keyBytes.bytes));
+        final clear =
+            await cipher.decrypt(box, secretKey: SecretKey(keyBytes.bytes));
 
         return Uint8List.fromList(clear);
       } catch (_) {
@@ -70,8 +80,13 @@ class CryptoIsolate {
     required int iterations,
   }) {
     return Isolate.run(() async {
-      final kdf = Argon2id(memory: memory, iterations: iterations, parallelism: 1, hashLength: 32);
-      final secretKey = await kdf.deriveKeyFromPassword(password: password, nonce: salt);
+      final kdf = Argon2id(
+          memory: memory,
+          iterations: iterations,
+          parallelism: 1,
+          hashLength: 32);
+      final secretKey =
+          await kdf.deriveKeyFromPassword(password: password, nonce: salt);
       final bytes = await secretKey.extractBytes();
       return Uint8List.fromList(bytes);
     });
