@@ -6,6 +6,7 @@ plugins {
 
 android {
     namespace = "com.darshseraphic.Rocen"
+
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,8 +21,10 @@ android {
 
     defaultConfig {
         applicationId = "com.darshseraphic.rocen"
+
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -29,12 +32,15 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
+
             isMinifyEnabled = true
             isShrinkResources = true
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
             ndk {
                 debugSymbolLevel = "NONE"
             }

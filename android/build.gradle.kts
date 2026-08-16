@@ -9,10 +9,13 @@ val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")
         .get()
+
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
+    val newSubprojectBuildDir: Directory =
+        newBuildDir.dir(project.name)
+
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 
@@ -20,15 +23,22 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-tasks.register<Delete>("clean") {
-    delete(rootProject.layout.buildDirectory)
-}
-
-// Enforce JVM 17 using modern compilerOptions DSL
+// Enforce JVM 17 for all Java and Kotlin compilation tasks
 subprojects {
+    tasks.withType<JavaCompile>().configureEach {
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
+    }
+
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            jvmTarget.set(
+                org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+            )
         }
     }
+}
+
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
 }
