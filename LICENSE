@@ -1,99 +1,287 @@
-PROPRIETARY SOFTWARE LICENSE
+# ROCEN PROPRIETARY SOFTWARE LICENSE
 
-Copyright (c) 2026 Darshseraphic. All Rights Reserved.
+**Copyright © 2026 Darshseraphic. All Rights Reserved.**
 
-NOTICE: All information contained herein is, and remains the property of
-Darshseraphic. The intellectual and technical concepts contained herein are
-proprietary to Darshseraphic and may be covered by applicable intellectual
-property laws. Dissemination of this information or reproduction of this
-material is strictly forbidden unless prior written permission is obtained
-from Darshseraphic.
+**Copyright Holder:** Darshseraphic
+**Project:** Rocen
+**License Version:** 1.0
+**Contact:** [Darsh.seraphic@gmail.com](mailto:Darsh.seraphic@gmail.com)
 
-RESTRICTIONS:
+## 1. PURPOSE
 
-1. You may not copy, modify, merge, distribute, sublicense, sell, or
-   transfer this software or any portion of it without explicit prior
-   written permission from the copyright holder.
+This License governs the use of the proprietary software and original materials distributed under the name **Rocen** (“Software”).
 
-2. You may not reverse engineer, decompile, disassemble, or attempt to
-   derive the source code of this software.
+Rocen is proprietary software. Publication of the Software, including publication of source code through a public GitHub repository, does not place the Software in the public domain and does not by itself grant a general license to use, copy, modify, distribute, sell, sublicense, publish, or create derivative works from the Protected Material.
 
-3. You may not create derivative works based on this software.
+This License grants only the limited rights expressly stated in this License.
 
-4. You may not use this software or any portion of it for commercial
-   purposes without explicit prior written permission from the copyright
-   holder.
+## 2. DEFINITIONS
 
-5. Viewing the source code on a public repository does not grant any
-   rights to use, copy, modify, or distribute the software.
+### 2.1 Software
 
-PERMISSION:
+“Software” means Rocen and its proprietary portions, including as applicable:
 
-Personal, non-commercial viewing of the source code is permitted solely
-for educational reference. No other rights are granted.
+1. source code;
+2. object code and compiled binaries;
+3. original documentation;
+4. original source files;
+5. original scripts and configuration;
+6. original artwork, icons, graphics, and interface assets;
+7. original text and product documentation;
+8. proprietary implementation details; and
+9. other original materials owned or controlled by the Copyright Holder and distributed as part of Rocen.
 
-GOVERNING LAW & JURISDICTION:
+### 2.2 Protected Material
 
-This license shall be governed by and construed in accordance with the laws of India. Any legal action or proceeding arising under this license will be brought exclusively in the competent courts located in Pune, Maharashtra, India.
+“Protected Material” means the original portions of the Software and associated materials that are owned or controlled by the Copyright Holder and protected by applicable intellectual property law.
 
-TERMINATION:
-Any breach of these terms automatically terminates the limited viewing permission granted herein.
+### 2.3 Third Party Material
 
-DISCLAIMER:
+“Third Party Material” means software, libraries, frameworks, fonts, assets, APIs, code, documentation, services, or other materials that are not owned by the Copyright Holder and are incorporated into, bundled with, referenced by, or required by the Software.
 
-THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
-THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY,
-WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF,
-OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Third Party Material remains governed by its own applicable licenses and legal terms.
 
-For permissions, contact: Darsh.seraphic@gmail.com
-This updated legal agreement plugs vulnerabilities surrounding clean-room implementations, competitive benchmarking, execution rights, AI model training, and injunctive remedies:
+### 2.4 Copyright Holder
 
----
+“Copyright Holder” means Darshseraphic, or any lawful successor or assignee of the applicable rights.
 
-**PROPRIETARY SOFTWARE LICENSE AND END-USER AGREEMENT**
+### 2.5 Recipient
 
-Copyright (c) 2026 Darshseraphic. All Rights Reserved.
+“Recipient” means any person or entity that accesses, views, obtains, uses, or otherwise receives the Protected Material.
 
-**1. DEFINITIONS**
-"Software" refers to all source code, object code, compiled binaries, documentation, algorithms, trade secrets, data structures, user interface designs, visual assets, APIs, and associated proprietary logic owned by Darshseraphic.
+## 3. OWNERSHIP
 
-**2. INTELLECTUAL PROPERTY RIGHTS**
-All right, title, interest, and intellectual property in and to the Software—including trade secrets, copyrights, and technical concepts—remain exclusively with Darshseraphic. Dissemination or reproduction of this material is strictly forbidden unless prior written permission is obtained from Darshseraphic.
+The Protected Material is and remains the property of the Copyright Holder.
 
-**3. RESTRICTIONS AND PROHIBITED ACTIONS**
+Nothing in this License transfers ownership of the Protected Material to any Recipient.
 
-* **No Copying or Modification:** You may not copy, modify, adapt, translate, merge, distribute, sublicense, sell, rent, lease, or transfer the Software or any portion thereof.
+To the maximum extent permitted by applicable law, all rights, title, and interest in the Protected Material that are not expressly granted by this License are reserved by the Copyright Holder.
 
-* **No Reverse Engineering or Extraction:** You may not reverse engineer, decompile, disassemble, decipher, or attempt to derive the source code, underlying ideas, or architectural structure of the Software by any means.
+Public availability of source code does not constitute abandonment of copyright or dedication of the Protected Material to the public domain.
 
-* **No Black-Box or Clean-Room Replicas:** You may not inspect, trace network traffic, monitor APIs, perform clean-room design, or conduct competitive analysis/benchmarking of the Software to create a functionally similar or competing product.
+## 4. LIMITED VIEWING PERMISSION
 
-* **No Machine Learning or AI Harvesting:** You may not harvest, scrape, or ingest any portion of the Software or its assets into any machine learning dataset or artificial intelligence model.
+Subject to compliance with this License, the Recipient may access and view publicly available Rocen source code for personal, non commercial educational, learning, research, criticism, or review purposes.
 
-* **No Commercial Exploitation:** You may not use the Software or any derived assets for commercial, revenue-generating, or operational purposes without explicit prior written consent.
+This limited permission does not grant a license to:
 
-* **Public Repository Disclaimer:** Display of the source code on a public platform (e.g., GitHub, GitLab) does not grant, convey, or imply any operational rights, licenses, or rights of use beyond passive, personal viewing.
+1. reproduce the Protected Material;
+2. distribute copies of the Protected Material;
+3. publish copies of the Protected Material elsewhere;
+4. modify or adapt the Protected Material;
+5. create derivative works;
+6. commercially exploit the Protected Material;
+7. sublicense or transfer the Protected Material;
+8. incorporate the Protected Material into another product or service;
+9. represent the Protected Material as the Recipient's own; or
+10. grant rights in the Protected Material to another person.
 
-**4. LIMITED PERMISSIONS**
-Personal, non-commercial viewing of the source code is permitted solely for individual educational reference. Running, compiling, hosting, or executing the Software binary or source code is strictly prohibited without a separate written license agreement.
+This permission applies only to the extent permitted by applicable law.
 
-**5. INJUNCTIVE RELIEF**
-You acknowledge that any unauthorized use, copy, or disclosure of the Software will cause irreparable harm to Darshseraphic for which monetary damages alone are inadequate. Darshseraphic shall be entitled to seek immediate temporary and permanent injunctive relief in any court of competent jurisdiction without the requirement of posting a bond.
+## 5. RESTRICTIONS
 
-**6. TERMINATION**
-Any violation of these terms automatically terminates the limited permission granted herein. Upon termination, you must immediately destroy all full or partial copies of the Software in your possession or control.
+Except where expressly permitted by this License or required by applicable law, the Recipient may not:
 
-**7. GOVERNING LAW AND EXCLUSIVE VENUE**
-This license shall be governed by and construed exclusively in accordance with the laws of India. Any legal action, suit, or proceeding arising under this license will be brought exclusively in the competent courts located in Pune, Maharashtra, India, and you waive any jurisdictional or venue objections.
+1. copy, reproduce, republish, or redistribute the Protected Material;
+2. modify, adapt, translate, or alter the Protected Material;
+3. create derivative works, modified versions, forks, ports, clones, or repackaged versions of the Protected Material;
+4. sell, lease, rent, sublicense, transfer, or otherwise commercially exploit the Protected Material;
+5. incorporate Protected Material into another software product, service, package, library, framework, dataset, or commercial offering;
+6. use Protected Material as a basis for a competing implementation where the resulting use infringes the Copyright Holder's rights;
+7. publish modified or unmodified copies of Protected Material outside an authorized distribution channel;
+8. remove, conceal, or alter copyright, license, attribution, trademark, or proprietary notices;
+9. claim authorship, ownership, or origin of Protected Material;
+10. grant a third party any rights that the Recipient does not possess;
+11. use Protected Material to facilitate unauthorized access to, extraction from, or circumvention of the Software;
+12. scrape, systematically harvest, or mass collect Protected Material for purposes prohibited by this License;
+13. use Protected Material, except where independently permitted by applicable law or by an applicable third party license, to train, fine tune, evaluate, benchmark, or construct an artificial intelligence or machine learning model or dataset; or
+14. use Protected Material for any purpose prohibited by applicable law.
 
-**8. SEVERABILITY**
-If any provision of this license is determined to be invalid, illegal, or unenforceable, the validity, legality, and enforceability of the remaining provisions shall remain in full force and effect.
+Nothing in this Section prohibits a use that applicable law expressly permits notwithstanding a contractual restriction.
 
-**9. DISCLAIMER OF WARRANTIES AND LIMITATION OF LIABILITY**
-THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL DARSHSERAPHIC BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM OR IN CONNECTION WITH THE SOFTWARE.
+## 6. NO GENERAL LICENSE
 
-For permissions and commercial licensing contact: Darsh.seraphic@gmail.com
+Except for the limited viewing permission expressly stated in Section 4, no license is granted under this License.
+
+No right is granted, whether express, implied, by estoppel, or otherwise, under any copyright, patent, trademark, trade secret, design right, or other intellectual property right of the Copyright Holder.
+
+All rights not expressly granted are reserved.
+
+## 7. REVERSE ENGINEERING AND TECHNICAL ANALYSIS
+
+To the maximum extent permitted by applicable law, the Recipient may not:
+
+1. reverse engineer the Software;
+2. decompile or disassemble the Software;
+3. attempt to extract proprietary source code from compiled binaries;
+4. attempt to reconstruct proprietary implementation details;
+5. bypass, disable, defeat, or circumvent technical protections implemented by the Software;
+6. use technical analysis to obtain Protected Material that is not lawfully available; or
+7. perform any such activity for the purpose of reproducing, adapting, competing with, or creating a substantially similar implementation of Protected Material.
+
+Nothing in this Section prohibits an act that applicable law expressly permits despite a contractual restriction.
+
+## 8. DERIVATIVE WORKS AND INDEPENDENT DEVELOPMENT
+
+The Copyright Holder does not grant permission to create derivative versions, modified versions, forks, ports, clones, or substantially copied implementations of the Protected Material.
+
+This License does not claim ownership of independently developed ideas, concepts, algorithms, methods, procedures, or functionality that are created without copying Protected Material.
+
+Nothing in this Section grants permission to copy protected expression, confidential information, trademarks, trade secrets, or other protected material.
+
+## 9. COMMERCIAL USE
+
+Commercial use of Protected Material is prohibited without prior written permission from the Copyright Holder.
+
+Commercial use includes, without limitation:
+
+1. selling the Software or a derivative of it;
+2. incorporating Protected Material into a commercial product or service;
+3. distributing Protected Material as part of a paid product, package, application, service, or subscription;
+4. sublicensing, monetizing, or otherwise exploiting Protected Material for commercial gain;
+5. using Protected Material for paid development or client work; and
+6. offering a commercial service substantially based on Protected Material where such use would infringe the Copyright Holder's rights.
+
+The Copyright Holder may grant written commercial permission on separate terms.
+
+## 10. TRADEMARKS, TRADE NAMES, AND BRANDING
+
+This License does not grant permission to use the following except where independently permitted by law or separately authorized in writing:
+
+1. “Rocen”;
+2. “Darshseraphic”;
+3. Rocen logos and symbols;
+4. Rocen icons and visual identity;
+5. product names;
+6. distinctive brand elements; or
+7. other trademarks, service marks, trade names, or brand identifiers owned or controlled by the Copyright Holder.
+
+Use of the Rocen name or branding must not imply sponsorship, endorsement, affiliation, authorship, or official status without permission.
+
+## 11. THIRD PARTY MATERIAL
+
+The Software may contain or depend upon Third Party Material.
+
+Third Party Material remains subject to its respective copyright, trademark, patent, license, terms of service, and other applicable legal conditions.
+
+Nothing in this License:
+
+1. relicenses Third Party Material;
+2. transfers ownership of Third Party Material;
+3. removes obligations imposed by a third party license;
+4. restricts rights independently granted to the Recipient by a third party license; or
+5. represents Third Party Material as being owned by the Copyright Holder.
+
+Where applicable, the repository should contain a `THIRD_PARTY_NOTICES` file identifying relevant third party components and their applicable licenses.
+
+## 12. GITHUB AND PUBLIC REPOSITORY
+
+Rocen may be published through GitHub.
+
+GitHub's platform rules, Terms of Service, repository features, and other applicable policies may provide GitHub and its users with rights necessary to operate and use the platform.
+
+Nothing in this License is intended to override mandatory GitHub platform terms.
+
+A GitHub feature that permits viewing, cloning, or forking a public repository does not, by itself, constitute a separate license from the Copyright Holder to reuse, modify, distribute, commercialize, or create derivative works from Protected Material beyond rights independently provided by applicable law, GitHub's mandatory platform terms, or another applicable license.
+
+Where a mandatory GitHub platform term conflicts with this License solely with respect to operation of the GitHub platform, that mandatory term controls only to the extent of the conflict.
+
+## 13. NO PATENT LICENSE
+
+No patent license is granted under this License.
+
+No patent rights are granted expressly, implicitly, by estoppel, or otherwise, except to the extent a grant is legally unavoidable under applicable law.
+
+## 14. TERM AND TERMINATION
+
+This License becomes effective when the Recipient accesses or uses the Software.
+
+Any permission granted under this License automatically terminates upon a material breach of this License.
+
+Upon termination, the Recipient must cease exercising the permissions granted by this License and cease all unauthorized use of Protected Material.
+
+Termination does not limit any other right or remedy available to the Copyright Holder under applicable law.
+
+Rights that by their nature are intended to survive termination shall survive, including ownership, intellectual property reservations, disclaimers, limitations of liability, and dispute related provisions.
+
+The Copyright Holder may seek temporary, preliminary, permanent, or other injunctive relief and any other remedy available under applicable law to restrain or remedy unauthorized use, disclosure, reproduction, distribution, or exploitation of Protected Material.
+
+## 15. NO WARRANTY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE AND PROTECTED MATERIAL ARE PROVIDED “AS IS” AND “AS AVAILABLE,” WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE.
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER DISCLAIMS WARRANTIES INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, RELIABILITY, AVAILABILITY, NON INFRINGEMENT, AND FREEDOM FROM DEFECTS.
+
+THE COPYRIGHT HOLDER DOES NOT WARRANT THAT THE SOFTWARE WILL OPERATE WITHOUT INTERRUPTION, ERRORS, SECURITY VULNERABILITIES, DATA LOSS, OR COMPATIBILITY PROBLEMS.
+
+NOTHING IN THIS SECTION EXCLUDES OR LIMITS A WARRANTY, LIABILITY, OR RIGHT THAT CANNOT LAWFULLY BE EXCLUDED OR LIMITED.
+
+## 16. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR FOR LOSS OF DATA, PROFITS, REVENUE, BUSINESS, GOODWILL, OR OTHER INTANGIBLE LOSSES ARISING FROM OR RELATED TO THE SOFTWARE OR THIS LICENSE.
+
+THE SOFTWARE IS NOT GUARANTEED TO PROTECT AGAINST EVERY SECURITY THREAT, DEVICE COMPROMISE, OPERATING SYSTEM COMPROMISE, CREDENTIAL LOSS, USER ERROR, DATA LOSS, OR THIRD PARTY SERVICE FAILURE.
+
+NOTHING IN THIS SECTION EXCLUDES OR LIMITS LIABILITY THAT CANNOT LAWFULLY BE EXCLUDED OR LIMITED.
+
+## 17. SECURITY AND THIRD PARTY SERVICES
+
+Rocen may interact with third party services, including GitHub.
+
+The Copyright Holder does not control the operation, availability, security, policies, infrastructure, data retention, or future changes of third party services.
+
+Use of third party services remains subject to the applicable terms and policies of those services.
+
+No statement in this License constitutes a guarantee that the Software will remain compatible with any third party service indefinitely.
+
+## 18. NO WAIVER
+
+Failure or delay by the Copyright Holder in exercising any right under this License does not constitute a waiver of that right.
+
+A waiver is effective only when expressly made by the Copyright Holder in writing.
+
+## 19. SEVERABILITY
+
+If any provision of this License is determined to be invalid, unlawful, or unenforceable, that provision shall be enforced to the maximum extent permitted by applicable law, and the remaining provisions shall remain in full force and effect.
+
+## 20. ENTIRE AGREEMENT
+
+This License constitutes the entire agreement concerning licensing of the Protected Material, except for separate written agreements expressly entered into by the Copyright Holder.
+
+Any separate written permission granted by the Copyright Holder may supplement, replace, or modify this License solely to the extent expressly stated in that written permission.
+
+## 21. ASSIGNMENT
+
+The Recipient may not assign, transfer, sublicense, or otherwise delegate any rights granted under this License without prior written permission from the Copyright Holder.
+
+The Copyright Holder may assign or transfer its rights as permitted by applicable law.
+
+## 22. GOVERNING LAW AND JURISDICTION
+
+This License shall be governed by and interpreted in accordance with the laws of India, subject to applicable mandatory law.
+
+To the extent permitted by applicable law, any legal action, suit, or proceeding arising from or relating to this License or the Protected Material shall be brought before the competent courts located in **Pune, Maharashtra, India**, and the Recipient consents to the jurisdiction of those courts.
+
+## 23. WRITTEN PERMISSION
+
+Any permission to use Protected Material beyond the rights expressly granted by this License must be obtained in writing from the Copyright Holder.
+
+A statement in a chat, comment, issue, pull request, social media post, or other informal communication does not constitute a license unless it clearly and expressly states that it is authorization from the Copyright Holder.
+
+## 24. COPYRIGHT AND PROPRIETARY NOTICE
+
+**Copyright © 2026 Darshseraphic. All Rights Reserved.**
+
+Rocen and associated branding are proprietary.
+
+No rights are granted except those expressly stated in this License.
+
+Unauthorized use, reproduction, modification, distribution, commercial exploitation, or creation of derivative works may constitute infringement or other unlawful conduct under applicable law.
+
+## 25. CONTACT
+
+For licensing requests, commercial permissions, redistribution requests, partnership requests, or other authorization concerning Protected Material:
+
+**[Darsh.seraphic@gmail.com](mailto:Darsh.seraphic@gmail.com)**
+
+**END OF ROCEN PROPRIETARY SOFTWARE LICENSE**

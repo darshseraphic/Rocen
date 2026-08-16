@@ -1,6 +1,6 @@
 ### ROCEN // THE COMPLETE TECHNICAL SYSTEM MANIFESTO & REFERENCE MANUAL
 
-**DOCUMENT VERSION:** 2026.8.15
+**DOCUMENT VERSION:** 2026.8.1
 
 **CORE ENGINEER:** DARSHSERAPHIC
 
@@ -390,29 +390,19 @@ Both go through the certificate-pinned client (§4.8) and your Personal Access T
 
 ### 14 // LICENSE
 
-**PROPRIETARY SOFTWARE LICENSE**
+**Rocen Proprietary Software License — Copyright © 2026 Darshseraphic. All Rights Reserved.**
 
-Copyright (c) 2026 Darshseraphic. All Rights Reserved.
+The full license text lives in the [`LICENSE`](./LICENSE) file at the root of this repository — read that for the complete, authoritative terms. The summary below is for orientation only and is not a substitute for it.
 
-**NOTICE:** All information contained herein is, and remains the property of Darshseraphic. The intellectual and technical concepts contained herein are proprietary to Darshseraphic and may be covered by applicable intellectual property laws. Dissemination of this information or reproduction of this material is strictly forbidden unless prior written permission is obtained from Darshseraphic.
+Publishing this source code publicly does not place it in the public domain, and does not by itself grant any license to use, copy, modify, distribute, sell, or build on it. Specifically:
 
-**RESTRICTIONS:**
+- **Viewing is permitted** — you're welcome to read the code for personal, non-commercial, educational, or review purposes. That's the entire scope of what's granted.
+- **Copying, modifying, redistributing, forking into a competing product, commercial use, and reverse engineering are all prohibited** without prior written permission.
+- **Use of this code (or Rocen's name/branding) to train, fine-tune, or evaluate an AI/ML model is explicitly prohibited.**
+- Forking or cloning the repository through GitHub's own platform features does not, by itself, grant any rights beyond what's stated above — GitHub's mechanics for viewing/cloning a public repo are not a license.
+- The software is provided with no warranty, and — specifically relevant given what this app is — **no guarantee that it protects against every possible security threat, device compromise, or data loss scenario.**
 
-1. You may not copy, modify, merge, distribute, sublicense, sell, or transfer this software or any portion of it without explicit prior written permission from the copyright holder.
-2. You may not reverse engineer, decompile, disassemble, or attempt to derive the source code of this software.
-3. You may not create derivative works based on this software.
-4. You may not use this software or any portion of it for commercial purposes without explicit prior written permission from the copyright holder.
-5. Viewing the source code on a public repository does not grant any rights to use, copy, modify, or distribute the software.
-
-**PERMISSION:**
-
-Personal, non-commercial viewing of the source code is permitted solely for educational reference. No other rights are granted.
-
-**DISCLAIMER:**
-
-THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-For permissions, contact: **Darsh.seraphic@gmail.com**
+For licensing requests, commercial permission, or anything not covered by the above: **Darsh.seraphic@gmail.com**
 
 <p align="center">
 DEVELOPED BY <b>DARSHSERAPHIC</b>
