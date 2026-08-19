@@ -7,15 +7,9 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../core/database.dart';
 import '../core/crypto_engine.dart';
 import '../core/github_backup_service.dart';
+import '../core/debug_log.dart';
 import '../main.dart';
 
-// Combines a note's title and body into one string before it's encrypted
-// (or, for unlocked-but-backed-up notes, before it's pushed as-is) for
-// GitHub sync specifically - this keeps the title out of the plaintext
-// GitHub filename entirely, since the remote filename is now a random
-// opaque id (see DatabaseNotifier.generateRemoteFileId) with zero
-// relationship to the note's content. Local storage is untouched by this -
-// it keeps encrypting/storing the body alone, exactly as before.
 const String _kTitleBodySeparator = '\u0000\u0000ROCEN_TITLE_SPLIT\u0000\u0000';
 
 String _combineTitleAndBody(String title, String body) => '$title$_kTitleBodySeparator$body';
@@ -165,30 +159,30 @@ Future<void> attemptGithubSync(WidgetRef ref, {Map<String, String>? upsert}) asy
     final String? globalPin = settingsBox.get('system_crypto_pin');
     final String? accessBlob = settingsBox.get('github_access_encrypted');
     if (globalPin == null || globalPin.isEmpty || accessBlob == null) {
-      debugPrint('GITHUB SYNC ABORTED: missing PIN or stored access blob (globalPin null/empty: ${globalPin == null || globalPin.isEmpty}, accessBlob null: ${accessBlob == null})');
+      secureDebugLog('GITHUB SYNC ABORTED: missing PIN or stored access blob (globalPin null/empty: ${globalPin == null || globalPin.isEmpty}, accessBlob null: ${accessBlob == null})');
       return;
     }
 
     final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
     final String accessJson = await CryptoEngine.decryptProcess(unwrappedAccessBlob ?? accessBlob, globalPin);
     if (accessJson == 'DECRYPTION FAULT') {
-      debugPrint('GITHUB SYNC ABORTED: stored access blob failed to decrypt with the current PIN');
+      secureDebugLog('GITHUB SYNC ABORTED: stored access blob failed to decrypt with the current PIN');
       return;
     }
     final Map<String, dynamic> access = jsonDecode(accessJson);
     final String? token = access['token'] as String?;
     final String? repo = access['repo'] as String?;
     if (token == null || token.isEmpty || repo == null || repo.isEmpty) {
-      debugPrint('GITHUB SYNC ABORTED: token or repo field empty after decrypt (token empty: ${token == null || token.isEmpty}, repo empty: ${repo == null || repo.isEmpty})');
+      secureDebugLog('GITHUB SYNC ABORTED: token or repo field empty after decrypt (token empty: ${token == null || token.isEmpty}, repo empty: ${repo == null || repo.isEmpty})');
       return;
     }
 
-    debugPrint('GITHUB SYNC STARTING: repo="$repo" upsertKeys=${upsert?.keys.toList()}');
+    secureDebugLog('GITHUB SYNC STARTING: repo="$repo" upsertKeys=${upsert?.keys.toList()}');
 
     final service = GithubBackupService(token: token, repoPath: repo);
     final notifier = ref.read(localDatabaseProvider.notifier);
     final queue = await notifier.getSyncQueue();
-    debugPrint('GITHUB SYNC QUEUE: deleted=${queue['deleted']} renamed=${queue['renamed']}');
+    secureDebugLog('GITHUB SYNC QUEUE: deleted=${queue['deleted']} renamed=${queue['renamed']}');
 
     await service.amendSync(
       upsertFiles: upsert ?? const {},
@@ -197,10 +191,10 @@ Future<void> attemptGithubSync(WidgetRef ref, {Map<String, String>? upsert}) asy
     );
 
     await notifier.clearSyncQueue();
-    debugPrint('GITHUB SYNC SUCCEEDED');
+    secureDebugLog('GITHUB SYNC SUCCEEDED');
   } catch (e, stackTrace) {
-    debugPrint('GITHUB SYNC FAILED: $e');
-    debugPrint('$stackTrace');
+    secureDebugLog('GITHUB SYNC FAILED: $e');
+    secureDebugLog('$stackTrace');
   }
 }
 
@@ -259,7 +253,7 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
           } else {
             final String decryptedBody = await CryptoEngine.decryptProcess(item.content, globalPin);
             if (decryptedBody == 'DECRYPTION FAULT') {
-              debugPrint('SKIPPING NOTE "${item.title}" - COULD NOT DECRYPT FOR RE-PACKAGING');
+              secureDebugLog('SKIPPING NOTE "${item.title}" - COULD NOT DECRYPT FOR RE-PACKAGING');
               continue;
             }
             final String combined = _combineTitleAndBody(item.title, decryptedBody);
@@ -272,7 +266,7 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
         upsertFiles[remoteId] = jsonEncode(fields);
         pushedItems.add((id: item.id, timestamp: item.timestamp));
       } catch (e) {
-        debugPrint('SKIPPING CORRUPTED NOTE "${item.title}" DURING PUSH: $e');
+        secureDebugLog('SKIPPING CORRUPTED NOTE "${item.title}" DURING PUSH: $e');
         continue;
       }
     }
@@ -726,7 +720,7 @@ Future<void> performRefresh(
       return;
     }
 
-    const int cooldownMillis = 5;
+    const int cooldownMillis = 5000;
     final int? lastCompletedAt = settingsBox.get('last_refresh_completed_at');
     if (lastCompletedAt != null) {
       final int elapsed = DateTime.now().millisecondsSinceEpoch - lastCompletedAt;
@@ -796,7 +790,7 @@ Future<void> performRefresh(
       await showConflictResolutionDialog(context, ref, isDark, pendingConflicts!);
     }
   } catch (e) {
-    debugPrint('REFRESH UNCAUGHT EXCEPTION: $e');
+    secureDebugLog('REFRESH UNCAUGHT EXCEPTION: $e');
     try {
       await Hive.box('rocen_settings_box').put('last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
     } catch (_) {
@@ -1197,6 +1191,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                     type: item.type,
                                     timestamp: item.timestamp,
                                     backupEnabled: item.backupEnabled,
+                                    remoteFileId: item.remoteFileId,
+                                    lastSyncedTimestamp: item.lastSyncedTimestamp,
+                                    pendingReviewAfterSync: item.pendingReviewAfterSync,
                                   );
                                   _navigateToEdit(screenContext, unpackedItem);
                                 } else {
@@ -1341,6 +1338,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             type: item.type,
                             timestamp: item.timestamp,
                             backupEnabled: item.backupEnabled,
+                            remoteFileId: item.remoteFileId,
+                            lastSyncedTimestamp: item.lastSyncedTimestamp,
+                            pendingReviewAfterSync: item.pendingReviewAfterSync,
                           );
                           if (!screenContext.mounted) return;
                           _navigateToEdit(screenContext, unpackedItem);
