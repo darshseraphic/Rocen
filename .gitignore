@@ -30,3 +30,8 @@ app.*.map.json
 /debug-symbols/
 *.hive
 *.lock
+macos/
+ios/
+windows/
+linux/
+macos/
