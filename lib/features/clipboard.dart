@@ -11,7 +11,6 @@ import 'package:share_plus/share_plus.dart';
 import '../core/database.dart';
 import '../main.dart';
 
-// --- PERSISTED DENSITY STATE NOTIFIER ---
 class GridColumnsNotifier extends Notifier<int> {
   static const String _boxName = 'rocen_settings_box';
 
@@ -35,9 +34,9 @@ class GridColumnsNotifier extends Notifier<int> {
   }
 }
 
-final gridColumnsProvider = NotifierProvider<GridColumnsNotifier, int>(GridColumnsNotifier.new);
+final gridColumnsProvider =
+    NotifierProvider<GridColumnsNotifier, int>(GridColumnsNotifier.new);
 
-// --- MAIN INTERSPACE WORKSPACE ---
 class ClipboardScreen extends ConsumerStatefulWidget {
   const ClipboardScreen({super.key});
 
@@ -49,16 +48,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   final PageController _pageController = PageController(initialPage: 0);
   int _activePageIndex = 0;
 
-  // SYSTEM MEDIA ARRAY HOLDERS
   final List<AssetEntity> _galleryAssets = [];
   bool _isLoadingGallery = false;
   AssetPathEntity? _currentAlbum;
 
-  // HIGH PERFORMANCE PERSISTENT MEMORY CACHE CONTAINERS
   final Map<String, Uint8List> _thumbnailCache = {};
   final Set<String> _loadingIds = {};
 
-  // --- MULTI-SELECT STATE ARRAYS ---
   bool _isSelectMode = false;
   final Set<String> _selectedGalleryIds = {};
   final Set<String> _selectedImportedIds = {};
@@ -89,14 +85,14 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // SIGNATURE APP DIALOG - ACKNOWLEDGE ONLY, USED FOR PERMISSION DENIALS
-  // AND VALIDATION MESSAGES INSTEAD OF THE STOCK ANDROID SNACKBAR.
   void _showAcknowledgeDialog(String title, String message) {
     final isDark = ref.read(themeProvider);
     final Color bg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
     final Color textMain = isDark ? Colors.white : Colors.black;
-    final Color textSub = isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
-    final Color dialogBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final Color textSub =
+        isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
+    final Color dialogBorderColor =
+        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
     final Color buttonBg = isDark ? Colors.white : Colors.black;
     final Color buttonText = isDark ? Colors.black : Colors.white;
 
@@ -124,7 +120,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                   Text(
                     title,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                        color: textMain,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 10),
                   Text(
@@ -142,7 +141,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       color: buttonBg,
                       child: Text(
                         'ACKNOWLEDGE',
-                        style: TextStyle(color: buttonText, fontSize: 10, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            color: buttonText,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -155,16 +157,17 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // CORE ENGINE: FETCH ALL FILE POINTERS AT ONCE
   Future<void> _fetchEntireGalleryAllAtOnce() async {
     if (_isLoadingGallery) return;
     setState(() => _isLoadingGallery = true);
 
     try {
       if (_currentAlbum == null) {
-        final PermissionState permission = await PhotoManager.requestPermissionExtend();
+        final PermissionState permission =
+            await PhotoManager.requestPermissionExtend();
         if (permission.isAuth || permission.hasAccess) {
-          final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
+          final List<AssetPathEntity> albums =
+              await PhotoManager.getAssetPathList(
             type: RequestType.image,
             filterOption: FilterOptionGroup(
               orders: [
@@ -177,7 +180,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
           }
         } else {
           if (mounted) {
-            _showAcknowledgeDialog('PERMISSION DENIED', 'MEDIA ACCESS PERMISSION WAS DENIED. GRANT ACCESS TO VIEW YOUR DEVICE GALLERY.');
+            _showAcknowledgeDialog('PERMISSION DENIED',
+                'MEDIA ACCESS PERMISSION WAS DENIED. GRANT ACCESS TO VIEW YOUR DEVICE GALLERY.');
           }
           setState(() => _isLoadingGallery = false);
           return;
@@ -187,7 +191,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       if (_currentAlbum != null) {
         final int totalAssetsCount = await _currentAlbum!.assetCountAsync;
 
-        final List<AssetEntity> allAssets = await _currentAlbum!.getAssetListRange(
+        final List<AssetEntity> allAssets =
+            await _currentAlbum!.getAssetListRange(
           start: 0,
           end: totalAssetsCount,
         );
@@ -214,12 +219,14 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   void _loadSingleThumbnail(AssetEntity asset) {
-    if (_thumbnailCache.containsKey(asset.id) || _loadingIds.contains(asset.id)) return;
+    if (_thumbnailCache.containsKey(asset.id) || _loadingIds.contains(asset.id))
+      return;
     _loadingIds.add(asset.id);
 
-    // format: png preserves alpha transparency - default (jpeg) flattens
-    // transparent PNGs onto a black backing before Flutter ever sees the bytes.
-    asset.thumbnailDataWithSize(const ThumbnailSize(360, 360), format: ThumbnailFormat.png).then((data) {
+    asset
+        .thumbnailDataWithSize(const ThumbnailSize(360, 360),
+            format: ThumbnailFormat.png)
+        .then((data) {
       if (data != null && mounted) {
         setState(() {
           _thumbnailCache[asset.id] = data;
@@ -243,30 +250,39 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
 
   Future<void> _importSelectedMedia() async {
     try {
-      final FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: true);
+      final FilePickerResult? result = await FilePicker.platform
+          .pickFiles(type: FileType.image, allowMultiple: true);
 
       if (result != null) {
-        final List<String> chosenPaths = result.paths.whereType<String>().toList();
+        final List<String> chosenPaths =
+            result.paths.whereType<String>().toList();
         if (chosenPaths.isNotEmpty) {
-          await ref.read(localDatabaseProvider.notifier).insertMultipleItems(chosenPaths, 'imported_clip');
+          await ref
+              .read(localDatabaseProvider.notifier)
+              .insertMultipleItems(chosenPaths, 'imported_clip');
         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ERROR: ${e.toString().toUpperCase()}')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('ERROR: ${e.toString().toUpperCase()}')));
     }
   }
 
-  // --- REGISTRY BULK PROCESSING MATRIX ENGINES ---
   Future<void> _handleBulkDelete() async {
-    final bool hasSelection = _activePageIndex == 0 ? _selectedGalleryIds.isNotEmpty : _selectedImportedIds.isNotEmpty;
+    final bool hasSelection = _activePageIndex == 0
+        ? _selectedGalleryIds.isNotEmpty
+        : _selectedImportedIds.isNotEmpty;
     if (!hasSelection) {
-      _showAcknowledgeDialog('NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
+      _showAcknowledgeDialog(
+          'NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
       return;
     }
 
     if (_activePageIndex == 0) {
       try {
-        final List<String> result = await PhotoManager.editor.deleteWithIds(_selectedGalleryIds.toList());
+        final List<String> result = await PhotoManager.editor
+            .deleteWithIds(_selectedGalleryIds.toList());
         if (result.isNotEmpty) {
           setState(() {
             _selectedGalleryIds.clear();
@@ -300,28 +316,37 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   Future<void> _handleBulkLike() async {
-    final bool hasSelection = _activePageIndex == 0 ? _selectedGalleryIds.isNotEmpty : _selectedImportedIds.isNotEmpty;
+    final bool hasSelection = _activePageIndex == 0
+        ? _selectedGalleryIds.isNotEmpty
+        : _selectedImportedIds.isNotEmpty;
     if (!hasSelection) {
-      _showAcknowledgeDialog('NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
+      _showAcknowledgeDialog(
+          'NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
       return;
     }
 
     if (_activePageIndex == 0) {
       List<String> pathsToInsert = [];
       for (final id in _selectedGalleryIds) {
-        final asset = _galleryAssets.firstWhere((e) => e.id == id, orElse: () => _galleryAssets.first);
+        final asset = _galleryAssets.firstWhere((e) => e.id == id,
+            orElse: () => _galleryAssets.first);
         final file = await asset.file;
         if (file != null) pathsToInsert.add(file.path);
       }
       if (pathsToInsert.isNotEmpty) {
-        await ref.read(localDatabaseProvider.notifier).insertMultipleItems(pathsToInsert, 'imported_clip');
+        await ref
+            .read(localDatabaseProvider.notifier)
+            .insertMultipleItems(pathsToInsert, 'imported_clip');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ADDED ${pathsToInsert.length} REFS TO IMPORTED TAB')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:
+                  Text('ADDED ${pathsToInsert.length} REFS TO IMPORTED TAB')));
         }
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('MEDIA ALREADY PERSISTED INSIDE WORKSPACE')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('MEDIA ALREADY PERSISTED INSIDE WORKSPACE')));
       }
     }
     setState(() {
@@ -332,9 +357,12 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   Future<void> _handleBulkDislike() async {
-    final bool hasSelection = _activePageIndex == 0 ? _selectedGalleryIds.isNotEmpty : _selectedImportedIds.isNotEmpty;
+    final bool hasSelection = _activePageIndex == 0
+        ? _selectedGalleryIds.isNotEmpty
+        : _selectedImportedIds.isNotEmpty;
     if (!hasSelection) {
-      _showAcknowledgeDialog('NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
+      _showAcknowledgeDialog(
+          'NO SELECTION', 'SELECT AT LEAST 1 MEDIA TO CONTINUE.');
       return;
     }
 
@@ -343,10 +371,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
 
     if (_activePageIndex == 0) {
       for (final id in _selectedGalleryIds) {
-        final asset = _galleryAssets.firstWhere((e) => e.id == id, orElse: () => _galleryAssets.first);
+        final asset = _galleryAssets.firstWhere((e) => e.id == id,
+            orElse: () => _galleryAssets.first);
         final file = await asset.file;
         if (file != null) {
-          final matches = allItems.where((e) => e.type == 'imported_clip' && e.content == file.path).toList();
+          final matches = allItems
+              .where((e) => e.type == 'imported_clip' && e.content == file.path)
+              .toList();
           for (final item in matches) {
             await ref.read(localDatabaseProvider.notifier).deleteItem(item.id);
             counter++;
@@ -362,7 +393,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     }
 
     if (mounted && counter > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('REMOVED $counter REFS FROM WORKSPACE MATCHES')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('REMOVED $counter REFS FROM WORKSPACE MATCHES')));
     }
     setState(() {
       _selectedGalleryIds.clear();
@@ -371,10 +403,11 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     });
   }
 
-  // SYSTEM ASSET FULLSCREEN PREVIEWER WITH ACTION MATRIX & PAGE SWAPPING CAPABILITY
-  void _showGalleryImagePreview(int initialIndex, List<AssetEntity> assets, bool isDark, Color borderColor) {
+  void _showGalleryImagePreview(int initialIndex, List<AssetEntity> assets,
+      bool isDark, Color borderColor) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    final PageController previewPageController = PageController(initialPage: initialIndex);
+    final PageController previewPageController =
+        PageController(initialPage: initialIndex);
 
     showGeneralDialog(
       context: context,
@@ -398,14 +431,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 }
               },
               child: Scaffold(
-                backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                backgroundColor:
+                    isDark ? const Color(0xFF0A0A0A) : Colors.white,
                 body: Stack(
                   children: [
-                    // FULL SCREEN CANVAS IMPLEMENTING PAGEVIEW FOR IMAGE SWAPPING
                     PageView.builder(
                       controller: previewPageController,
                       itemCount: assets.length,
-                      // Swap is ONLY active when bottom bar is hidden (full screen)
                       physics: showBottomBar
                           ? const NeverScrollableScrollPhysics()
                           : const ClampingScrollPhysics(),
@@ -422,7 +454,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                               return Center(
                                 child: CircularProgressIndicator(
                                   strokeWidth: 1.5,
-                                  valueColor: AlwaysStoppedAnimation<Color>(isDark ? Colors.white : Colors.black),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      isDark ? Colors.white : Colors.black),
                                 ),
                               );
                             }
@@ -446,31 +479,33 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                         );
                       },
                     ),
-
-                    // TOP LEFT CORNER [RETURN] BUTTON
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 16,
                       left: 16,
                       child: GestureDetector(
                         onTap: () {
-                          SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                          SystemChrome.setEnabledSystemUIMode(
+                              SystemUiMode.edgeToEdge);
                           Navigator.pop(context);
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
                           decoration: BoxDecoration(
                             color: isDark ? Colors.black : Colors.white,
                             border: Border.all(color: borderColor, width: 0.8),
                           ),
                           child: Text(
                             '[RETURN]',
-                            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                            style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.05),
                           ),
                         ),
                       ),
                     ),
-
-                    // BOTTOM INFO AND THREE BUTTON NAVIGATION BAR (DYNAMIC SLIDE LAYOUT)
                     FutureBuilder<File?>(
                       future: currentAsset.file,
                       builder: (context, snapshot) {
@@ -481,13 +516,19 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                           left: 0,
                           right: 0,
                           child: AnimatedSlide(
-                            offset: showBottomBar ? Offset.zero : const Offset(0, 1),
+                            offset: showBottomBar
+                                ? Offset.zero
+                                : const Offset(0, 1),
                             duration: const Duration(milliseconds: 200),
                             curve: Curves.fastOutSlowIn,
                             child: Consumer(
                               builder: (context, ref, child) {
-                                final allItems = ref.watch(localDatabaseProvider);
-                                final bool isLiked = filePath.isNotEmpty && allItems.any((e) => e.type == 'imported_clip' && e.content == filePath);
+                                final allItems =
+                                    ref.watch(localDatabaseProvider);
+                                final bool isLiked = filePath.isNotEmpty &&
+                                    allItems.any((e) =>
+                                        e.type == 'imported_clip' &&
+                                        e.content == filePath);
 
                                 return Container(
                                   width: double.infinity,
@@ -495,54 +536,85 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                     top: 16,
                                     left: 16,
                                     right: 16,
-                                    bottom: MediaQuery.of(context).padding.bottom + 16,
+                                    bottom:
+                                        MediaQuery.of(context).padding.bottom +
+                                            16,
                                   ),
                                   decoration: BoxDecoration(
                                     color: isDark ? Colors.black : Colors.white,
-                                    border: Border(top: BorderSide(color: borderColor, width: 0.8)),
+                                    border: Border(
+                                        top: BorderSide(
+                                            color: borderColor, width: 0.8)),
                                   ),
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceAround,
                                         children: [
                                           IconButton(
-                                            icon: Icon(Icons.share, color: isDark ? Colors.white : Colors.black, size: 20),
+                                            icon: Icon(Icons.share,
+                                                color: isDark
+                                                    ? Colors.white
+                                                    : Colors.black,
+                                                size: 20),
                                             onPressed: () async {
                                               if (filePath.isNotEmpty) {
-                                                await Share.shareXFiles([XFile(filePath)]);
+                                                await Share.shareXFiles(
+                                                    [XFile(filePath)]);
                                               }
                                             },
                                           ),
                                           IconButton(
                                             icon: Icon(
-                                                isLiked ? Icons.favorite : Icons.favorite_border,
-                                                color: isDark ? Colors.white : Colors.black,
-                                                size: 20
-                                            ),
+                                                isLiked
+                                                    ? Icons.favorite
+                                                    : Icons.favorite_border,
+                                                color: isDark
+                                                    ? Colors.white
+                                                    : Colors.black,
+                                                size: 20),
                                             onPressed: () async {
                                               if (filePath.isEmpty) return;
-                                              final allCurrentItems = ref.read(localDatabaseProvider);
+                                              final allCurrentItems = ref
+                                                  .read(localDatabaseProvider);
                                               CaptureItem? existingItem;
-                                              for (final item in allCurrentItems) {
-                                                if (item.type == 'imported_clip' && item.content == filePath) {
+                                              for (final item
+                                                  in allCurrentItems) {
+                                                if (item.type ==
+                                                        'imported_clip' &&
+                                                    item.content == filePath) {
                                                   existingItem = item;
                                                   break;
                                                 }
                                               }
 
                                               if (existingItem != null) {
-                                                await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
+                                                await ref
+                                                    .read(localDatabaseProvider
+                                                        .notifier)
+                                                    .deleteItem(
+                                                        existingItem.id);
                                               } else {
-                                                await ref.read(localDatabaseProvider.notifier).insertMultipleItems([filePath], 'imported_clip');
+                                                await ref
+                                                    .read(localDatabaseProvider
+                                                        .notifier)
+                                                    .insertMultipleItems(
+                                                        [filePath],
+                                                        'imported_clip');
                                               }
                                             },
                                           ),
                                           IconButton(
-                                            icon: Icon(Icons.delete_outline, color: Colors.red[400], size: 20),
-                                            onPressed: () => _confirmDeleteGalleryAsset(currentAsset),
+                                            icon: Icon(Icons.delete_outline,
+                                                color: Colors.red[400],
+                                                size: 20),
+                                            onPressed: () =>
+                                                _confirmDeleteGalleryAsset(
+                                                    currentAsset),
                                           ),
                                         ],
                                       )
@@ -565,13 +637,14 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // GALLERY DELETION CONFIRMATION DIALOG BOX
   void _confirmDeleteGalleryAsset(AssetEntity asset) {
     final isDark = ref.read(themeProvider);
     final Color bg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
     final Color textMain = isDark ? Colors.white : Colors.black;
-    final Color textSub = isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
-    final Color dialogBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final Color textSub =
+        isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
+    final Color dialogBorderColor =
+        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
     showGeneralDialog(
       context: context,
@@ -594,7 +667,11 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('DELETE IMAGE', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text('DELETE IMAGE',
+                      style: TextStyle(
+                          color: textMain,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
                   Text(
                     'ARE YOU SURE YOU WANT TO DELETE THIS IMAGE FROM YOUR DEVICE CORES?',
@@ -607,9 +684,16 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       InkWell(
                         onTap: () => Navigator.pop(dialogContext),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(border: Border.all(color: dialogBorderColor, width: 0.8)),
-                          child: Text('CANCEL', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                              border: Border.all(
+                                  color: dialogBorderColor, width: 0.8)),
+                          child: Text('CANCEL',
+                              style: TextStyle(
+                                  color: textMain,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -617,9 +701,12 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                         onTap: () async {
                           Navigator.pop(dialogContext);
                           try {
-                            final List<String> result = await PhotoManager.editor.deleteWithIds([asset.id]);
+                            final List<String> result = await PhotoManager
+                                .editor
+                                .deleteWithIds([asset.id]);
                             if (result.isNotEmpty) {
-                              SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                              SystemChrome.setEnabledSystemUIMode(
+                                  SystemUiMode.edgeToEdge);
                               if (mounted) Navigator.pop(context);
                               _refreshGallery();
                             }
@@ -628,9 +715,16 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                           }
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(border: Border.all(color: Colors.red, width: 0.8)),
-                          child: const Text('DELETE', style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                              border:
+                                  Border.all(color: Colors.red, width: 0.8)),
+                          child: const Text('DELETE',
+                              style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
@@ -644,10 +738,11 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // LOCAL MEMORY FILE HARDWARE PREVIEWER WITH ACTION MATRIX & PAGE SWAPPING CAPABILITY
-  void _showImagePreview(int initialIndex, List<CaptureItem> items, bool isDark, Color borderColor) {
+  void _showImagePreview(int initialIndex, List<CaptureItem> items, bool isDark,
+      Color borderColor) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    final PageController previewPageController = PageController(initialPage: initialIndex);
+    final PageController previewPageController =
+        PageController(initialPage: initialIndex);
 
     showGeneralDialog(
       context: context,
@@ -672,14 +767,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 }
               },
               child: Scaffold(
-                backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                backgroundColor:
+                    isDark ? const Color(0xFF0A0A0A) : Colors.white,
                 body: Stack(
                   children: [
-                    // FULL SCREEN CANVAS IMPLEMENTING PAGEVIEW FOR IMAGE SWAPPING
                     PageView.builder(
                       controller: previewPageController,
                       itemCount: items.length,
-                      // Swap is ONLY active when bottom bar is hidden (full screen)
                       physics: showBottomBar
                           ? const NeverScrollableScrollPhysics()
                           : const ClampingScrollPhysics(),
@@ -701,49 +795,55 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                             color: isDark ? Colors.black : Colors.white,
                             child: InteractiveViewer(
                               maxScale: 5.0,
-                              child: Image.file(File(pageItem.content), fit: BoxFit.contain),
+                              child: Image.file(File(pageItem.content),
+                                  fit: BoxFit.contain),
                             ),
                           ),
                         );
                       },
                     ),
-
-                    // TOP LEFT CORNER [RETURN] BUTTON
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 16,
                       left: 16,
                       child: GestureDetector(
                         onTap: () {
-                          SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                          SystemChrome.setEnabledSystemUIMode(
+                              SystemUiMode.edgeToEdge);
                           Navigator.pop(context);
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
                           decoration: BoxDecoration(
                             color: isDark ? Colors.black : Colors.white,
                             border: Border.all(color: borderColor, width: 0.8),
                           ),
                           child: Text(
                             '[RETURN]',
-                            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.05),
+                            style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.05),
                           ),
                         ),
                       ),
                     ),
-
-                    // BOTTOM INFO AND THREE BUTTON NAVIGATION BAR (DYNAMIC SLIDE LAYOUT)
                     Positioned(
                       bottom: 0,
                       left: 0,
                       right: 0,
                       child: AnimatedSlide(
-                        offset: showBottomBar ? Offset.zero : const Offset(0, 1),
+                        offset:
+                            showBottomBar ? Offset.zero : const Offset(0, 1),
                         duration: const Duration(milliseconds: 200),
                         curve: Curves.fastOutSlowIn,
                         child: Consumer(
                           builder: (context, ref, child) {
                             final allItems = ref.watch(localDatabaseProvider);
-                            final bool isLiked = allItems.any((e) => e.type == 'imported_clip' && e.content == filePath);
+                            final bool isLiked = allItems.any((e) =>
+                                e.type == 'imported_clip' &&
+                                e.content == filePath);
 
                             return Container(
                               width: double.infinity,
@@ -751,51 +851,75 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                 top: 16,
                                 left: 16,
                                 right: 16,
-                                bottom: MediaQuery.of(context).padding.bottom + 16,
+                                bottom:
+                                    MediaQuery.of(context).padding.bottom + 16,
                               ),
                               decoration: BoxDecoration(
                                 color: isDark ? Colors.black : Colors.white,
-                                border: Border(top: BorderSide(color: borderColor, width: 0.8)),
+                                border: Border(
+                                    top: BorderSide(
+                                        color: borderColor, width: 0.8)),
                               ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceAround,
                                     children: [
                                       IconButton(
-                                        icon: Icon(Icons.share, color: isDark ? Colors.white : Colors.black, size: 20),
+                                        icon: Icon(Icons.share,
+                                            color: isDark
+                                                ? Colors.white
+                                                : Colors.black,
+                                            size: 20),
                                         onPressed: () async {
-                                          await Share.shareXFiles([XFile(filePath)]);
+                                          await Share.shareXFiles(
+                                              [XFile(filePath)]);
                                         },
                                       ),
                                       IconButton(
                                         icon: Icon(
-                                            isLiked ? Icons.favorite : Icons.favorite_border,
-                                            color: isDark ? Colors.white : Colors.black,
-                                            size: 20
-                                        ),
+                                            isLiked
+                                                ? Icons.favorite
+                                                : Icons.favorite_border,
+                                            color: isDark
+                                                ? Colors.white
+                                                : Colors.black,
+                                            size: 20),
                                         onPressed: () async {
-                                          final allCurrentItems = ref.read(localDatabaseProvider);
+                                          final allCurrentItems =
+                                              ref.read(localDatabaseProvider);
                                           CaptureItem? existingItem;
                                           for (final dItem in allCurrentItems) {
-                                            if (dItem.type == 'imported_clip' && dItem.content == filePath) {
+                                            if (dItem.type == 'imported_clip' &&
+                                                dItem.content == filePath) {
                                               existingItem = dItem;
                                               break;
                                             }
                                           }
 
                                           if (existingItem != null) {
-                                            await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
+                                            await ref
+                                                .read(localDatabaseProvider
+                                                    .notifier)
+                                                .deleteItem(existingItem.id);
                                           } else {
-                                            await ref.read(localDatabaseProvider.notifier).insertMultipleItems([filePath], 'imported_clip');
+                                            await ref
+                                                .read(localDatabaseProvider
+                                                    .notifier)
+                                                .insertMultipleItems([filePath],
+                                                    'imported_clip');
                                           }
                                         },
                                       ),
                                       IconButton(
-                                        icon: Icon(Icons.delete_outline, color: Colors.red[400], size: 20),
-                                        onPressed: () => _confirmDeleteImportedItem(currentItem),
+                                        icon: Icon(Icons.delete_outline,
+                                            color: Colors.red[400], size: 20),
+                                        onPressed: () =>
+                                            _confirmDeleteImportedItem(
+                                                currentItem),
                                       ),
                                     ],
                                   )
@@ -816,13 +940,14 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // IMPORTED MEDIA CONTEXT DELETION CONFIRMATION DIALOG BOX
   void _confirmDeleteImportedItem(CaptureItem item) {
     final isDark = ref.read(themeProvider);
     final Color bg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
     final Color textMain = isDark ? Colors.white : Colors.black;
-    final Color textSub = isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
-    final Color dialogBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final Color textSub =
+        isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252);
+    final Color dialogBorderColor =
+        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
     showGeneralDialog(
       context: context,
@@ -845,7 +970,11 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('DELETE IMAGE', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                  Text('DELETE IMAGE',
+                      style: TextStyle(
+                          color: textMain,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
                   Text(
                     'ARE YOU SURE YOU WANT TO WIPE THIS REFS MATRIX OUT OF THE APPLICATION PERSISTENT STORAGE AND DISK DEVICE MEMORY?',
@@ -858,9 +987,16 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       InkWell(
                         onTap: () => Navigator.pop(dialogContext),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(border: Border.all(color: dialogBorderColor, width: 0.8)),
-                          child: Text('CANCEL', style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                              border: Border.all(
+                                  color: dialogBorderColor, width: 0.8)),
+                          child: Text('CANCEL',
+                              style: TextStyle(
+                                  color: textMain,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -872,17 +1008,27 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                             if (await file.exists()) {
                               await file.delete();
                             }
-                            await ref.read(localDatabaseProvider.notifier).deleteItem(item.id);
-                            SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                            await ref
+                                .read(localDatabaseProvider.notifier)
+                                .deleteItem(item.id);
+                            SystemChrome.setEnabledSystemUIMode(
+                                SystemUiMode.edgeToEdge);
                             if (mounted) Navigator.pop(context);
                           } catch (e) {
                             debugPrint('Local file deletion error: $e');
                           }
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(border: Border.all(color: Colors.red, width: 0.8)),
-                          child: const Text('DELETE', style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                              border:
+                                  Border.all(color: Colors.red, width: 0.8)),
+                          child: const Text('DELETE',
+                              style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
@@ -896,7 +1042,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // ULTRA PERFORMANCE PINTEREST-STYLE STAGGERED GRID ENGINE
   Widget _buildGalleryGrid({
     required List<AssetEntity> assets,
     required int columns,
@@ -909,7 +1054,8 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       return Center(
         child: CircularProgressIndicator(
           strokeWidth: 1.5,
-          valueColor: AlwaysStoppedAnimation<Color>(isDark ? Colors.white : Colors.black),
+          valueColor: AlwaysStoppedAnimation<Color>(
+              isDark ? Colors.white : Colors.black),
         ),
       );
     }
@@ -936,7 +1082,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
 
         final double nativeWidth = asset.width.toDouble();
         final double nativeHeight = asset.height.toDouble();
-        final double calculatedRatio = (nativeWidth > 0 && nativeHeight > 0) ? (nativeWidth / nativeHeight) : 1.0;
+        final double calculatedRatio = (nativeWidth > 0 && nativeHeight > 0)
+            ? (nativeWidth / nativeHeight)
+            : 1.0;
 
         if (cachedBytes == null) {
           _loadSingleThumbnail(asset);
@@ -945,15 +1093,16 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         return GestureDetector(
           onTap: _isSelectMode
               ? () {
-            setState(() {
-              if (isSelected) {
-                _selectedGalleryIds.remove(asset.id);
-              } else {
-                _selectedGalleryIds.add(asset.id);
-              }
-            });
-          }
-              : () => _showGalleryImagePreview(index, assets, isDark, borderColor),
+                  setState(() {
+                    if (isSelected) {
+                      _selectedGalleryIds.remove(asset.id);
+                    } else {
+                      _selectedGalleryIds.add(asset.id);
+                    }
+                  });
+                }
+              : () =>
+                  _showGalleryImagePreview(index, assets, isDark, borderColor),
           child: Stack(
             children: [
               Container(
@@ -969,17 +1118,17 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       aspectRatio: calculatedRatio,
                       child: cachedBytes != null
                           ? Container(
-                        color: isDark ? Colors.black : Colors.white,
-                        child: Image.memory(
-                          cachedBytes,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          gaplessPlayback: true,
-                        ),
-                      )
+                              color: isDark ? Colors.black : Colors.white,
+                              child: Image.memory(
+                                cachedBytes,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                gaplessPlayback: true,
+                              ),
+                            )
                           : Container(
-                        color: containerBg,
-                      ),
+                              color: containerBg,
+                            ),
                     ),
                   ],
                 ),
@@ -1009,7 +1158,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     );
   }
 
-  // RENDERS SELECTED IMPORTED SYSTEM REFS WITH ORIGINAL PINTEREST FLOW
   Widget _buildImportedGrid({
     required List<CaptureItem> items,
     required int columns,
@@ -1031,7 +1179,11 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
               Text(
                 'IMPORT SPECIFIC ASSETS HERE TO ISOLATE THEM FOR INSTANT WORKSPACE ACCESS, ELIMINATING THE NEED TO SEARCH THROUGH THE ENTIRE GALLERY DEVICE STORAGE.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: textSub, fontSize: 11.5, height: 1.6, letterSpacing: 0.03),
+                style: TextStyle(
+                    color: textSub,
+                    fontSize: 11.5,
+                    height: 1.6,
+                    letterSpacing: 0.03),
               ),
               const SizedBox(height: 24),
               GestureDetector(
@@ -1040,7 +1192,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                 child: Container(
                   width: 42,
                   height: 42,
-                  decoration: BoxDecoration(color: containerBg, border: Border.all(color: textMain, width: 0.8)),
+                  decoration: BoxDecoration(
+                      color: containerBg,
+                      border: Border.all(color: textMain, width: 0.8)),
                   alignment: Alignment.center,
                   child: Icon(Icons.add, color: textMain, size: 16),
                 ),
@@ -1064,19 +1218,21 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         return GestureDetector(
           onTap: _isSelectMode
               ? () {
-            setState(() {
-              if (isSelected) {
-                _selectedImportedIds.remove(item.id);
-              } else {
-                _selectedImportedIds.add(item.id);
-              }
-            });
-          }
+                  setState(() {
+                    if (isSelected) {
+                      _selectedImportedIds.remove(item.id);
+                    } else {
+                      _selectedImportedIds.add(item.id);
+                    }
+                  });
+                }
               : () => _showImagePreview(index, items, isDark, borderColor),
           child: Stack(
             children: [
               Container(
-                decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+                decoration: BoxDecoration(
+                    border: Border.all(color: borderColor, width: 0.8),
+                    color: containerBg),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -1087,7 +1243,11 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                         File(item.content),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
-                          return Container(padding: const EdgeInsets.all(12), child: Text('BROKEN REF', style: TextStyle(color: Colors.red[400], fontSize: 9)));
+                          return Container(
+                              padding: const EdgeInsets.all(12),
+                              child: Text('BROKEN REF',
+                                  style: TextStyle(
+                                      color: Colors.red[400], fontSize: 9)));
                         },
                       ),
                     ),
@@ -1095,13 +1255,19 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(8.0),
-                        decoration: BoxDecoration(border: Border(top: BorderSide(color: borderColor, width: 0.8))),
+                        decoration: BoxDecoration(
+                            border: Border(
+                                top: BorderSide(
+                                    color: borderColor, width: 0.8))),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             GestureDetector(
-                              onTap: () => ref.read(localDatabaseProvider.notifier).deleteItem(item.id),
-                              child: Icon(Icons.close, color: textSub, size: 12),
+                              onTap: () => ref
+                                  .read(localDatabaseProvider.notifier)
+                                  .deleteItem(item.id),
+                              child:
+                                  Icon(Icons.close, color: textSub, size: 12),
                             )
                           ],
                         ),
@@ -1140,12 +1306,18 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
     final columns = ref.watch(gridColumnsProvider);
     final allItems = ref.watch(localDatabaseProvider);
 
-    final importedItems = allItems.where((e) => e.type == 'imported_clip').toList().reversed.toList();
+    final importedItems = allItems
+        .where((e) => e.type == 'imported_clip')
+        .toList()
+        .reversed
+        .toList();
 
     final textMain = isDark ? Colors.white : Colors.black;
     final textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    final containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
+    final borderColor =
+        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final containerBg =
+        isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
@@ -1157,9 +1329,12 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
             children: [
               Text(
                 'MEDIA REGISTRY',
-                style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
+                style: TextStyle(
+                    color: textMain,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.02),
               ),
-
               Row(
                 children: [
                   GestureDetector(
@@ -1167,27 +1342,37 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       if (_isSelectMode) {
                         _handleBulkDelete();
                       } else {
-                        _activePageIndex == 0 ? _refreshGallery() : _importSelectedMedia();
+                        _activePageIndex == 0
+                            ? _refreshGallery()
+                            : _importSelectedMedia();
                       }
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
-                          border: Border.all(color: _isSelectMode ? Colors.red.shade400 : borderColor, width: 0.8),
-                          color: _isSelectMode ? Colors.red.withOpacity(0.1) : (isDark ? Colors.white : Colors.black)
-                      ),
+                          border: Border.all(
+                              color: _isSelectMode
+                                  ? Colors.red.shade400
+                                  : borderColor,
+                              width: 0.8),
+                          color: _isSelectMode
+                              ? Colors.red.withOpacity(0.1)
+                              : (isDark ? Colors.white : Colors.black)),
                       child: Text(
-                        _isSelectMode ? 'DELETE' : (_activePageIndex == 0 ? 'REFRESH' : 'IMPORT'),
+                        _isSelectMode
+                            ? 'DELETE'
+                            : (_activePageIndex == 0 ? 'REFRESH' : 'IMPORT'),
                         style: TextStyle(
-                            color: _isSelectMode ? Colors.red.shade400 : (isDark ? Colors.black : Colors.white),
+                            color: _isSelectMode
+                                ? Colors.red.shade400
+                                : (isDark ? Colors.black : Colors.white),
                             fontSize: 11,
-                            fontWeight: FontWeight.bold
-                        ),
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
-
                   GestureDetector(
                     onTap: () {
                       setState(() {
@@ -1199,48 +1384,77 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                       });
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                          border: Border.all(color: borderColor, width: 0.8),
+                          color: containerBg),
                       child: Text(
                         _isSelectMode ? 'UNDO' : 'SELECT',
-                        style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            color: textMain,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
-
                   GestureDetector(
                     onTap: () {
                       if (_isSelectMode) {
                         _handleBulkLike();
                       } else {
-                        ref.read(gridColumnsProvider.notifier).makeItemsLarger();
+                        ref
+                            .read(gridColumnsProvider.notifier)
+                            .makeItemsLarger();
                       }
                     },
                     child: Container(
-                      padding: _isSelectMode ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4) : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+                      padding: _isSelectMode
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4)
+                          : const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                          border: Border.all(color: borderColor, width: 0.8),
+                          color: containerBg),
                       child: _isSelectMode
                           ? Icon(Icons.favorite, color: textMain, size: 14)
-                          : Text('+', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                          : Text('+',
+                              style: TextStyle(
+                                  color: textMain,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold)),
                     ),
                   ),
                   const SizedBox(width: 4),
-
                   GestureDetector(
                     onTap: () {
                       if (_isSelectMode) {
                         _handleBulkDislike();
                       } else {
-                        ref.read(gridColumnsProvider.notifier).makeItemsSmaller();
+                        ref
+                            .read(gridColumnsProvider.notifier)
+                            .makeItemsSmaller();
                       }
                     },
                     child: Container(
-                      padding: _isSelectMode ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4) : const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-                      decoration: BoxDecoration(border: Border.all(color: borderColor, width: 0.8), color: containerBg),
+                      padding: _isSelectMode
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4)
+                          : const EdgeInsets.symmetric(
+                              horizontal: 11, vertical: 4),
+                      decoration: BoxDecoration(
+                          border: Border.all(color: borderColor, width: 0.8),
+                          color: containerBg),
                       child: _isSelectMode
-                          ? Icon(Icons.favorite_border, color: textSub, size: 14)
-                          : Text('-', style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ? Icon(Icons.favorite_border,
+                              color: textSub, size: 14)
+                          : Text('-',
+                              style: TextStyle(
+                                  color: textMain,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
@@ -1248,7 +1462,6 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
             ],
           ),
           const SizedBox(height: 16),
-
           Row(
             children: [
               Expanded(
@@ -1258,13 +1471,21 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
-                      border: Border.all(color: _activePageIndex == 0 ? textMain : borderColor, width: _activePageIndex == 0 ? 1.5 : 0.8),
-                      color: _activePageIndex == 0 ? containerBg : Colors.transparent,
+                      border: Border.all(
+                          color: _activePageIndex == 0 ? textMain : borderColor,
+                          width: _activePageIndex == 0 ? 1.5 : 0.8),
+                      color: _activePageIndex == 0
+                          ? containerBg
+                          : Colors.transparent,
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       'ACCESS GALLERY',
-                      style: TextStyle(color: _activePageIndex == 0 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                      style: TextStyle(
+                          color: _activePageIndex == 0 ? textMain : textSub,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.05),
                     ),
                   ),
                 ),
@@ -1277,26 +1498,33 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
-                      border: Border.all(color: _activePageIndex == 1 ? textMain : borderColor, width: _activePageIndex == 1 ? 1.5 : 0.8),
-                      color: _activePageIndex == 1 ? containerBg : Colors.transparent,
+                      border: Border.all(
+                          color: _activePageIndex == 1 ? textMain : borderColor,
+                          width: _activePageIndex == 1 ? 1.5 : 0.8),
+                      color: _activePageIndex == 1
+                          ? containerBg
+                          : Colors.transparent,
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       'IMPORT MEDIA',
-                      style: TextStyle(color: _activePageIndex == 1 ? textMain : textSub, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.05),
+                      style: TextStyle(
+                          color: _activePageIndex == 1 ? textMain : textSub,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.05),
                     ),
                   ),
                 ),
               ),
             ],
           ),
-
           Divider(color: borderColor, height: 32, thickness: 0.8),
-
           Expanded(
             child: PageView(
               controller: _pageController,
-              onPageChanged: (index) => setState(() => _activePageIndex = index),
+              onPageChanged: (index) =>
+                  setState(() => _activePageIndex = index),
               children: [
                 _buildGalleryGrid(
                   assets: _galleryAssets,
