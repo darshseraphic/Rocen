@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // REQUIRED IMPORT FOR TERMINAL SYSTEM CONTROLS
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'navbar.dart';
@@ -24,16 +24,11 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   await Hive.openBox('rocen_settings_box');
-
-  // TEMP-VERIFY: remove this block once you've copied the printed
-  // certificate into cert_pinning.dart's _pinnedCertificatesDerBase64 list.
   CertPinning.debugFetchCurrentCertificate().then((cert) {
     print('[cert_pinning] CERT: $cert');
   }).catchError((e) {
     print('[cert_pinning] fetch failed: $e');
   });
-
-  // FORCE HARDWARE WINDOW MANAGER TO PIN INTERFACE STRICLY TO VERTICAL AXIS
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -61,7 +56,7 @@ class RocenApp extends ConsumerWidget {
         useMaterial3: true,
         brightness: isDark ? Brightness.dark : Brightness.light,
         scaffoldBackgroundColor:
-        isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF),
+            isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF),
       ),
       home: AnimatedSplashScreen(
         child: Scaffold(

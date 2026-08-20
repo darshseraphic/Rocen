@@ -13,8 +13,18 @@ class IdeaInboxScreen extends ConsumerStatefulWidget {
 class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
   static const int _matrixColumns = 7;
   static const List<String> _monthNames = [
-    'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
-    'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
+    'JANUARY',
+    'FEBRUARY',
+    'MARCH',
+    'APRIL',
+    'MAY',
+    'JUNE',
+    'JULY',
+    'AUGUST',
+    'SEPTEMBER',
+    'OCTOBER',
+    'NOVEMBER',
+    'DECEMBER'
   ];
   static const List<String> _dayHeaders = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -36,8 +46,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
     return dayOfYear;
   }
 
-  /// Opens the smooth bottom-to-top custom editor sheet connected directly to Hive
-  void _openEventEditor(BuildContext context, String dateKey, String monthName, int day) {
+  void _openEventEditor(
+      BuildContext context, String dateKey, String monthName, int day) {
     final localItems = ref.read(localDatabaseProvider);
     CaptureItem? existingItem;
 
@@ -48,45 +58,44 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
       }
     }
 
-    final titleController = TextEditingController(text: existingItem?.title ?? '');
-    final descController = TextEditingController(text: existingItem?.content ?? '');
+    final titleController =
+        TextEditingController(text: existingItem?.title ?? '');
+    final descController =
+        TextEditingController(text: existingItem?.content ?? '');
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      barrierColor: Colors.transparent, // Prevents background from dimming/graying out
+      barrierColor: Colors.transparent,
       backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.zero, // Strict 90-degree corners for sheet
+        borderRadius: BorderRadius.zero,
       ),
       builder: (context) {
         final isDark = ref.watch(themeProvider);
         final textMain = isDark ? Colors.white : Colors.black;
-        final textSub = isDark ? const Color(0xFF737373) : const Color(0xFF888888);
-
-        // Input block background set strictly to pure white in light mode and pure black in dark mode
+        final textSub =
+            isDark ? const Color(0xFF737373) : const Color(0xFF888888);
         final inputBg = isDark ? Colors.black : Colors.white;
         final inputBorder = isDark ? Colors.white : Colors.black;
-        final ruleBorder = isDark ? const Color(0xFF2D2D2D) : const Color(0xFFE5E5E5);
+        final ruleBorder =
+            isDark ? const Color(0xFF2D2D2D) : const Color(0xFFE5E5E5);
         final popUpBorder = isDark ? Colors.white : Colors.black;
-
-        // Commit button styling
         final btnBgColor = isDark ? Colors.white : Colors.black;
         final btnTextColor = isDark ? Colors.black : Colors.white;
 
         return Container(
           decoration: BoxDecoration(
             color: isDark ? Colors.black : Colors.white,
-            border: Border.all(color: popUpBorder, width: 1.0), // High-contrast border around the pop-up sheet
+            border: Border.all(color: popUpBorder, width: 1.0),
           ),
           child: Theme(
             data: Theme.of(context).copyWith(
               textSelectionTheme: TextSelectionThemeData(
                 selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
                 selectionHandleColor: const Color(0xFF420000),
-                cursorColor: isDark
-                    ? const Color(0xFFFFFFFF)
-                    : const Color(0xFF000000),
+                cursorColor:
+                    isDark ? const Color(0xFFFFFFFF) : const Color(0xFF000000),
               ),
             ),
             child: Padding(
@@ -106,7 +115,11 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                       children: [
                         Text(
                           '$monthName $day — ADDING EVENT',
-                          style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
+                          style: TextStyle(
+                              color: textMain,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.04),
                         ),
                         IconButton(
                           icon: Icon(Icons.close, size: 18, color: textSub),
@@ -128,18 +141,22 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                         hintStyle: TextStyle(color: textSub, fontSize: 14),
                         filled: true,
                         fillColor: inputBg,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.zero,
-                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                          borderSide:
+                              BorderSide(color: inputBorder, width: 1.0),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.zero,
-                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                          borderSide:
+                              BorderSide(color: inputBorder, width: 1.0),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.zero,
-                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                          borderSide:
+                              BorderSide(color: inputBorder, width: 1.0),
                         ),
                       ),
                     ),
@@ -153,18 +170,22 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                         hintStyle: TextStyle(color: textSub, fontSize: 14),
                         filled: true,
                         fillColor: inputBg,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.zero,
-                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                          borderSide:
+                              BorderSide(color: inputBorder, width: 1.0),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.zero,
-                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                          borderSide:
+                              BorderSide(color: inputBorder, width: 1.0),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.zero,
-                          borderSide: BorderSide(color: inputBorder, width: 1.0),
+                          borderSide:
+                              BorderSide(color: inputBorder, width: 1.0),
                         ),
                       ),
                     ),
@@ -176,7 +197,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: btnBgColor,
                           elevation: 0,
-                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                          shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.zero),
                         ),
                         onPressed: () async {
                           final title = titleController.text.trim();
@@ -184,28 +206,38 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
 
                           if (title.isNotEmpty || description.isNotEmpty) {
                             if (existingItem != null) {
-                              await ref.read(localDatabaseProvider.notifier).updateItem(
-                                existingItem.id,
-                                description,
-                                title: title,
-                              );
+                              await ref
+                                  .read(localDatabaseProvider.notifier)
+                                  .updateItem(
+                                    existingItem.id,
+                                    description,
+                                    title: title,
+                                  );
                             } else {
-                              await ref.read(localDatabaseProvider.notifier).insertItem(
-                                description,
-                                'matrix_event:$dateKey',
-                                title: title,
-                              );
+                              await ref
+                                  .read(localDatabaseProvider.notifier)
+                                  .insertItem(
+                                    description,
+                                    'matrix_event:$dateKey',
+                                    title: title,
+                                  );
                             }
                           } else {
                             if (existingItem != null) {
-                              await ref.read(localDatabaseProvider.notifier).deleteItem(existingItem.id);
+                              await ref
+                                  .read(localDatabaseProvider.notifier)
+                                  .deleteItem(existingItem.id);
                             }
                           }
                           if (context.mounted) Navigator.pop(context);
                         },
                         child: Text(
                           'COMMIT',
-                          style: TextStyle(color: btnTextColor, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
+                          style: TextStyle(
+                              color: btnTextColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.04),
                         ),
                       ),
                     ),
@@ -245,7 +277,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
 
     final textMain = isDark ? Colors.white : Colors.black;
     final textSub = isDark ? const Color(0xFF737373) : const Color(0xFF888888);
-    final ruleBorder = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final ruleBorder =
+        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
     final filledColor = isDark ? Colors.white : Colors.black;
 
     return Scaffold(
@@ -263,18 +296,24 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                 children: [
                   Text(
                     'MATRIX TIMELINE',
-                    style: TextStyle(color: textMain, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.04),
+                    style: TextStyle(
+                        color: textMain,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.04),
                   ),
                   Text(
                     '$currentDayOfYear / $totalDaysInYear DAYS (${completionPercentage.toStringAsFixed(1)}%)',
-                    style: TextStyle(color: textSub, fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 0.01),
+                    style: TextStyle(
+                        color: textSub,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.01),
                   ),
                 ],
               ),
             ),
-
             Divider(color: ruleBorder, height: 1, thickness: 0.8),
-
             Expanded(
               child: ScrollConfiguration(
                 behavior: ScrollConfiguration.of(context).copyWith(
@@ -282,7 +321,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                 ),
                 child: GridView.builder(
                   physics: const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20.0, vertical: 20.0),
                   itemCount: 12,
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
@@ -294,7 +334,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                     final String monthName = _monthNames[monthIndex];
                     final int totalDaysInMonth = daysInMonths[monthIndex];
 
-                    final DateTime firstDayOfMonth = DateTime(currentYear, monthIndex + 1, 1);
+                    final DateTime firstDayOfMonth =
+                        DateTime(currentYear, monthIndex + 1, 1);
                     final int startingWeekday = firstDayOfMonth.weekday;
                     final int leadingBlanks = startingWeekday - 1;
 
@@ -303,26 +344,35 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                       children: [
                         Text(
                           monthName,
-                          style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.04),
+                          style: TextStyle(
+                              color: textMain,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.04),
                         ),
                         const SizedBox(height: 8),
-
                         Expanded(
                           child: GridView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
                               crossAxisCount: _matrixColumns,
                               crossAxisSpacing: 3.5,
                               mainAxisSpacing: 3.5,
                             ),
-                            itemCount: _matrixColumns + leadingBlanks + totalDaysInMonth,
+                            itemCount: _matrixColumns +
+                                leadingBlanks +
+                                totalDaysInMonth,
                             itemBuilder: (context, index) {
                               if (index < _matrixColumns) {
                                 return Center(
                                   child: Text(
                                     _dayHeaders[index],
-                                    style: TextStyle(color: textSub, fontSize: 7.5, fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                        color: textSub,
+                                        fontSize: 7.5,
+                                        fontWeight: FontWeight.bold),
                                   ),
                                 );
                               }
@@ -334,11 +384,15 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                               }
 
                               final int day = gridIndex - leadingBlanks + 1;
-                              final int dayOfYear = _getDayOfYear(monthIndex, day, daysInMonths);
-                              final bool isPastOrToday = dayOfYear <= currentDayOfYear;
+                              final int dayOfYear =
+                                  _getDayOfYear(monthIndex, day, daysInMonths);
+                              final bool isPastOrToday =
+                                  dayOfYear <= currentDayOfYear;
 
-                              final String dateKey = '$currentYear-$monthIndex-$day';
-                              final bool hasEvent = savedEventKeys.contains(dateKey);
+                              final String dateKey =
+                                  '$currentYear-$monthIndex-$day';
+                              final bool hasEvent =
+                                  savedEventKeys.contains(dateKey);
 
                               Color boxColor;
                               Color borderColor;
@@ -351,7 +405,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                               } else if (isPastOrToday) {
                                 boxColor = filledColor;
                                 borderColor = filledColor;
-                                textColor = isDark ? Colors.black : Colors.white;
+                                textColor =
+                                    isDark ? Colors.black : Colors.white;
                               } else {
                                 boxColor = Colors.transparent;
                                 borderColor = ruleBorder;
@@ -359,7 +414,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                               }
 
                               return GestureDetector(
-                                onTap: () => _openEventEditor(context, dateKey, monthName, day),
+                                onTap: () => _openEventEditor(
+                                    context, dateKey, monthName, day),
                                 child: Container(
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
@@ -389,9 +445,7 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                 ),
               ),
             ),
-
             Divider(color: ruleBorder, height: 1, thickness: 0.8),
-
             Padding(
               padding: const EdgeInsets.fromLTRB(20.0, 14.0, 20.0, 16.0),
               child: Row(
@@ -405,7 +459,12 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Text('ELAPSED', style: TextStyle(color: textSub, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.02)),
+                  Text('ELAPSED',
+                      style: TextStyle(
+                          color: textSub,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.02)),
                   const SizedBox(width: 16),
                   Container(
                     width: 7,
@@ -417,7 +476,12 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Text('REMAINING', style: TextStyle(color: textSub, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.02)),
+                  Text('REMAINING',
+                      style: TextStyle(
+                          color: textSub,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.02)),
                   const SizedBox(width: 16),
                   Container(
                     width: 7,
@@ -428,7 +492,12 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Text('UPCOMING', style: TextStyle(color: textSub, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.02)),
+                  Text('UPCOMING',
+                      style: TextStyle(
+                          color: textSub,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.02)),
                 ],
               ),
             )
