@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import '../core/database.dart';
 import '../core/crypto_engine.dart';
 import '../core/github_backup_service.dart';
+import '../core/debug_log.dart';
 import 'quicknote.dart';
 import '../main.dart';
 
@@ -27,10 +28,8 @@ class SettingsUiTheme {
   SettingsUiTheme(this.isDark) {
     textMain = isDark ? Colors.white : Colors.black;
     textSub = isDark ? const Color(0xFF888888) : const Color(0xFF404040);
-    mainBorderColor =
-        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    dialogBorderColor =
-        isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    mainBorderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    dialogBorderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
     dialogBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
     containerBg = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFEEEEEE);
   }
@@ -45,15 +44,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static const String _boxName = 'rocen_settings_box';
-  static const MethodChannel _screenSecurityChannel =
-      MethodChannel('com.darshseraphic.rocen/screen_security');
+  static const MethodChannel _screenSecurityChannel = MethodChannel('com.darshseraphic.rocen/screen_security');
 
   Future<void> _setScreenshotProtection(bool enabled) async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
-      await _screenSecurityChannel.invokeMethod(
-          enabled ? 'preventScreenshotOn' : 'preventScreenshotOff');
-    } catch (_) {}
+      await _screenSecurityChannel.invokeMethod(enabled ? 'preventScreenshotOn' : 'preventScreenshotOff');
+    } catch (_) {
+    }
   }
 
   @override
@@ -71,20 +69,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _launchWebsiteUrl() async {
     final Uri url = Uri.parse('https://rocen.lovable.app/');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      debugPrint('System Error: Could not execute route handshake to $url');
+      secureDebugLog('System Error: Could not execute route handshake to $url');
     }
   }
 
   Future<void> _launchFeedbackUrl() async {
     final Uri url = Uri.parse('https://rocen.lovable.app/feedback');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      debugPrint('System Error: Could not execute route handshake to $url');
+      secureDebugLog('System Error: Could not execute route handshake to $url');
     }
   }
 
   String? _checkLockoutViolation(Box settingsBox) {
-    final int lockoutUntil =
-        settingsBox.get('secure_lockout_until', defaultValue: 0);
+    final int lockoutUntil = settingsBox.get('secure_lockout_until', defaultValue: 0);
     final int currentTime = DateTime.now().millisecondsSinceEpoch;
 
     if (lockoutUntil > currentTime) {
@@ -96,16 +93,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _purgeEncryptedNotesOnBruteForce() async {
     final currentItems = ref.read(localDatabaseProvider);
-    final targetsToPurge =
-        currentItems.where((item) => item.type == 'encrypted_note').toList();
+    final targetsToPurge = currentItems.where((item) => item.type == 'encrypted_note').toList();
 
     for (var target in targetsToPurge) {
       await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
     }
   }
 
-  void _showAcknowledgeDialog(
-      BuildContext context, String title, String message) {
+  void _showAcknowledgeDialog(BuildContext context, String title, String message) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
     final buttonBg = isDark ? Colors.white : Colors.black;
@@ -134,22 +129,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Text(
                     title,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
+                    style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     message,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        height: 1.5,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   InkWell(
@@ -209,22 +195,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Text(
                     title.toUpperCase(),
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     message.toUpperCase(),
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11,
-                        height: 1.5,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 11, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   InkWell(
@@ -255,6 +232,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pushFullBackupSync() async {
+    // Delegates to the single, fully up-to-date push implementation in
+    // quicknote.dart (opaque remoteFileId filenames, encrypted title
+    // embedding, timestamps, legacy migration, zero-decrypt guard for
+    // notes pending review) rather than maintaining a second copy of this
+    // logic here that can silently drift out of sync with it.
     await pushAllBackupEnabledNotes(ref);
   }
 
@@ -262,10 +244,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     unawaited(_pushFullBackupSync());
 
     try {
-      final String serializedJson =
-          ref.read(localDatabaseProvider.notifier).exportToSchemaJson();
-      final String timestamp =
-          DateTime.now().toString().split(' ').first.replaceAll('-', '_');
+      final String serializedJson = ref.read(localDatabaseProvider.notifier).exportToSchemaJson();
+      final String timestamp = DateTime.now().toString().split(' ').first.replaceAll('-', '_');
       final String fileName = 'ROCEN_WORKSPACE_BACKUP_$timestamp.json';
 
       final String? outputPath = await FilePicker.platform.saveFile(
@@ -283,25 +263,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showStatusDialog(context, 'EXPORT FAIL',
-            'CRITICAL ERROR INITIALIZING SEQUENCE: ${e.toString()}');
+        _showStatusDialog(context, 'EXPORT FAIL', 'CRITICAL ERROR INITIALIZING SEQUENCE: ${e.toString()}');
       }
     }
   }
 
   Future<void> _handleDataImport() async {
     try {
-      final FilePickerResult? result =
-          await FilePicker.platform.pickFiles(type: FileType.any);
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.any);
 
       if (result == null || result.files.single.path == null) return;
 
       final File pickedFile = File(result.files.single.path!);
       final String fileContents = await pickedFile.readAsString();
 
-      final bool isSuccess = await ref
-          .read(localDatabaseProvider.notifier)
-          .importFromSchemaJson(fileContents);
+      final bool isSuccess = await ref.read(localDatabaseProvider.notifier).importFromSchemaJson(fileContents);
 
       if (mounted) {
         if (isSuccess) {
@@ -320,8 +296,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showStatusDialog(context, 'IMPORT FAIL',
-            'PROCESS ABORTED DUE TO ENCODING EXCEPTIONS: ${e.toString()}');
+        _showStatusDialog(context, 'IMPORT FAIL', 'PROCESS ABORTED DUE TO ENCODING EXCEPTIONS: ${e.toString()}');
       }
     }
   }
@@ -352,12 +327,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(
                     'WHICH IMPORT WOULD YOU LIKE TO RESTORE?',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        height: 1.5,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w600, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 20),
                   Row(
@@ -370,17 +340,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.dialogBorderColor,
-                                    width: 0.8)),
+                            decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
                             alignment: Alignment.center,
-                            child: Text('GITHUB',
-                                style: TextStyle(
-                                    color: theme.textMain,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.02)),
+                            child: Text('GITHUB', style: TextStyle(color: theme.textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02)),
                           ),
                         ),
                       ),
@@ -393,17 +355,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.dialogBorderColor,
-                                    width: 0.8)),
+                            decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
                             alignment: Alignment.center,
-                            child: Text('LOCAL',
-                                style: TextStyle(
-                                    color: theme.textMain,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.02)),
+                            child: Text('LOCAL', style: TextStyle(color: theme.textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02)),
                           ),
                         ),
                       ),
@@ -425,8 +379,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final String? accessBlob = settingsBox.get('github_access_encrypted');
 
     if (globalPin == null || globalPin.isEmpty || accessBlob == null) {
-      _showStatusDialog(context, 'GITHUB NOT CONFIGURED',
-          'SET UP THE GITHUB TOKEN STORE FIRST BEFORE RESTORING FROM GITHUB.');
+      _showStatusDialog(context, 'GITHUB NOT CONFIGURED', 'SET UP THE GITHUB TOKEN STORE FIRST BEFORE RESTORING FROM GITHUB.');
       return;
     }
 
@@ -474,8 +427,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
+                    border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -484,9 +436,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Text(
                         displayHeaderTitle,
                         style: TextStyle(
-                          color: (hasPinFailed || lockStringStatus != null)
-                              ? const Color(0xFFEF4444)
-                              : theme.textMain,
+                          color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 0.05,
@@ -508,8 +458,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   if (hasPinFailed) hasPinFailed = false;
                                 });
                               },
-                              decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                              decoration: const InputDecoration(counterText: '', border: InputBorder.none),
                             ),
                           ),
                           IgnorePointer(
@@ -522,14 +471,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                                 Color currentBoxBorderColor;
                                 if (hasPinFailed || lockStringStatus != null) {
-                                  currentBoxBorderColor =
-                                      const Color(0xFFEF4444);
+                                  currentBoxBorderColor = const Color(0xFFEF4444);
                                 } else if (isCurrentFocus) {
                                   currentBoxBorderColor = theme.textMain;
                                 } else {
-                                  currentBoxBorderColor = isFilled
-                                      ? theme.textMain.withOpacity(0.6)
-                                      : theme.dialogBorderColor;
+                                  currentBoxBorderColor = isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor;
                                 }
 
                                 return Container(
@@ -540,25 +486,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     color: Colors.transparent,
                                     border: Border.all(
                                       color: currentBoxBorderColor,
-                                      width: isCurrentFocus ||
-                                              hasPinFailed ||
-                                              lockStringStatus != null
-                                          ? 1.2
-                                          : 0.8,
+                                      width: isCurrentFocus || hasPinFailed || lockStringStatus != null ? 1.2 : 0.8,
                                     ),
                                   ),
                                   child: isFilled
                                       ? Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: (hasPinFailed ||
-                                                    lockStringStatus != null)
-                                                ? const Color(0xFFEF4444)
-                                                : theme.textMain,
-                                          ),
-                                        )
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
+                                    ),
+                                  )
                                       : const SizedBox.shrink(),
                                 );
                               }),
@@ -573,26 +512,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           InkWell(
                             onTap: () => Navigator.pop(context),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                              child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                           const SizedBox(width: 8),
                           InkWell(
                             onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
+                              final activeLockCheck = _checkLockoutViolation(settingsBox);
                               if (activeLockCheck != null) {
                                 setDialogState(() {
                                   lockStringStatus = activeLockCheck;
@@ -600,127 +528,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 return;
                               }
 
-                              final bool isPinValid = await CryptoEngine
-                                  .verifyPinWithHardwareBinding(
-                                      pinVerifyController.text, globalPin);
+                              final bool isPinValid = await CryptoEngine.verifyPinWithHardwareBinding(pinVerifyController.text, globalPin);
 
                               if (isPinValid) {
-                                final String rawPassword =
-                                    pinVerifyController.text;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
+                                final String rawPassword = pinVerifyController.text;
+                                await settingsBox.put('secure_failed_attempts', 0);
+                                await settingsBox.put('secure_lockout_until', 0);
 
                                 if (!context.mounted) return;
                                 Navigator.pop(context);
                                 if (!screenContext.mounted) return;
 
                                 try {
-                                  final String? unwrappedForRestore =
-                                      await CryptoEngine.hardwareUnwrap(
-                                          accessBlob,
-                                          keyAlias:
-                                              CryptoEngine.githubTokenKeyAlias);
-                                  final String accessJson =
-                                      await CryptoEngine.decryptProcess(
-                                          unwrappedForRestore ?? accessBlob,
-                                          globalPin);
+                                  final String? unwrappedForRestore = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+                                  final String accessJson = await CryptoEngine.decryptProcess(unwrappedForRestore ?? accessBlob, globalPin);
                                   if (accessJson == 'DECRYPTION FAULT') {
                                     if (screenContext.mounted) {
-                                      _showStatusDialog(
-                                          screenContext,
-                                          'RESTORE ERROR',
-                                          'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD.');
+                                      _showStatusDialog(screenContext, 'RESTORE ERROR', 'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD.');
                                     }
                                     return;
                                   }
-                                  final Map<String, dynamic> access =
-                                      jsonDecode(accessJson);
-                                  final String? token =
-                                      access['token'] as String?;
-                                  final String? repo =
-                                      access['repo'] as String?;
+                                  final Map<String, dynamic> access = jsonDecode(accessJson);
+                                  final String? token = access['token'] as String?;
+                                  final String? repo = access['repo'] as String?;
                                   if (token == null || repo == null) {
                                     if (screenContext.mounted) {
-                                      _showStatusDialog(
-                                          screenContext,
-                                          'RESTORE ERROR',
-                                          'STORED TOKEN OR REPOSITORY WAS EMPTY.');
+                                      _showStatusDialog(screenContext, 'RESTORE ERROR', 'STORED TOKEN OR REPOSITORY WAS EMPTY.');
                                     }
                                     return;
                                   }
 
                                   if (!screenContext.mounted) return;
-                                  await _handlePostSaveGithubSync(screenContext,
-                                      token, repo, rawPassword, globalPin,
-                                      isExplicitRestore: true);
+                                  await _handlePostSaveGithubSync(screenContext, token, repo, rawPassword, globalPin, isExplicitRestore: true);
                                 } catch (e) {
                                   if (screenContext.mounted) {
-                                    _showStatusDialog(
-                                        screenContext,
-                                        'RESTORE ERROR',
-                                        'UNEXPECTED ERROR: $e');
+                                    _showStatusDialog(screenContext, 'RESTORE ERROR', 'UNEXPECTED ERROR: $e');
                                   }
                                 }
                               } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
+                                int attempts = settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1;
+                                await settingsBox.put('secure_failed_attempts', attempts);
 
                                 bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
+                                int penaltyDurationSeconds = flagWipeConditionTriggered
+                                    ? 0
+                                    : CryptoEngine.lockoutSecondsForAttempt(attempts);
 
                                 if (flagWipeConditionTriggered) {
                                   await _purgeEncryptedNotesOnBruteForce();
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'secure_lockout_until', 0);
+                                  await settingsBox.put('secure_failed_attempts', 0);
+                                  await settingsBox.put('secure_lockout_until', 0);
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  _showAcknowledgeDialog(
-                                      screenContext,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
+                                  _showAcknowledgeDialog(screenContext, 'SECURITY COMPLIANCE AUDIT', 'DATA PURGED PERMANENTLY.');
                                   return;
                                 }
 
                                 if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
+                                  final int unlockTimestampMillis = DateTime.now().millisecondsSinceEpoch + (penaltyDurationSeconds * 1000);
+                                  await settingsBox.put('secure_lockout_until', unlockTimestampMillis);
                                 }
 
                                 setDialogState(() {
                                   pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
-                                  if (lockStringStatus == null)
-                                    hasPinFailed = true;
+                                  lockStringStatus = _checkLockoutViolation(settingsBox);
+                                  if (lockStringStatus == null) hasPinFailed = true;
                                 });
                               }
                             },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              child: Text('VERIFY', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
@@ -762,21 +642,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   const Text(
                     'OVERWRITE CURRENT DATA',
-                    style: TextStyle(
-                        color: Color(0xFFEF4444),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
+                    style: TextStyle(color: Color(0xFFEF4444), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'RESTORING WILL PERMANENTLY WIPE ALL LOGGED RECORDS FROM RECENT SESSIONS AND REPLACE THEM WITH THE SELECTED BACKUP MATRIX. THIS CANNOT BE UNDONE.',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11.5,
-                        height: 1.5,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 11.5, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -785,18 +656,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       InkWell(
                         onTap: () => Navigator.pop(context),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                           decoration: BoxDecoration(
-                            border: Border.all(
-                                color: theme.dialogBorderColor, width: 0.8),
+                            border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                           ),
                           child: Text(
                             'CANCEL',
                             style: TextStyle(
-                              color: isDark
-                                  ? const Color(0xFF888888)
-                                  : const Color(0xFF525252),
+                              color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                             ),
@@ -810,16 +677,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           _handleDataImport();
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 6),
-                          decoration:
-                              const BoxDecoration(color: Color(0xFFEF4444)),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          decoration: const BoxDecoration(color: Color(0xFFEF4444)),
                           child: const Text(
                             'RESTORE DATA',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold),
+                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -838,8 +700,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
 
-    final TextEditingController pinController =
-        TextEditingController(text: initialValue);
+    final TextEditingController pinController = TextEditingController(text: initialValue);
     final Set<String> hapticFiredFor = {};
 
     showGeneralDialog(
@@ -850,14 +711,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final List<(String, bool)> statuses =
-                CryptoEngine.passwordRequirementStatus(pinController.text);
+            final List<(String, bool)> statuses = CryptoEngine.passwordRequirementStatus(pinController.text);
             final int satisfiedCount = statuses.where((s) => s.$2).length;
-            final double ratio =
-                statuses.isEmpty ? 0.0 : satisfiedCount / statuses.length;
+            final double ratio = statuses.isEmpty ? 0.0 : satisfiedCount / statuses.length;
             const Color weakColor = Color(0xFF7A0000);
-            final Color progressColor =
-                Color.lerp(weakColor, theme.textMain, ratio) ?? theme.textMain;
+            final Color progressColor = Color.lerp(weakColor, theme.textMain, ratio) ?? theme.textMain;
 
             for (final s in statuses) {
               if (s.$2 && !hapticFiredFor.contains(s.$1)) {
@@ -876,8 +734,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
+                    border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -885,13 +742,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [
                       Text(
                         'SETUP CRYPTOGRAPHY PASSWORD',
-                        style: TextStyle(
-                            color: theme.textMain,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.05),
+                        style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                       ),
                       const SizedBox(height: 20),
+
                       Stack(
                         children: [
                           Opacity(
@@ -918,9 +772,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                                 Color currentBoxBorderColor = isCurrentFocus
                                     ? progressColor
-                                    : (isFilled
-                                        ? progressColor
-                                        : theme.dialogBorderColor);
+                                    : (isFilled ? progressColor : theme.dialogBorderColor);
 
                                 return AnimatedContainer(
                                   duration: const Duration(milliseconds: 400),
@@ -937,8 +789,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   ),
                                   child: Text(
                                     isFilled ? '●' : '',
-                                    style: TextStyle(
-                                        color: progressColor, fontSize: 10),
+                                    style: TextStyle(color: progressColor, fontSize: 10),
                                   ),
                                 );
                               }),
@@ -970,21 +821,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           const SizedBox(width: 8),
                           Text(
                             '${(ratio * 100).round()}%',
-                            style: TextStyle(
-                                color: progressColor,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.02),
+                            style: TextStyle(color: progressColor, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.02),
                           ),
                         ],
                       ),
                       const SizedBox(height: 10),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: statuses
-                            .map(
-                                (s) => _buildPasswordRequirementRow(s.$1, s.$2))
-                            .toList(),
+                        children: statuses.map((s) => _buildPasswordRequirementRow(s.$1, s.$2)).toList(),
                       ),
                       const SizedBox(height: 14),
                       Row(
@@ -993,18 +837,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           InkWell(
                             onTap: () => Navigator.pop(context),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.dialogBorderColor, width: 0.8),
+                                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                               ),
                               child: Text(
                                 'CANCEL',
                                 style: TextStyle(
-                                  color: isDark
-                                      ? const Color(0xFF888888)
-                                      : const Color(0xFF525252),
+                                  color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -1013,22 +853,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                           const SizedBox(width: 8),
                           InkWell(
-                            onTap: !CryptoEngine.isPasswordComplexityValid(
-                                    pinController.text)
+                            onTap: !CryptoEngine.isPasswordComplexityValid(pinController.text)
                                 ? null
                                 : () {
-                                    final typedPin = pinController.text;
-                                    Navigator.pop(context);
-                                    _showAreYouSureDialog(context, typedPin);
-                                  },
+                              final typedPin = pinController.text;
+                              Navigator.pop(context);
+                              _showAreYouSureDialog(context, typedPin);
+                            },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(
-                                color: CryptoEngine.isPasswordComplexityValid(
-                                        pinController.text)
-                                    ? theme.textMain
-                                    : theme.textMain.withOpacity(0.2),
+                                color: CryptoEngine.isPasswordComplexityValid(pinController.text) ? theme.textMain : theme.textMain.withOpacity(0.2),
                               ),
                               child: Text(
                                 'CONFIRM',
@@ -1080,21 +915,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(
                     'SECURITY VERIFICATION',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
+                    style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'ARE YOU SURE YOU WANT TO SET THIS PASSWORD?',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        height: 1.5,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -1106,18 +932,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           _showCreatePinDialog(context, initialValue: typedPin);
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                           decoration: BoxDecoration(
-                            border: Border.all(
-                                color: theme.dialogBorderColor, width: 0.8),
+                            border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                           ),
                           child: Text(
                             'CANCEL',
                             style: TextStyle(
-                              color: isDark
-                                  ? const Color(0xFF888888)
-                                  : const Color(0xFF525252),
+                              color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                             ),
@@ -1130,24 +952,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           Navigator.pop(context);
 
                           final settingsBox = Hive.box(_boxName);
-                          final bool rooted =
-                              await CryptoEngine.isDeviceRooted();
+                          final bool rooted = await CryptoEngine.isDeviceRooted();
                           await settingsBox.put('kdf_hardened', rooted);
 
-                          final securePinHash =
-                              await CryptoEngine.hashPin(typedPin);
+                          final securePinHash = await CryptoEngine.hashPin(typedPin);
 
-                          await settingsBox.put(
-                              'system_crypto_pin', securePinHash);
-                          await settingsBox.put(
-                              'last_active_crypto_pin_snapshot', securePinHash);
+                          await settingsBox.put('system_crypto_pin', securePinHash);
+                          await settingsBox.put('last_active_crypto_pin_snapshot', securePinHash);
 
-                          final String? hwWrappedPin =
-                              await CryptoEngine.hardwareWrap(securePinHash,
-                                  keyAlias: CryptoEngine.passwordKeyAlias);
+                          final String? hwWrappedPin = await CryptoEngine.hardwareWrap(securePinHash, keyAlias: CryptoEngine.passwordKeyAlias);
                           if (hwWrappedPin != null) {
-                            await settingsBox.put(
-                                'hw_wrapped_pin', hwWrappedPin);
+                            await settingsBox.put('hw_wrapped_pin', hwWrappedPin);
                           }
 
                           if (screenContext.mounted) {
@@ -1155,8 +970,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           }
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                           decoration: BoxDecoration(color: theme.textMain),
                           child: Text(
                             'CONFIRM',
@@ -1201,8 +1015,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   color: theme.dialogBg,
-                  border:
-                      Border.all(color: theme.dialogBorderColor, width: 0.8),
+                  border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1211,22 +1024,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     Text(
                       'CRITICAL NOTICE',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05),
+                      style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                     ),
                     const SizedBox(height: 16),
                     Text(
                       'IF YOU FORGET YOUR PASSWORD, YOUR 12-WORD RECOVERY PHRASE IS THE ONLY WAY BACK IN. WITHOUT IT, YOUR LOCAL DATA CANNOT BE RECOVERED - ONLY CLEARED AND RESTARTED FROM SCRATCH.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 12,
-                          height: 1.5,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.02),
+                      style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                     ),
                     const SizedBox(height: 24),
                     InkWell(
@@ -1307,8 +1111,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
+                    border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1317,9 +1120,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Text(
                         displayHeaderTitle,
                         style: TextStyle(
-                          color: (hasPinFailed || lockStringStatus != null)
-                              ? const Color(0xFFEF4444)
-                              : theme.textMain,
+                          color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 0.05,
@@ -1341,8 +1142,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   if (hasPinFailed) hasPinFailed = false;
                                 });
                               },
-                              decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                              decoration: const InputDecoration(counterText: '', border: InputBorder.none),
                             ),
                           ),
                           IgnorePointer(
@@ -1355,14 +1155,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                                 Color currentBoxBorderColor;
                                 if (hasPinFailed || lockStringStatus != null) {
-                                  currentBoxBorderColor =
-                                      const Color(0xFFEF4444);
+                                  currentBoxBorderColor = const Color(0xFFEF4444);
                                 } else if (isCurrentFocus) {
                                   currentBoxBorderColor = theme.textMain;
                                 } else {
-                                  currentBoxBorderColor = isFilled
-                                      ? theme.textMain.withOpacity(0.6)
-                                      : theme.dialogBorderColor;
+                                  currentBoxBorderColor = isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor;
                                 }
 
                                 return Container(
@@ -1373,25 +1170,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     color: Colors.transparent,
                                     border: Border.all(
                                       color: currentBoxBorderColor,
-                                      width: isCurrentFocus ||
-                                              hasPinFailed ||
-                                              lockStringStatus != null
-                                          ? 1.2
-                                          : 0.8,
+                                      width: isCurrentFocus || hasPinFailed || lockStringStatus != null ? 1.2 : 0.8,
                                     ),
                                   ),
                                   child: isFilled
                                       ? Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: (hasPinFailed ||
-                                                    lockStringStatus != null)
-                                                ? const Color(0xFFEF4444)
-                                                : theme.textMain,
-                                          ),
-                                        )
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
+                                    ),
+                                  )
                                       : const SizedBox.shrink(),
                                 );
                               }),
@@ -1406,26 +1196,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           InkWell(
                             onTap: () => Navigator.pop(context),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                              child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                           const SizedBox(width: 8),
                           InkWell(
                             onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
+                              final activeLockCheck = _checkLockoutViolation(settingsBox);
                               if (activeLockCheck != null) {
                                 setDialogState(() {
                                   lockStringStatus = activeLockCheck;
@@ -1433,81 +1212,53 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 return;
                               }
 
-                              final bool isPinValid = await CryptoEngine
-                                  .verifyPinWithHardwareBinding(
-                                      pinVerifyController.text, globalPin);
+                              final bool isPinValid = await CryptoEngine.verifyPinWithHardwareBinding(pinVerifyController.text, globalPin);
 
                               if (isPinValid) {
-                                final String rawOldPassword =
-                                    pinVerifyController.text;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
+                                final String rawOldPassword = pinVerifyController.text;
+                                await settingsBox.put('secure_failed_attempts', 0);
+                                await settingsBox.put('secure_lockout_until', 0);
 
                                 if (!context.mounted) return;
                                 Navigator.pop(context);
                                 if (!screenContext.mounted) return;
-                                _showNewPasswordDialog(
-                                    screenContext, globalPin, rawOldPassword);
+                                _showNewPasswordDialog(screenContext, globalPin, rawOldPassword);
                               } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
+                                int attempts = settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1;
+                                await settingsBox.put('secure_failed_attempts', attempts);
 
                                 bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
+                                int penaltyDurationSeconds = flagWipeConditionTriggered
+                                    ? 0
+                                    : CryptoEngine.lockoutSecondsForAttempt(attempts);
 
                                 if (flagWipeConditionTriggered) {
                                   await _purgeEncryptedNotesOnBruteForce();
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'secure_lockout_until', 0);
+                                  await settingsBox.put('secure_failed_attempts', 0);
+                                  await settingsBox.put('secure_lockout_until', 0);
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  _showAcknowledgeDialog(
-                                      screenContext,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
+                                  _showAcknowledgeDialog(screenContext, 'SECURITY COMPLIANCE AUDIT', 'DATA PURGED PERMANENTLY.');
                                   return;
                                 }
 
                                 if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
+                                  final int unlockTimestampMillis = DateTime.now().millisecondsSinceEpoch + (penaltyDurationSeconds * 1000);
+                                  await settingsBox.put('secure_lockout_until', unlockTimestampMillis);
                                 }
 
                                 setDialogState(() {
                                   pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
-                                  if (lockStringStatus == null)
-                                    hasPinFailed = true;
+                                  lockStringStatus = _checkLockoutViolation(settingsBox);
+                                  if (lockStringStatus == null) hasPinFailed = true;
                                 });
                               }
                             },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              child: Text('VERIFY', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
@@ -1523,8 +1274,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ).then((_) => countdownTimer?.cancel());
   }
 
-  void _showNewPasswordDialog(
-      BuildContext context, String oldPinHash, String rawOldPassword) {
+  void _showNewPasswordDialog(BuildContext context, String oldPinHash, String rawOldPassword) {
     final BuildContext screenContext = context;
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
@@ -1546,19 +1296,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
+                    border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('ENTER NEW PASSWORD',
-                          style: TextStyle(
-                              color: theme.textMain,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.05)),
+                      Text('ENTER NEW PASSWORD', style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05)),
                       const SizedBox(height: 20),
                       Stack(
                         children: [
@@ -1570,8 +1314,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               maxLength: 8,
                               autofocus: true,
                               onChanged: (val) => setDialogState(() {}),
-                              decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                              decoration: const InputDecoration(counterText: '', border: InputBorder.none),
                             ),
                           ),
                           IgnorePointer(
@@ -1584,9 +1327,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                                 Color currentBoxBorderColor = isCurrentFocus
                                     ? theme.textMain
-                                    : (isFilled
-                                        ? theme.textMain.withOpacity(0.6)
-                                        : theme.dialogBorderColor);
+                                    : (isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor);
 
                                 return Container(
                                   width: 28,
@@ -1594,13 +1335,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     color: Colors.transparent,
-                                    border: Border.all(
-                                        color: currentBoxBorderColor,
-                                        width: isCurrentFocus ? 1.2 : 0.8),
+                                    border: Border.all(color: currentBoxBorderColor, width: isCurrentFocus ? 1.2 : 0.8),
                                   ),
-                                  child: Text(isFilled ? '●' : '',
-                                      style: TextStyle(
-                                          color: theme.textMain, fontSize: 10)),
+                                  child: Text(isFilled ? '●' : '', style: TextStyle(color: theme.textMain, fontSize: 10)),
                                 );
                               }),
                             ),
@@ -1609,14 +1346,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       const SizedBox(height: 10),
                       Builder(builder: (context) {
-                        final statuses = CryptoEngine.passwordRequirementStatus(
-                            pinController.text);
+                        final statuses = CryptoEngine.passwordRequirementStatus(pinController.text);
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: statuses
-                              .map((s) =>
-                                  _buildPasswordRequirementRow(s.$1, s.$2))
-                              .toList(),
+                          children: statuses.map((s) => _buildPasswordRequirementRow(s.$1, s.$2)).toList(),
                         );
                       }),
                       const SizedBox(height: 14),
@@ -1626,52 +1359,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           InkWell(
                             onTap: () => Navigator.pop(context),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                              child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                           const SizedBox(width: 8),
                           InkWell(
-                            onTap: !CryptoEngine.isPasswordComplexityValid(
-                                    pinController.text)
+                            onTap: !CryptoEngine.isPasswordComplexityValid(pinController.text)
                                 ? null
                                 : () async {
-                                    final String newPassword =
-                                        pinController.text;
-                                    Navigator.pop(context);
-                                    if (!screenContext.mounted) return;
-                                    await _executePasswordChange(
-                                        screenContext,
-                                        oldPinHash,
-                                        rawOldPassword,
-                                        newPassword);
-                                  },
+                              final String newPassword = pinController.text;
+                              Navigator.pop(context);
+                              if (!screenContext.mounted) return;
+                              await _executePasswordChange(screenContext, oldPinHash, rawOldPassword, newPassword);
+                            },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(
-                                color: CryptoEngine.isPasswordComplexityValid(
-                                        pinController.text)
-                                    ? theme.textMain
-                                    : theme.textMain.withOpacity(0.2),
+                                color: CryptoEngine.isPasswordComplexityValid(pinController.text) ? theme.textMain : theme.textMain.withOpacity(0.2),
                               ),
-                              child: Text('CONFIRM',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              child: Text('CONFIRM', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
@@ -1687,13 +1395,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<void> _executePasswordChange(BuildContext context, String oldPinHash,
-      String rawOldPassword, String newPassword) async {
+  Future<void> _executePasswordChange(BuildContext context, String oldPinHash, String rawOldPassword, String newPassword) async {
     final settingsBox = Hive.box(_boxName);
 
     final currentItems = ref.read(localDatabaseProvider);
-    final targetsToPurge =
-        currentItems.where((item) => item.type == 'encrypted_note').toList();
+    final targetsToPurge = currentItems.where((item) => item.type == 'encrypted_note').toList();
     for (var target in targetsToPurge) {
       await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
     }
@@ -1702,14 +1408,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await settingsBox.put('kdf_hardened', rooted);
 
     final Uint8List authSalt = CryptoEngine.extractAuthSalt(oldPinHash);
-    final String newPinHash =
-        await CryptoEngine.hashPinWithSalt(newPassword, authSalt);
+    final String newPinHash = await CryptoEngine.hashPinWithSalt(newPassword, authSalt);
 
     await settingsBox.put('system_crypto_pin', newPinHash);
     await settingsBox.put('last_active_crypto_pin_snapshot', newPinHash);
 
-    final String? hwWrappedNewPin = await CryptoEngine.hardwareWrap(newPinHash,
-        keyAlias: CryptoEngine.passwordKeyAlias);
+    final String? hwWrappedNewPin = await CryptoEngine.hardwareWrap(newPinHash, keyAlias: CryptoEngine.passwordKeyAlias);
     if (hwWrappedNewPin != null) {
       await settingsBox.put('hw_wrapped_pin', hwWrappedNewPin);
     } else {
@@ -1719,47 +1423,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final String? accessBlob = settingsBox.get('github_access_encrypted');
     if (accessBlob != null) {
       try {
-        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(
-            accessBlob,
-            keyAlias: CryptoEngine.githubTokenKeyAlias);
-        final String accessJson = await CryptoEngine.decryptProcess(
-            unwrappedForRead ?? accessBlob, oldPinHash);
+        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+        final String accessJson = await CryptoEngine.decryptProcess(unwrappedForRead ?? accessBlob, oldPinHash);
         if (accessJson != 'DECRYPTION FAULT') {
           final Map<String, dynamic> access = jsonDecode(accessJson);
-          final String reEncrypted =
-              await CryptoEngine.encryptProcess(accessJson, newPinHash);
-          final String? hwWrapped = await CryptoEngine.hardwareWrap(reEncrypted,
-              keyAlias: CryptoEngine.githubTokenKeyAlias);
-          await settingsBox.put(
-              'github_access_encrypted', hwWrapped ?? reEncrypted);
+          final String reEncrypted = await CryptoEngine.encryptProcess(accessJson, newPinHash);
+          final String? hwWrapped = await CryptoEngine.hardwareWrap(reEncrypted, keyAlias: CryptoEngine.githubTokenKeyAlias);
+          await settingsBox.put('github_access_encrypted', hwWrapped ?? reEncrypted);
 
           if (!context.mounted) return;
-          final List<String>? mnemonicWords =
-              await _promptMnemonicRecovery(context);
+          final List<String>? mnemonicWords = await _promptMnemonicRecovery(context);
           if (mnemonicWords != null) {
-            final Map<String, String> rewrapped =
-                await CryptoEngine.wrapDeviceKey(
+            final Map<String, String> rewrapped = await CryptoEngine.wrapDeviceKey(
               authSaltBytes: authSalt,
               password: newPassword,
               mnemonicWords: mnemonicWords,
             );
 
             try {
-              final service = GithubBackupService(
-                  token: access['token'], repoPath: access['repo']);
-              await service.amendSync(
-                  upsertFiles: {'device_key.json': jsonEncode(rewrapped)},
-                  message: 'password rotation');
+              final service = GithubBackupService(token: access['token'], repoPath: access['repo']);
+              await service.amendSync(upsertFiles: {'device_key.json': jsonEncode(rewrapped)}, message: 'password rotation');
               await settingsBox.put('device_key_owned_repo', access['repo']);
-            } catch (_) {}
+            } catch (_) {
+            }
           }
         }
-      } catch (_) {}
+      } catch (_) {
+      }
     }
 
     if (context.mounted) {
-      _showAcknowledgeDialog(context, 'PASSWORD UPDATED',
-          'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.');
+      _showAcknowledgeDialog(context, 'PASSWORD UPDATED', 'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.');
     }
   }
 
@@ -1789,21 +1483,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   const Text(
                     'SYSTEM DESTRUCTION WARNING',
-                    style: TextStyle(
-                        color: Color(0xFFEF4444),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
+                    style: TextStyle(color: Color(0xFFEF4444), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'THIS PROCESS IS NOT REVERSIBLE. ALL ENCRYPTED FILES WILL BE PERMANENTLY REMOVED.',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        height: 1.5,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -1812,18 +1497,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       InkWell(
                         onTap: () => Navigator.pop(context),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                           decoration: BoxDecoration(
-                            border: Border.all(
-                                color: theme.dialogBorderColor, width: 0.8),
+                            border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                           ),
                           child: Text(
                             'NO',
                             style: TextStyle(
-                              color: isDark
-                                  ? const Color(0xFF888888)
-                                  : const Color(0xFF525252),
+                              color: isDark ? const Color(0xFF888888) : const Color(0xFF525252),
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                             ),
@@ -1836,33 +1517,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           Navigator.pop(context);
 
                           final currentItems = ref.read(localDatabaseProvider);
-                          final targetsToPurge = currentItems
-                              .where((item) => item.type == 'encrypted_note')
-                              .toList();
+                          final targetsToPurge = currentItems.where((item) => item.type == 'encrypted_note').toList();
 
                           for (var target in targetsToPurge) {
-                            await ref
-                                .read(localDatabaseProvider.notifier)
-                                .deleteItem(target.id);
+                            await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
                           }
 
                           final settingsBox = Hive.box(_boxName);
                           await settingsBox.delete('system_crypto_pin');
-                          await settingsBox
-                              .delete('last_active_crypto_pin_snapshot');
+                          await settingsBox.delete('last_active_crypto_pin_snapshot');
                           await settingsBox.delete('github_access_encrypted');
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 6),
-                          decoration:
-                              const BoxDecoration(color: Color(0xFFEF4444)),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          decoration: const BoxDecoration(color: Color(0xFFEF4444)),
                           child: const Text(
                             'YES',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold),
+                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -1883,8 +1554,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final String? globalPin = settingsBox.get('system_crypto_pin');
 
     if (globalPin == null || globalPin.isEmpty) {
-      _showStatusDialog(context, 'PASSWORD REQUIRED',
-          'SET THE CRYPTOGRAPHY ACCESS PASSWORD FIRST BEFORE STORING A GITHUB TOKEN.');
+      _showStatusDialog(context, 'PASSWORD REQUIRED', 'SET THE CRYPTOGRAPHY ACCESS PASSWORD FIRST BEFORE STORING A GITHUB TOKEN.');
       return;
     }
 
@@ -1934,8 +1604,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
+                    border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1944,9 +1613,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       Text(
                         displayHeaderTitle,
                         style: TextStyle(
-                          color: (hasPinFailed || lockStringStatus != null)
-                              ? const Color(0xFFEF4444)
-                              : theme.textMain,
+                          color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 0.05,
@@ -1968,8 +1635,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   if (hasPinFailed) hasPinFailed = false;
                                 });
                               },
-                              decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                              decoration: const InputDecoration(counterText: '', border: InputBorder.none),
                             ),
                           ),
                           IgnorePointer(
@@ -1982,14 +1648,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                                 Color currentBoxBorderColor;
                                 if (hasPinFailed || lockStringStatus != null) {
-                                  currentBoxBorderColor =
-                                      const Color(0xFFEF4444);
+                                  currentBoxBorderColor = const Color(0xFFEF4444);
                                 } else if (isCurrentFocus) {
                                   currentBoxBorderColor = theme.textMain;
                                 } else {
-                                  currentBoxBorderColor = isFilled
-                                      ? theme.textMain.withOpacity(0.6)
-                                      : theme.dialogBorderColor;
+                                  currentBoxBorderColor = isFilled ? theme.textMain.withOpacity(0.6) : theme.dialogBorderColor;
                                 }
 
                                 return Container(
@@ -2000,25 +1663,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     color: Colors.transparent,
                                     border: Border.all(
                                       color: currentBoxBorderColor,
-                                      width: isCurrentFocus ||
-                                              hasPinFailed ||
-                                              lockStringStatus != null
-                                          ? 1.2
-                                          : 0.8,
+                                      width: isCurrentFocus || hasPinFailed || lockStringStatus != null ? 1.2 : 0.8,
                                     ),
                                   ),
                                   child: isFilled
                                       ? Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: (hasPinFailed ||
-                                                    lockStringStatus != null)
-                                                ? const Color(0xFFEF4444)
-                                                : theme.textMain,
-                                          ),
-                                        )
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: (hasPinFailed || lockStringStatus != null) ? const Color(0xFFEF4444) : theme.textMain,
+                                    ),
+                                  )
                                       : const SizedBox.shrink(),
                                 );
                               }),
@@ -2033,26 +1689,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           InkWell(
                             onTap: () => Navigator.pop(context),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                              child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                           const SizedBox(width: 8),
                           InkWell(
                             onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
+                              final activeLockCheck = _checkLockoutViolation(settingsBox);
                               if (activeLockCheck != null) {
                                 setDialogState(() {
                                   lockStringStatus = activeLockCheck;
@@ -2060,66 +1705,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 return;
                               }
 
-                              final bool isPinValid = await CryptoEngine
-                                  .verifyPinWithHardwareBinding(
-                                      pinVerifyController.text, globalPin);
+                              final bool isPinValid = await CryptoEngine.verifyPinWithHardwareBinding(pinVerifyController.text, globalPin);
 
                               if (isPinValid) {
-                                final String rawPassword =
-                                    pinVerifyController.text;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
+                                final String rawPassword = pinVerifyController.text;
+                                await settingsBox.put('secure_failed_attempts', 0);
+                                await settingsBox.put('secure_lockout_until', 0);
 
                                 if (!context.mounted) return;
                                 Navigator.pop(context);
                                 if (!screenContext.mounted) return;
-                                await _openGithubAccessDialog(
-                                    screenContext, globalPin, rawPassword);
+                                await _openGithubAccessDialog(screenContext, globalPin, rawPassword);
                               } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
+                                int attempts = settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1;
+                                await settingsBox.put('secure_failed_attempts', attempts);
 
                                 bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
+                                int penaltyDurationSeconds = flagWipeConditionTriggered
+                                    ? 0
+                                    : CryptoEngine.lockoutSecondsForAttempt(attempts);
 
                                 if (flagWipeConditionTriggered) {
                                   await _purgeEncryptedNotesOnBruteForce();
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'secure_lockout_until', 0);
+                                  await settingsBox.put('secure_failed_attempts', 0);
+                                  await settingsBox.put('secure_lockout_until', 0);
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  _showAcknowledgeDialog(
-                                      screenContext,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
+                                  _showAcknowledgeDialog(screenContext, 'SECURITY COMPLIANCE AUDIT', 'DATA PURGED PERMANENTLY.');
                                   return;
                                 }
 
                                 if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
+                                  final int unlockTimestampMillis = DateTime.now().millisecondsSinceEpoch + (penaltyDurationSeconds * 1000);
+                                  await settingsBox.put('secure_lockout_until', unlockTimestampMillis);
                                 }
 
                                 setDialogState(() {
                                   pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
+                                  lockStringStatus = _checkLockoutViolation(settingsBox);
                                   if (lockStringStatus == null) {
                                     hasPinFailed = true;
                                   }
@@ -2127,15 +1751,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               }
                             },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                               decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                              child: Text('VERIFY', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
@@ -2151,8 +1769,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ).then((_) => countdownTimer?.cancel());
   }
 
-  Future<void> _openGithubAccessDialog(
-      BuildContext context, String pinHash, String rawPassword) async {
+  Future<void> _openGithubAccessDialog(BuildContext context, String pinHash, String rawPassword) async {
     final settingsBox = Hive.box(_boxName);
     final String? accessBlob = settingsBox.get('github_access_encrypted');
 
@@ -2161,34 +1778,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     if (accessBlob != null) {
       try {
-        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(
-            accessBlob,
-            keyAlias: CryptoEngine.githubTokenKeyAlias);
-        final String decoded = await CryptoEngine.decryptProcess(
-            unwrappedForRead ?? accessBlob, pinHash);
+        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(accessBlob, keyAlias: CryptoEngine.githubTokenKeyAlias);
+        final String decoded = await CryptoEngine.decryptProcess(unwrappedForRead ?? accessBlob, pinHash);
         final Map<String, dynamic> access = jsonDecode(decoded);
         initialToken = (access['token'] ?? '').toString();
         initialRepo = (access['repo'] ?? '').toString();
-      } catch (_) {}
+      } catch (_) {
+      }
     }
 
     if (!context.mounted) return;
-    _showGithubAccessDialog(context, pinHash, rawPassword,
-        initialToken: initialToken, initialRepo: initialRepo);
+    _showGithubAccessDialog(context, pinHash, rawPassword, initialToken: initialToken, initialRepo: initialRepo);
   }
 
-  void _showGithubAccessDialog(
-      BuildContext context, String pinHash, String rawPassword,
-      {String initialToken = '', String initialRepo = ''}) {
+  void _showGithubAccessDialog(BuildContext context, String pinHash, String rawPassword, {String initialToken = '', String initialRepo = ''}) {
     final BuildContext screenContext = context;
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
     final settingsBox = Hive.box(_boxName);
 
-    final TextEditingController tokenController =
-        TextEditingController(text: initialToken);
-    final TextEditingController repoController =
-        TextEditingController(text: initialRepo);
+    final TextEditingController tokenController = TextEditingController(text: initialToken);
+    final TextEditingController repoController = TextEditingController(text: initialRepo);
 
     showGeneralDialog(
       context: context,
@@ -2212,8 +1822,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   color: theme.dialogBg,
-                  border:
-                      Border.all(color: theme.dialogBorderColor, width: 0.8),
+                  border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2221,18 +1830,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   children: [
                     Text(
                       'GITHUB TOKEN STORE',
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05),
+                      style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                     ),
                     const SizedBox(height: 20),
                     TextField(
                       controller: tokenController,
                       obscureText: true,
-                      contextMenuBuilder: (context, state) =>
-                          const SizedBox.shrink(),
+                      contextMenuBuilder: (context, state) => const SizedBox.shrink(),
                       style: TextStyle(color: theme.textMain, fontSize: 13),
                       cursorColor: theme.textMain,
                       decoration: InputDecoration(
@@ -2247,8 +1851,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     const SizedBox(height: 16),
                     TextField(
                       controller: repoController,
-                      contextMenuBuilder: (context, state) =>
-                          const SizedBox.shrink(),
+                      contextMenuBuilder: (context, state) => const SizedBox.shrink(),
                       style: TextStyle(color: theme.textMain, fontSize: 13),
                       cursorColor: theme.textMain,
                       decoration: InputDecoration(
@@ -2267,19 +1870,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         InkWell(
                           onTap: () => Navigator.pop(context),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.dialogBorderColor,
-                                    width: 0.8)),
-                            child: Text('CANCEL',
-                                style: TextStyle(
-                                    color: isDark
-                                        ? const Color(0xFF888888)
-                                        : const Color(0xFF525252),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold)),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                            child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -2296,50 +1889,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             Navigator.pop(context);
                             if (!screenContext.mounted) return;
 
+                            // A tiny delay here matters: pushing a new
+                            // dialog route in the same synchronous tick as
+                            // popping the previous one can get the new
+                            // route lost while the pop is still settling -
+                            // this was why SAVING never appeared at all on
+                            // some devices. Letting one frame pass first
+                            // avoids the race.
+                            await Future.delayed(Duration.zero);
+                            if (!screenContext.mounted) return;
+
                             bool savingDialogVisible = true;
                             void closeSavingDialogIfOpen() {
-                              if (savingDialogVisible &&
-                                  screenContext.mounted) {
+                              if (savingDialogVisible && screenContext.mounted) {
                                 savingDialogVisible = false;
-                                Navigator.of(screenContext, rootNavigator: true)
-                                    .pop();
+                                Navigator.of(screenContext, rootNavigator: true).pop();
                               }
                             }
-
                             _showSavingIndicatorDialog(screenContext, isDark);
 
-                            final String payload =
-                                jsonEncode({'token': token, 'repo': repo});
-                            final String encrypted =
-                                await CryptoEngine.encryptProcess(
-                                    payload, pinHash);
-                            final String? hwWrapped =
-                                await CryptoEngine.hardwareWrap(encrypted,
-                                    keyAlias: CryptoEngine.githubTokenKeyAlias);
-                            await settingsBox.put('github_access_encrypted',
-                                hwWrapped ?? encrypted);
+                            final String payload = jsonEncode({'token': token, 'repo': repo});
+                            final String encrypted = await CryptoEngine.encryptProcess(payload, pinHash);
+                            final String? hwWrapped = await CryptoEngine.hardwareWrap(encrypted, keyAlias: CryptoEngine.githubTokenKeyAlias);
+                            await settingsBox.put('github_access_encrypted', hwWrapped ?? encrypted);
 
                             if (!screenContext.mounted) return;
                             await _handlePostSaveGithubSync(
-                              screenContext,
-                              token,
-                              repo,
-                              rawPassword,
-                              pinHash,
+                              screenContext, token, repo, rawPassword, pinHash,
                               pullAfterKeySetup: false,
                               onBeforeUserPrompt: closeSavingDialogIfOpen,
                             );
                             closeSavingDialogIfOpen();
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                             decoration: BoxDecoration(color: theme.textMain),
-                            child: Text('CONFIRM',
-                                style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold)),
+                            child: Text('CONFIRM', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                           ),
                         ),
                       ],
@@ -2355,22 +1940,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _handlePostSaveGithubSync(
-    BuildContext context,
-    String token,
-    String repo,
-    String rawPassword,
-    String currentPinHash, {
-    bool isExplicitRestore = false,
-    bool pullAfterKeySetup = true,
-    VoidCallback? onBeforeUserPrompt,
-  }) async {
+      BuildContext context,
+      String token,
+      String repo,
+      String rawPassword,
+      String currentPinHash, {
+        bool isExplicitRestore = false,
+        bool pullAfterKeySetup = true,
+        VoidCallback? onBeforeUserPrompt,
+      }) async {
     final service = GithubBackupService(token: token, repoPath: repo);
     final settingsBox = Hive.box(_boxName);
 
     final List<String> syncLog = [];
     void log(String msg) {
       syncLog.add(msg);
-      debugPrint(msg);
+      secureDebugLog(msg);
     }
 
     Future<void> finish(String title) async {
@@ -2398,8 +1983,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (existingDeviceKey == null) {
         log('taking first-time-setup branch');
         final Uint8List authSalt = CryptoEngine.extractAuthSalt(currentPinHash);
-        final List<String> mnemonicWords =
-            await CryptoEngine.generateMnemonic();
+        final List<String> mnemonicWords = await CryptoEngine.generateMnemonic();
         final Map<String, String> wrapped = await CryptoEngine.wrapDeviceKey(
           authSaltBytes: authSalt,
           password: rawPassword,
@@ -2428,8 +2012,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           return;
         }
         onBeforeUserPrompt?.call();
-        final List<String>? recoveredWords =
-            await _promptMnemonicRecovery(context);
+        final List<String>? recoveredWords = await _promptMnemonicRecovery(context);
         if (recoveredWords == null) {
           log('mnemonic dialog closed without submitting (cancelled or dismissed)');
           await finish('RECOVERY CANCELLED');
@@ -2440,8 +2023,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final Uint8List? unwrapped = await CryptoEngine.unwrapDeviceKey(
           wrapSalt: (existingDeviceKey['wrapSalt'] ?? '').toString(),
           wrapNonce: (existingDeviceKey['wrapNonce'] ?? '').toString(),
-          wrappedAuthSalt:
-              (existingDeviceKey['wrappedAuthSalt'] ?? '').toString(),
+          wrappedAuthSalt: (existingDeviceKey['wrappedAuthSalt'] ?? '').toString(),
           password: rawPassword,
           mnemonicWords: recoveredWords,
         );
@@ -2452,16 +2034,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           return;
         }
 
-        effectivePinHash =
-            await CryptoEngine.hashPinWithSalt(rawPassword, unwrapped);
+        effectivePinHash = await CryptoEngine.hashPinWithSalt(rawPassword, unwrapped);
         await settingsBox.put('system_crypto_pin', effectivePinHash);
-        await settingsBox.put(
-            'last_active_crypto_pin_snapshot', effectivePinHash);
+        await settingsBox.put('last_active_crypto_pin_snapshot', effectivePinHash);
         await settingsBox.put('device_key_owned_repo', repo);
 
-        final String? hwWrappedRecoveredPin = await CryptoEngine.hardwareWrap(
-            effectivePinHash,
-            keyAlias: CryptoEngine.passwordKeyAlias);
+        final String? hwWrappedRecoveredPin = await CryptoEngine.hardwareWrap(effectivePinHash, keyAlias: CryptoEngine.passwordKeyAlias);
         if (hwWrappedRecoveredPin != null) {
           await settingsBox.put('hw_wrapped_pin', hwWrappedRecoveredPin);
         } else {
@@ -2500,18 +2078,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         log('nothing to import, stopping');
         onBeforeUserPrompt?.call();
         if (isExplicitRestore && context.mounted) {
-          _showAcknowledgeDialog(context, 'BACKUP SIGN-IN SUCCESSFUL',
-              '0 NOTES FOUND IN THIS BACKUP.');
+          _showAcknowledgeDialog(context, 'BACKUP SIGN-IN SUCCESSFUL', '0 NOTES FOUND IN THIS BACKUP.');
         }
         await finish('RESTORE RESULT');
         return;
       }
 
       final notifier = ref.read(localDatabaseProvider.notifier);
-      final List<CaptureItem> currentBackedUpItems = ref
-          .read(localDatabaseProvider)
-          .where((item) => item.backupEnabled)
-          .toList();
+      final List<CaptureItem> currentBackedUpItems =
+      ref.read(localDatabaseProvider).where((item) => item.backupEnabled).toList();
       log('deleting ${currentBackedUpItems.length} existing local backup-enabled notes first');
       for (final item in currentBackedUpItems) {
         await notifier.deleteItem(item.id);
@@ -2521,17 +2096,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       int importedCount = 0;
       for (final fileName in filesToImport) {
         try {
-          final Map<String, dynamic>? data =
-              await service.fetchNoteFile(fileName);
+          final Map<String, dynamic>? data = await service.fetchNoteFile(fileName);
           log('fetched "$fileName" -> ${data == null ? "NULL" : "OK"}');
           if (data == null) continue;
 
           final String salt = (data['salt'] ?? '').toString();
           final String nonce = (data['nonce'] ?? '').toString();
           final String cyphertext = (data['cyphertext'] ?? '').toString();
-          final String title = fileName.endsWith('.json')
-              ? fileName.substring(0, fileName.length - 5)
-              : fileName;
+          final String title = fileName.endsWith('.json') ? fileName.substring(0, fileName.length - 5) : fileName;
 
           String content;
           String type;
@@ -2540,18 +2112,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             type = 'note';
             log('"$fileName" is plaintext, title="$title"');
           } else {
-            final String merged =
-                CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
-            final String testDecrypt =
-                await CryptoEngine.decryptProcess(merged, effectivePinHash);
+            final String merged = CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
+            final String testDecrypt = await CryptoEngine.decryptProcess(merged, effectivePinHash);
             log('"$fileName" decrypt: ${testDecrypt == "DECRYPTION FAULT" ? "FAULT" : "OK"}');
             if (testDecrypt == 'DECRYPTION FAULT') continue;
             content = merged;
             type = 'encrypted_note';
           }
 
-          final bool inserted = await notifier.insertItem(content, type,
-              title: title, backupEnabled: true);
+          final bool inserted = await notifier.insertItem(content, type, title: title, backupEnabled: true);
           log('insertItem "$title" -> $inserted');
           if (inserted) importedCount++;
         } catch (e) {
@@ -2563,15 +2132,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       log('done, importedCount=$importedCount');
       onBeforeUserPrompt?.call();
       if (context.mounted) {
-        _showAcknowledgeDialog(context, 'RESTORE COMPLETE',
-            'IMPORTED $importedCount NOTE(S) FROM BACKUP.');
+        _showAcknowledgeDialog(context, 'RESTORE COMPLETE', 'IMPORTED $importedCount NOTE(S) FROM BACKUP.');
       }
       await finish('RESTORE RESULT');
     } catch (e, stackTrace) {
       syncLog.add('UNCAUGHT EXCEPTION: $e');
       syncLog.add('STACK TRACE: $stackTrace');
-      debugPrint('SYNC UNCAUGHT EXCEPTION: $e');
-      debugPrint('$stackTrace');
+      secureDebugLog('SYNC UNCAUGHT EXCEPTION: $e');
+      secureDebugLog('$stackTrace');
       onBeforeUserPrompt?.call();
       if (isExplicitRestore && context.mounted) {
         _showDiagnosticLogDialog(context, 'SYNC ERROR', syncLog);
@@ -2579,6 +2147,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  // Non-dismissible loading indicator shown while token/repo/recovery data
+  // is actually being written to local storage and pushed to GitHub - the
+  // whole point is that background tapping does nothing here, matching the
+  // same protection as the rest of this setup flow.
   void _showSavingIndicatorDialog(BuildContext context, bool isDark) {
     final theme = SettingsUiTheme(isDark);
 
@@ -2598,8 +2170,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   color: theme.dialogBg,
-                  border:
-                      Border.all(color: theme.dialogBorderColor, width: 0.8),
+                  border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -2607,17 +2178,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: theme.textMain),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: theme.textMain),
                     ),
                     const SizedBox(width: 14),
                     Text(
                       'SAVING...',
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05),
+                      style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                     ),
                   ],
                 ),
@@ -2629,8 +2195,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showDiagnosticLogDialog(
-      BuildContext context, String title, List<String> log) {
+  void _showDiagnosticLogDialog(BuildContext context, String title, List<String> log) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
 
@@ -2655,19 +2220,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05)),
+                  Text(title, style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05)),
                   const SizedBox(height: 12),
                   Flexible(
                     child: SingleChildScrollView(
                       child: Text(
                         log.isEmpty ? 'NO LOG ENTRIES' : log.join('\n'),
-                        style: TextStyle(
-                            color: theme.textSub, fontSize: 10, height: 1.5),
+                        style: TextStyle(color: theme.textSub, fontSize: 10, height: 1.5),
                       ),
                     ),
                   ),
@@ -2681,10 +2240,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: Text(
                         'CLOSE',
                         textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: isDark ? Colors.black : Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold),
+                        style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -2697,8 +2253,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<void> _showMnemonicDisplayDialog(
-      BuildContext context, List<String> words) async {
+
+  Future<void> _showMnemonicDisplayDialog(BuildContext context, List<String> words) async {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
 
@@ -2718,8 +2274,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   color: theme.dialogBg,
-                  border:
-                      Border.all(color: theme.dialogBorderColor, width: 0.8),
+                  border: Border.all(color: theme.dialogBorderColor, width: 0.8),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2727,20 +2282,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   children: [
                     Text(
                       'RECOVERY PHRASE',
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05),
+                      style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.05),
                     ),
                     const SizedBox(height: 12),
                     const Text(
                       'WRITE THESE 12 WORDS DOWN ON PAPER OR A TRUSTED DEVICE. THEY WILL NEVER BE SHOWN AGAIN.',
-                      style: TextStyle(
-                          color: Color(0xFFEF4444),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          height: 1.4),
+                      style: TextStyle(color: Color(0xFFEF4444), fontSize: 9, fontWeight: FontWeight.w600, height: 1.4),
                     ),
                     const SizedBox(height: 16),
                     _buildMnemonicWordRow(words.sublist(0, 6), theme),
@@ -2753,15 +2300,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         InkWell(
                           onTap: () => Navigator.pop(context),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                             decoration: BoxDecoration(color: theme.textMain),
                             child: Text(
                               'I HAVE WRITTEN THIS DOWN',
-                              style: TextStyle(
-                                  color: isDark ? Colors.black : Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold),
+                              style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ),
@@ -2784,15 +2327,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: Container(
             margin: EdgeInsets.only(right: i == 5 ? 0 : 4),
             padding: const EdgeInsets.symmetric(vertical: 6),
-            decoration: BoxDecoration(
-                border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+            decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
             alignment: Alignment.center,
             child: Text(
               words[i],
-              style: TextStyle(
-                  color: theme.textMain,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600),
+              style: TextStyle(color: theme.textMain, fontSize: 9, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -2802,8 +2341,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   String? _checkMnemonicLockout(Box settingsBox) {
-    final int lockoutUntil =
-        settingsBox.get('mnemonic_lockout_until', defaultValue: 0);
+    final int lockoutUntil = settingsBox.get('mnemonic_lockout_until', defaultValue: 0);
     final int currentTime = DateTime.now().millisecondsSinceEpoch;
 
     if (lockoutUntil > currentTime) {
@@ -2818,8 +2356,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final theme = SettingsUiTheme(isDark);
     final settingsBox = Hive.box(_boxName);
 
-    final List<TextEditingController> controllers =
-        List.generate(12, (_) => TextEditingController());
+    final List<TextEditingController> controllers = List.generate(12, (_) => TextEditingController());
     final List<FocusNode> focusNodes = List.generate(12, (_) => FocusNode());
     String? lockStringStatus = _checkMnemonicLockout(settingsBox);
     bool showValidationError = false;
@@ -2865,9 +2402,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     decoration: BoxDecoration(
                       color: theme.dialogBg,
                       border: Border.all(
-                        color: showValidationError
-                            ? const Color(0xFF5F0E0D)
-                            : theme.dialogBorderColor,
+                        color: showValidationError ? const Color(0xFF5F0E0D) : theme.dialogBorderColor,
                         width: showValidationError ? 1.4 : 0.8,
                       ),
                     ),
@@ -2878,9 +2413,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         Text(
                           lockStringStatus ?? 'ENTER 12-WORD RECOVERY PHRASE',
                           style: TextStyle(
-                            color: locked
-                                ? const Color(0xFFEF4444)
-                                : theme.textMain,
+                            color: locked ? const Color(0xFFEF4444) : theme.textMain,
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.05,
@@ -2913,89 +2446,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             InkWell(
                               onTap: () => Navigator.pop(context, null),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                    border: Border.all(
-                                        color: theme.dialogBorderColor,
-                                        width: 0.8)),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
                                 child: Text(
                                   'CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold),
+                                  style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 8),
                             InkWell(
                               onTap: () async {
-                                final activeLock =
-                                    _checkMnemonicLockout(settingsBox);
+                                final activeLock = _checkMnemonicLockout(settingsBox);
                                 if (activeLock != null) {
-                                  setDialogState(
-                                      () => lockStringStatus = activeLock);
+                                  setDialogState(() => lockStringStatus = activeLock);
                                   return;
                                 }
 
-                                final List<String> words = controllers
-                                    .map((c) => c.text.trim().toLowerCase())
-                                    .toList();
-                                final bool allFilled =
-                                    words.every((w) => w.isNotEmpty);
-                                final bool allKnown = allFilled &&
-                                    words.every((w) =>
-                                        CryptoEngine.isValidMnemonicWord(w));
-                                final bool checksumOk = allKnown &&
-                                    await CryptoEngine.validateMnemonicChecksum(
-                                        words);
+                                final List<String> words = controllers.map((c) => c.text.trim().toLowerCase()).toList();
+                                final bool allFilled = words.every((w) => w.isNotEmpty);
+                                final bool allKnown = allFilled && words.every((w) => CryptoEngine.isValidMnemonicWord(w));
+                                final bool checksumOk = allKnown && await CryptoEngine.validateMnemonicChecksum(words);
 
                                 if (checksumOk) {
-                                  await settingsBox.put(
-                                      'mnemonic_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'mnemonic_lockout_until', 0);
+                                  await settingsBox.put('mnemonic_failed_attempts', 0);
+                                  await settingsBox.put('mnemonic_lockout_until', 0);
                                   if (!context.mounted) return;
                                   Navigator.pop(context, words);
                                 } else {
-                                  int attempts = settingsBox.get(
-                                          'mnemonic_failed_attempts',
-                                          defaultValue: 0) +
-                                      1;
-                                  await settingsBox.put(
-                                      'mnemonic_failed_attempts', attempts);
-                                  final int penalty =
-                                      CryptoEngine.lockoutSecondsForAttempt(
-                                          attempts);
+                                  int attempts = settingsBox.get('mnemonic_failed_attempts', defaultValue: 0) + 1;
+                                  await settingsBox.put('mnemonic_failed_attempts', attempts);
+                                  final int penalty = CryptoEngine.lockoutSecondsForAttempt(attempts);
                                   if (penalty > 0) {
                                     await settingsBox.put(
                                       'mnemonic_lockout_until',
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          penalty * 1000,
+                                      DateTime.now().millisecondsSinceEpoch + penalty * 1000,
                                     );
                                   }
                                   setDialogState(() {
                                     showValidationError = true;
-                                    lockStringStatus =
-                                        _checkMnemonicLockout(settingsBox);
+                                    lockStringStatus = _checkMnemonicLockout(settingsBox);
                                   });
                                 }
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration:
-                                    BoxDecoration(color: theme.textMain),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(color: theme.textMain),
                                 child: Text(
                                   'COMMIT',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold),
+                                  style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ),
@@ -3020,21 +2519,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _mnemonicFieldRow(
-    List<TextEditingController> rowControllers,
-    List<FocusNode> rowFocusNodes,
-    int startIndex,
-    SettingsUiTheme theme,
-    void Function(void Function()) setDialogState,
-    bool enabled, {
-    required void Function() onFieldEdited,
-  }) {
+      List<TextEditingController> rowControllers,
+      List<FocusNode> rowFocusNodes,
+      int startIndex,
+      SettingsUiTheme theme,
+      void Function(void Function()) setDialogState,
+      bool enabled, {
+        required void Function() onFieldEdited,
+      }) {
     return Row(
       children: List.generate(6, (i) {
         final TextEditingController controller = rowControllers[i];
         final FocusNode focusNode = rowFocusNodes[i];
         final String word = controller.text.trim().toLowerCase();
-        final bool isUnknown =
-            word.isNotEmpty && !CryptoEngine.isValidMnemonicWord(word);
+        final bool isUnknown = word.isNotEmpty && !CryptoEngine.isValidMnemonicWord(word);
         final int globalIndex = startIndex + i;
 
         return Expanded(
@@ -3050,8 +2548,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 if (value.contains(' ')) {
                   final String stripped = value.replaceAll(' ', '');
                   controller.text = stripped;
-                  controller.selection =
-                      TextSelection.collapsed(offset: stripped.length);
+                  controller.selection = TextSelection.collapsed(offset: stripped.length);
                   if (globalIndex < 11) {
                     focusNode.nextFocus();
                   } else {
@@ -3063,22 +2560,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               style: TextStyle(color: theme.textMain, fontSize: 10),
               decoration: InputDecoration(
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                 hintText: '${startIndex + i + 1}',
                 hintStyle: TextStyle(color: theme.textSub, fontSize: 9),
                 enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(
-                      color: isUnknown
-                          ? const Color(0xFF5F0E0D)
-                          : theme.dialogBorderColor,
-                      width: isUnknown ? 1.2 : 0.8),
+                  borderSide: BorderSide(color: isUnknown ? const Color(0xFF5F0E0D) : theme.dialogBorderColor, width: isUnknown ? 1.2 : 0.8),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(
-                      color:
-                          isUnknown ? const Color(0xFF5F0E0D) : theme.textMain,
-                      width: 1.2),
+                  borderSide: BorderSide(color: isUnknown ? const Color(0xFF5F0E0D) : theme.textMain, width: 1.2),
                 ),
               ),
             ),
@@ -3088,16 +2577,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showSlidingPanel(
-      BuildContext context, String title, List<Widget> children, bool isDark) {
+  void _showSlidingPanel(BuildContext context, String title, List<Widget> children, bool isDark) {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         pageBuilder: (context, animation, secondaryAnimation) {
           final panelBg = isDark ? const Color(0xFF0A0A0A) : Colors.white;
           final textMain = isDark ? Colors.white : Colors.black;
-          final borderColor =
-              isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+          final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
 
           return Scaffold(
             backgroundColor: Colors.transparent,
@@ -3129,11 +2616,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     child: Container(
                                       padding: const EdgeInsets.all(6),
                                       decoration: BoxDecoration(
-                                        border: Border.all(
-                                            color: borderColor, width: 0.8),
+                                        border: Border.all(color: borderColor, width: 0.8),
                                       ),
-                                      child: Icon(Icons.arrow_back,
-                                          size: 14, color: textMain),
+                                      child: Icon(Icons.arrow_back, size: 14, color: textMain),
                                     ),
                                   ),
                                   const SizedBox(width: 14),
@@ -3149,8 +2634,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ],
                               ),
                             ),
-                            Divider(
-                                color: borderColor, height: 1, thickness: 0.8),
+                            Divider(color: borderColor, height: 1, thickness: 0.8),
+
                             Expanded(
                               child: ListView(
                                 physics: const ClampingScrollPhysics(),
@@ -3172,8 +2657,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const begin = Offset(1.0, 0.0);
           const end = Offset.zero;
           const curve = Curves.fastOutSlowIn;
-          var tween =
-              Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
           return SlideTransition(
             position: animation.drive(tween),
             child: child,
@@ -3208,11 +2692,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(
                     title,
-                    style: TextStyle(
-                        color: textMain,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.03),
+                    style: TextStyle(color: textMain, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.03),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -3231,8 +2711,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Widget _buildInfoSection(
-      String header, String body, Color textMain, Color textSub) {
+  Widget _buildInfoSection(String header, String body, Color textMain, Color textSub) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 24.0),
       child: Column(
@@ -3240,11 +2719,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           Text(
             header,
-            style: TextStyle(
-                color: textMain,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.05),
+            style: TextStyle(color: textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.05),
           ),
           const SizedBox(height: 6),
           Text(
@@ -3256,6 +2731,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  // Same strikethrough-grows-in animation as the to-do list's task
+  // completion (Stack + TweenAnimationBuilder + ClipRect/widthFactor):
+  // the red "unmet" label sits underneath permanently, and a green
+  // strikethrough copy grows left-to-right over it as the rule becomes
+  // satisfied, and shrinks back if the password changes and no longer
+  // meets it.
   Widget _buildPasswordRequirementRow(String label, bool satisfied) {
     const unmetColor = Color(0xFFEF4444);
     const metColor = Color(0xFF22C55E);
@@ -3265,20 +2746,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('· ',
-              style: TextStyle(
-                  color: unmetColor, fontSize: 9, fontWeight: FontWeight.w500)),
+          const Text('· ', style: TextStyle(color: unmetColor, fontSize: 9, fontWeight: FontWeight.w500)),
           Expanded(
             child: Stack(
               alignment: Alignment.centerLeft,
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
-                      color: unmetColor,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.02),
+                  style: const TextStyle(color: unmetColor, fontSize: 9, fontWeight: FontWeight.w500, letterSpacing: 0.02),
                 ),
                 TweenAnimationBuilder<double>(
                   tween: Tween<double>(begin: 0.0, end: satisfied ? 1.0 : 0.0),
@@ -3313,11 +2788,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             scale: satisfied ? 1.0 : 0.0,
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOutBack,
-            child: const Text('✓',
-                style: TextStyle(
-                    color: metColor,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold)),
+            child: const Text('✓', style: TextStyle(color: metColor, fontSize: 10, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -3338,13 +2809,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           children: [
             Text(
               'SYSTEM SETTINGS',
-              style: TextStyle(
-                  color: theme.textMain,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.02),
+              style: TextStyle(color: theme.textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
             ),
             const SizedBox(height: 24),
+
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -3359,11 +2827,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [
                       Text(
                         'DARK INTERFACE',
-                        style: TextStyle(
-                            color: theme.textMain,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.05),
+                        style: TextStyle(color: theme.textMain, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.05),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -3372,6 +2836,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                   ),
+
                   GestureDetector(
                     onTap: () {
                       ref.read(themeProvider.notifier).toggleTheme();
@@ -3382,17 +2847,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       height: 24,
                       padding: const EdgeInsets.all(3),
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF1A1A1A)
-                            : const Color(0xFFDDDDDD),
-                        border: Border.all(
-                            color: theme.mainBorderColor, width: 0.8),
+                        color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFDDDDDD),
+                        border: Border.all(color: theme.mainBorderColor, width: 0.8),
                       ),
                       child: AnimatedAlign(
                         duration: const Duration(milliseconds: 120),
-                        alignment: isDark
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
+                        alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
                         child: Container(
                           width: 16,
                           height: 16,
@@ -3406,13 +2866,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
             ),
+
             const SizedBox(height: 12),
+
             ValueListenableBuilder(
-              valueListenable:
-                  Hive.box(_boxName).listenable(keys: ['system_crypto_pin']),
+              valueListenable: Hive.box(_boxName).listenable(keys: ['system_crypto_pin']),
               builder: (context, Box box, _) {
-                final String currentPin =
-                    box.get('system_crypto_pin', defaultValue: '');
+                final String currentPin = box.get('system_crypto_pin', defaultValue: '');
 
                 return _buildMenuTile(
                   title: 'CRYPTOGRAPHIC ACCESS PASSWORD',
@@ -3420,9 +2880,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ? 'SETUP REQUIRED // 8-CHARACTER SECURITY KEY'
                       : 'ACTIVE // MODIFY SECURE TERMINAL DEPLOYMENT KEY',
                   textMain: theme.textMain,
-                  textSub: currentPin.isEmpty
-                      ? const Color(0xFFEF4444)
-                      : theme.textSub,
+                  textSub: currentPin.isEmpty ? const Color(0xFFEF4444) : theme.textSub,
                   borderColor: theme.mainBorderColor,
                   onTap: () {
                     if (currentPin.isEmpty) {
@@ -3434,13 +2892,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 );
               },
             ),
+
             const SizedBox(height: 12),
+
             ValueListenableBuilder(
-              valueListenable: Hive.box(_boxName)
-                  .listenable(keys: ['github_access_encrypted']),
+              valueListenable: Hive.box(_boxName).listenable(keys: ['github_access_encrypted']),
               builder: (context, Box box, _) {
-                final bool githubReady =
-                    box.get('github_access_encrypted') != null;
+                final bool githubReady = box.get('github_access_encrypted') != null;
 
                 return _buildMenuTile(
                   title: 'GITHUB TOKEN STORE',
@@ -3448,14 +2906,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ? 'ACTIVE // MODIFY REPOSITORY BACKUP CREDENTIALS'
                       : 'SETUP REQUIRED // FINE-GRAINED TOKEN + REPOSITORY',
                   textMain: theme.textMain,
-                  textSub:
-                      githubReady ? theme.textSub : const Color(0xFFEF4444),
+                  textSub: githubReady ? theme.textSub : const Color(0xFFEF4444),
                   borderColor: theme.mainBorderColor,
                   onTap: () => _promptGithubAccessChallenge(context),
                 );
               },
             ),
+
             const SizedBox(height: 12),
+
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -3468,11 +2927,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(
                     'DATA UTILITIES',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.02),
+                    style: TextStyle(color: theme.textMain, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -3488,18 +2943,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             decoration: BoxDecoration(
-                              border: Border.all(
-                                  color: theme.mainBorderColor, width: 0.8),
+                              border: Border.all(color: theme.mainBorderColor, width: 0.8),
                               color: isDark ? Colors.white : Colors.black,
                             ),
                             alignment: Alignment.center,
                             child: Text(
                               'EXPORT BACKUP',
-                              style: TextStyle(
-                                  color: isDark ? Colors.black : Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.02),
+                              style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02),
                             ),
                           ),
                         ),
@@ -3511,18 +2961,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             decoration: BoxDecoration(
-                              border:
-                                  Border.all(color: theme.textMain, width: 0.8),
+                              border: Border.all(color: theme.textMain, width: 0.8),
                               color: Colors.transparent,
                             ),
                             alignment: Alignment.center,
                             child: Text(
                               'RESTORE BACKUP',
-                              style: TextStyle(
-                                  color: theme.textMain,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.02),
+                              style: TextStyle(color: theme.textMain, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.02),
                             ),
                           ),
                         ),
@@ -3532,7 +2977,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
             ),
+
             Divider(color: theme.mainBorderColor, thickness: 0.8),
+
             _buildMenuTile(
               title: 'USER GUIDE',
               subtitle: 'Overview of system infrastructure panels',
@@ -3546,42 +2993,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _buildInfoSection(
                       '01 // SYSTEM ROOT ENGINE',
                       'Initializes global asynchronous reactive state loops using Riverpod. It maps runtime dependencies directly upon app activation and tracks low-level mutations securely. Bypasses persistent disk hangs via strict corruption validation parameters, completely ensuring zero structural app freezing or unhandled memory loops.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '02 // GATEWAY LAYER (SPLASH SCREEN)',
                       'Handles high-performance layout warm-ups during frame construction phases. Intercepts the primary platform loading sequence, executing an isolated 2-second linear opacity rendering track (Fade -> Visual Suspension -> Purge) that seamlessly aligns the system layout context with your previous light or dark UI settings to eradicate aggressive boot-flash anomalies completely.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '03 // STRUCTURAL HUB NAVIGATION',
                       'A streamlined typography-focused matrix navigation track that maps layout views safely. Built with absolute override layout parameters that dictate viewport allocation during active software keyboard states. Instead of forcing physical view compression or breaking cross-axis element alignments, incoming OS input windows act as smooth layer overlays.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '04 // MATRIX TIMELINE COMPONENT',
                       'Renders a massive, low-fatigue 13-column structural layout tracking 365 daily block elements simultaneously. Darkened tracking indicators pinpoint precise historical data allocation slots, while empty slots define exact leftover capacity indexes inside the current runtime period.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '05 // QUICKNOTE SANDBOX MODULE',
                       'Employs an anti-collapse scrolling viewport configuration tied directly to explicit layout boundaries and custom constraints. This forces live character generation streams to dynamically recalculate remaining box space when virtual keyboards arise, keeping active text editing targets completely visible.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '06 // INTERFACE REGULATION CONTROLS',
                       'Executes direct UI inversions via a streamlined state-toggle mechanism. Connects configuration panels into hardware-accelerated right-to-left slide transitions locked at a precise 1.0 width factor constraint. Sub-sheets completely obscure underlying layers, eliminating unnecessary drop-shadow re-renders to maximize device refresh rates.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '07 // DATA IMPORT/EXPORT SYSTEM',
                       'Features custom serialization engines that loop through application states, converting model entries into raw standardized JSON bytes. Built-in file picking mechanics handle direct filesystem interaction to securely transfer data without utilizing external cloud proxies or intermediate networks.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                 ],
                 isDark,
               ),
             ),
+
             _buildMenuTile(
               title: 'DATA SECURITY',
               subtitle: 'Information encryption & local cache schemas',
@@ -3595,42 +3043,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _buildInfoSection(
                       '01 // STORAGE PIPELINE (NOSQL ENGINE)',
                       'Rocen avoids slow, heavy relational SQL frameworks entirely. The application operates exclusively on a lightning-fast NoSQL key-value architecture powered by Hive. Text strings and file indicators are encoded directly into raw binary streams written inside dedicated sandbox partitions allocated to the app hardware space.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '02 // BOX CONTAINER MATRIX',
                       'Data storage blocks are separated into dedicated, context-isolated data compartments called "Boxes" (e.g., rocen_captures_box). Structural indexes replace classic relational tables, creating lightweight data access pathways that protect historical databases from schema breaking risks when fields expand.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '03 // MEMORY-FIRST BUFFER PIPELINE',
                       'Data structures are loaded straight into fast active RAM buffers during bootup. Read tasks operate directly inside this memory layer with zero disk latency. Create, update, and delete actions instantly change the cache array for direct visual updates, then stream down onto device hardware storage asynchronously.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '04 // CORRUPTION REPAIR FAILSAFE',
                       'A custom try-catch validation engine checks the integrity of database boxes during initialization. If a database interruption (like a sudden power drop) compromises data syntax, the broken data block is instantly isolated to prevent system boot loops, and initialized safely back to standard parameters.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '05 // APPLICATION PERMISSIONS OUTLINE',
                       'The application manifest explicitly excludes unnecessary network communication channels, background telemetry monitors, and analytical scrapers. Your information is physically unable to leave the system via background connection bridges.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '06 // CRYPTOGRAPHIC KEY WRAPPING',
                       'Activating the CRYPTOGRAPHIC ACCESS PASSWORD applies an isolated user verification requirement. Secure components (like encrypted_note parameters) evaluate this key matching verification block locally. Changing or deleting the security password immediately purges corresponding key-dependent items from storage to guarantee absolute protection against physical file manipulation.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                   _buildInfoSection(
                       '07 // OFF-GRID FILE EXPORT UTILITY',
                       'Backup operations run on standard local UTF-8 data conversion engines. Generated data is written to user-designated folders via a native document explorer pipeline. Raw schema text is never transmitted through background trackers or third-party data processing endpoints.',
-                      theme.textMain,
-                      theme.textSub),
+                      theme.textMain, theme.textSub
+                  ),
                 ],
                 isDark,
               ),
             ),
+
             _buildMenuTile(
               title: 'PRIVACY POLICY',
               subtitle: 'Application definitions and core manifest details',
@@ -3648,55 +3097,56 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _buildInfoSection(
                         '01 // APPLICATION DESCRIPTION',
                         'Rocen is a hyper-focused minimalist system blueprint designed to run high-utility tools without backend software bloat or visual clutter.',
-                        theme.textMain,
-                        theme.textSub),
+                        theme.textMain, theme.textSub
+                    ),
                     _buildInfoSection(
                         '02 // SYSTEM AUTHORSHIP',
                         'Engineered and assembled by Darshseraphic.',
-                        theme.textMain,
-                        theme.textSub),
+                        theme.textMain, theme.textSub
+                    ),
                     _buildInfoSection(
                         '03 // PURPOSE & DESIGN METHODOLOGY',
                         'Built to mitigate screen fatigue through a stark brutalist interface style, intentional whitespace, and highly structured typographic layouts.',
-                        theme.textMain,
-                        theme.textSub),
+                        theme.textMain, theme.textSub
+                    ),
                     _buildInfoSection(
                         '04 // DEVELOPMENT TIMELINE MATRIX',
                         'Initial core system conceptualization, wireframing, and final architecture completion finalized over a highly compressed 24-hour rapid development sprint.',
-                        theme.textMain,
-                        theme.textSub),
+                        theme.textMain, theme.textSub
+                    ),
                     _buildInfoSection(
                         '05 // ABSOLUTE ZERO DATA ACCUMULATION',
                         'This framework operates with a strict zero-telemetry policy. There are no analytics packages, usage tracking monitors, or remote crash trackers written into the codebase. No usage data, behavior, or metadata is ever collected, transmitted, or accessible to the developer, under any circumstance.',
-                        theme.textMain,
-                        theme.textSub),
+                        theme.textMain, theme.textSub
+                    ),
                     _buildInfoSection(
                         '06 // ZERO-KNOWLEDGE NETWORK ARCHITECTURE',
                         'This application is not air-gapped. A single network channel exists, used exclusively to synchronize AES-256-GCM encrypted data with a GitHub repository you own and control, over a certificate-pinned connection. No server operated by this application\'s developer ever receives, stores, or has access to your data or credentials. Disabling backup removes this channel entirely, returning the application to fully local, offline operation.',
-                        theme.textMain,
-                        theme.textSub),
+                        theme.textMain, theme.textSub
+                    ),
                     _buildInfoSection(
                         '07 // USER-OWNED STORAGE ARCHITECTURE',
                         'You retain absolute, exclusive ownership of your data files. The system cannot read, change, or access stored items outside its specific offline database context. Deleting the application instantly wipes all local cache directories from internal storage arrays.',
-                        theme.textMain,
-                        theme.textSub),
+                        theme.textMain, theme.textSub
+                    ),
                     if (hwTier != 'strongbox')
                       _buildInfoSection(
                           '08 // STRONGBOX OR TEE SUPPORT',
                           'StrongBox security is not supported on this device. App security has transitioned to the Trusted Execution Environment (TEE).',
-                          theme.textMain,
-                          theme.textSub),
+                          theme.textMain, theme.textSub
+                      ),
                     if (rooted)
                       _buildInfoSection(
                           '09 // DEVICE INTEGRITY NOTICE',
                           'THIS DEVICE APPEARS TO BE ROOTED OR MODIFIED. STANDARD OPERATING SYSTEM PROTECTIONS MAY NOT FULLY APPLY. TO COMPENSATE, THE APPLICATION HAS AUTOMATICALLY INCREASED ITS ENCRYPTION STRENGTH FOR THIS DEVICE. NO FEATURES ARE RESTRICTED.',
-                          theme.textMain,
-                          theme.textSub),
+                          theme.textMain, theme.textSub
+                      ),
                   ],
                   isDark,
                 );
               },
             ),
+
             _buildMenuTile(
               title: 'WEBSITE',
               subtitle: 'Access outward system project portals',
@@ -3705,6 +3155,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               borderColor: theme.mainBorderColor,
               onTap: _launchWebsiteUrl,
             ),
+
             _buildMenuTile(
               title: 'FEEDBACK',
               subtitle: 'Report pipeline anomalies or system logs',
@@ -3713,7 +3164,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               borderColor: theme.mainBorderColor,
               onTap: _launchFeedbackUrl,
             ),
+
             const SizedBox(height: 48),
+
             Center(
               child: Text(
                 'BUILD BY DARSHSERAPHIC',

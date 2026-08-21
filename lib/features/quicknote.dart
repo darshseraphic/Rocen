@@ -10,6 +10,13 @@ import '../core/github_backup_service.dart';
 import '../core/debug_log.dart';
 import '../main.dart';
 
+// Combines a note's title and body into one string before it's encrypted
+// (or, for unlocked-but-backed-up notes, before it's pushed as-is) for
+// GitHub sync specifically - this keeps the title out of the plaintext
+// GitHub filename entirely, since the remote filename is now a random
+// opaque id (see DatabaseNotifier.generateRemoteFileId) with zero
+// relationship to the note's content. Local storage is untouched by this -
+// it keeps encrypting/storing the body alone, exactly as before.
 const String _kTitleBodySeparator = '\u0000\u0000ROCEN_TITLE_SPLIT\u0000\u0000';
 
 String _combineTitleAndBody(String title, String body) => '$title$_kTitleBodySeparator$body';
@@ -230,6 +237,11 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
       try {
         String? remoteId = item.remoteFileId;
         if (!DatabaseNotifier.isOpaqueRemoteFileId(remoteId)) {
+          // Either this note was synced before remoteFileId existed, or it
+          // was restored via pull and ended up with a legacy title-based
+          // name - either way, it's still sitting on GitHub under a
+          // title-exposing filename. Assign it a fresh opaque id now and
+          // queue the old file for deletion once re-pushed under the new one.
           final String? legacyName = await notifier.migrateLegacyRemoteFileId(item.id);
           if (legacyName != null) legacyFilesToDelete.add(legacyName);
           final CaptureItem refreshed = ref.read(localDatabaseProvider).firstWhere((e) => e.id == item.id);
@@ -240,6 +252,10 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
         final Map<String, String> fields;
         if (item.type == 'encrypted_note') {
           if (item.pendingReviewAfterSync) {
+            // Content is already the exact combined-encrypted package from a
+            // zero-decrypt swap and hasn't been reopened since - push it
+            // through unchanged. Decrypting and re-combining here would
+            // double-embed the title inside content that already has one.
             fields = {...CryptoEngine.splitForBackup(item.content), 'timestamp': item.timestamp.toIso8601String()};
           } else {
             final String decryptedBody = await CryptoEngine.decryptProcess(item.content, globalPin);
@@ -272,6 +288,10 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
       renameFiles: Map<String, String>.from(queue['renamed']),
       message: 'refresh sync',
     );
+
+    // Mark every successfully-pushed note as caught up as of its own current
+    // timestamp - this becomes the new "last known common state" baseline
+    // for zero-decrypt conflict detection on the next pull.
     for (final pushed in pushedItems) {
       await notifier.updateItem(
         pushed.id,
@@ -318,6 +338,12 @@ class PullResult {
   PullResult({required this.syncedCount, required this.conflicts});
 }
 
+// Applies a remote note's raw (still-encrypted, for locked notes) payload
+// directly to local storage with zero decryption - a byte-level ciphertext
+// copy for locked notes, a plain string split (no cryptographic operation)
+// for unlocked ones. The note's local plaintext title is deliberately left
+// untouched; pendingReviewAfterSync marks that its content may no longer
+// match that title until the note is actually reopened.
 Future<void> _applyRemoteSwap(
     DatabaseNotifier notifier, {
       required String localId,
@@ -390,6 +416,10 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
         final CaptureItem? existing = localByRemoteId[fileName];
 
         if (existing == null) {
+          // Genuinely new note from another device - there's no local
+          // counterpart to compare against or preserve a title for, so this
+          // is the one case that still requires an actual decrypt (same as
+          // opening any note for the first time would).
           String noteTitle;
           String localReadyContent;
           if (salt.isEmpty) {
@@ -419,9 +449,16 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
 
         if (matchedIds.contains(existing.id)) continue;
         matchedIds.add(existing.id);
+
+        // Zero-decrypt three-way comparison: everything here is plain
+        // timestamp metadata, never note content.
         final DateTime? lastSynced = existing.lastSyncedTimestamp;
 
         if (lastSynced == null) {
+          // No sync history for this note yet (pre-existing note, or first
+          // pull since this tracking was added) - fall back to a simple
+          // newest-wins fast-forward rather than flagging every note as a
+          // conflict on the first run after this update.
           if (remoteTimestamp.isAfter(existing.timestamp)) {
             await _applyRemoteSwap(
               notifier, localId: existing.id, remoteFileId: fileName, remoteType: remoteType,
@@ -435,9 +472,10 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
         final bool localChanged = existing.timestamp.isAfter(lastSynced);
         final bool remoteChanged = remoteTimestamp.isAfter(lastSynced);
 
-        if (!localChanged && !remoteChanged) continue;
+        if (!localChanged && !remoteChanged) continue; // nothing to do
 
         if (!localChanged && remoteChanged) {
+          // Clean fast-forward - local hasn't diverged, safe to auto-apply.
           await _applyRemoteSwap(
             notifier, localId: existing.id, remoteFileId: fileName, remoteType: remoteType,
             salt: salt, nonce: nonce, cyphertext: cyphertext, remoteTimestamp: remoteTimestamp,
@@ -447,8 +485,13 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
         }
 
         if (localChanged && !remoteChanged) {
+          // Local is ahead; the next push will bring GitHub up to date.
           continue;
         }
+
+        // Both sides changed independently since the last known sync point -
+        // a genuine conflict. Title shown is always the LOCAL title, since
+        // the remote title is never decrypted at this stage.
         conflicts.add(NoteConflict(
           localId: existing.id,
           title: existing.title,
@@ -490,6 +533,13 @@ String _formatTimeAgo(DateTime timestamp) {
   if (diff.inDays < 30) return '${diff.inDays} DAY${diff.inDays == 1 ? '' : 'S'} AGO';
   return '${(diff.inDays / 30).floor()} MO AGO';
 }
+
+// Sync-conflict resolution dialog - only ever shown when pullAndReconcileNotes
+// found notes that exist on both this device and GitHub with genuinely
+// different content. No Cancel button by design: unchecked notes simply stay
+// as their local version (nothing happens to them), checked notes get
+// replaced with the GitHub version - either way every note ends up
+// consistent, so there's nothing a "cancel" would meaningfully undo.
 Future<void> showConflictResolutionDialog(
     BuildContext context,
     WidgetRef ref,
@@ -605,9 +655,16 @@ Future<void> showConflictResolutionDialog(
                               remoteTimestamp: c.remoteTimestamp,
                             );
                           }
+                          // Unselected conflicts are left exactly as they are -
+                          // the local version stays, nothing to do here.
                         }
 
                         if (dialogContext.mounted) Navigator.pop(dialogContext);
+
+                        // Push the final resolved state back to GitHub, so the
+                        // notes the user chose to KEEP LOCAL also overwrite
+                        // whatever was on GitHub - otherwise the very next
+                        // refresh would hit this exact same conflict again.
                         await pushAllBackupEnabledNotes(ref);
 
                         if (context.mounted) {
@@ -690,19 +747,36 @@ Future<void> performRefresh(
     }
 
     Future<void> runSync() async {
-      final String? pushError = await pushAllBackupEnabledNotes(ref);
-      if (pushError != null) throw RefreshFailure(pushError);
-
+      // PULL FIRST, THEN PUSH - this order matters. Pushing before pulling
+      // means every refresh would blindly overwrite GitHub with this
+      // device's current (possibly stale) copy of every note BEFORE ever
+      // checking what changed remotely - silently clobbering a newer edit
+      // from another device before pull even had a chance to see it. This
+      // was a real bug: pull second saw its own just-pushed content and
+      // reported "up to date" even when another device's change had
+      // existed on GitHub moments earlier.
       onPhase?.call('DECRYPT');
       final PullResult? result = await pullAndReconcileNotes(ref);
       if (result == null) throw RefreshFailure('COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
 
-      onPhase?.call('SUCCESS');
-
       if (result.conflicts.isNotEmpty) {
+        // Hand off to the conflict dialog outside the network timeout below -
+        // this is now waiting on a human decision, not a network call. The
+        // dialog pushes the resolved state itself once the user decides, so
+        // no push happens here - pushing now, before conflicts are
+        // resolved, would risk re-clobbering the exact changes pull just
+        // found.
         pendingConflicts = result.conflicts;
         return;
       }
+
+      // No conflicts - safe to push any local-only changes (new notes, or
+      // notes edited locally where remote was untouched) now that pull has
+      // already reconciled anything that came from elsewhere first.
+      final String? pushError = await pushAllBackupEnabledNotes(ref);
+      if (pushError != null) throw RefreshFailure(pushError);
+
+      onPhase?.call('SUCCESS');
 
       if (!silent && context.mounted) {
         showAcknowledgeDialog(context, isDark, 'REFRESH COMPLETE', 'YOUR NOTES ARE UP TO DATE (${result.syncedCount} FROM BACKUP).');
@@ -730,6 +804,10 @@ Future<void> performRefresh(
     await settingsBox.put('last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
     await Future.delayed(const Duration(milliseconds: 900));
     onPhase?.call('REFRESH');
+
+    // Conflicts are surfaced regardless of `silent` - unlike the purely
+    // informational dialogs above, this requires an actual decision, so it
+    // isn't something a background/auto refresh should suppress and lose.
     if (pendingConflicts != null && pendingConflicts!.isNotEmpty && context.mounted) {
       await showConflictResolutionDialog(context, ref, isDark, pendingConflicts!);
     }
@@ -818,6 +896,12 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   }
 
   Future<void> _performTitleCheck(String title) async {
+    // Remote uniqueness can no longer be cheaply checked - GitHub filenames
+    // are now opaque random ids with no relationship to title, so there's
+    // no single targeted lookup to make. Local uniqueness (this device) is
+    // still enforced; duplicate titles across un-synced devices are now
+    // simply allowed, since each note is identified by its own stable
+    // remoteFileId regardless of title.
     final bool taken = ref.read(localDatabaseProvider.notifier).titleExists(title);
     if (mounted) setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
   }
@@ -1108,6 +1192,11 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   try {
                                     rawContent = await CryptoEngine.decryptProcess(item.content, globalPin);
                                     if (rawContent != 'DECRYPTION FAULT' && item.pendingReviewAfterSync) {
+                                      // Content was swapped in from backup without decryption during
+                                      // conflict resolution - it may still be in the combined
+                                      // title+body format used for the GitHub payload. Strip that
+                                      // back down to just the body for display/editing, and clear
+                                      // the pending flag now that the real content has been seen.
                                       rawContent = _splitTitleAndBody(rawContent).body;
                                       await ref.read(localDatabaseProvider.notifier).updateItem(
                                         item.id, item.content,
@@ -1189,6 +1278,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     try {
       decryptedContent = await CryptoEngine.decryptProcess(item.content, pin);
       if (decryptedContent != 'DECRYPTION FAULT' && item.pendingReviewAfterSync) {
+        // Same handling as the edit-open path - strip the combined
+        // title+body format back to just the body if present, and clear
+        // the pending flag now that the real content has been seen.
         decryptedContent = _splitTitleAndBody(decryptedContent).body;
         await ref.read(localDatabaseProvider.notifier).updateItem(
           item.id, item.content,
@@ -1879,6 +1971,9 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   }
 
   Future<void> _performTitleCheck(String title) async {
+    // See note in the create-note screen's _performTitleCheck - remote
+    // uniqueness is no longer cheaply checkable now that filenames are
+    // opaque, so this is local-only.
     final bool taken = ref.read(localDatabaseProvider.notifier).titleExists(title, excludingId: widget.item.id);
     if (mounted) setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
   }
@@ -2038,6 +2133,11 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 }
 
                 bool success;
+
+                // Remote filename is a stable opaque id, decoupled from
+                // title - carry the existing one forward whenever possible
+                // so a lock-status change doesn't orphan the already-synced
+                // remote file under a second, abandoned filename.
                 final String? existingRemoteId = widget.item.remoteFileId;
                 final String? remoteIdForThisSave = _isBackupEnabled
                     ? (existingRemoteId ?? DatabaseNotifier.generateRemoteFileId())
