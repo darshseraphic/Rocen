@@ -19,7 +19,8 @@ enum CaptureModule {
   const CaptureModule(this.label, this.screen);
 }
 
-final navigationProvider = StateProvider<CaptureModule>((ref) => CaptureModule.quickNote);
+final navigationProvider =
+    StateProvider<CaptureModule>((ref) => CaptureModule.quickNote);
 
 class MinimalNavbar extends ConsumerWidget {
   const MinimalNavbar({super.key});
@@ -29,7 +30,8 @@ class MinimalNavbar extends ConsumerWidget {
     final activeModule = ref.watch(navigationProvider);
     final isDark = ref.watch(themeProvider);
 
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final borderColor =
+        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
     final bgColor = isDark ? Colors.black : Colors.white;
 
     return Container(
@@ -41,7 +43,6 @@ class MinimalNavbar extends ConsumerWidget {
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: CaptureModule.values.map((module) {
           final isSelected = activeModule == module;
 
@@ -49,18 +50,24 @@ class MinimalNavbar extends ConsumerWidget {
               ? (isSelected ? Colors.white : const Color(0xFFCCCCCC))
               : (isSelected ? Colors.black : const Color(0xFF4D4D4D));
 
-          return GestureDetector(
-            onTap: () => ref.read(navigationProvider.notifier).state = module,
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-              child: Text(
-                module.label,
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                  letterSpacing: 0.05,
+          return Expanded(
+            child: GestureDetector(
+              onTap: () {
+                ref.read(navigationProvider.notifier).state = module;
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                alignment: Alignment.center,
+                child: Text(
+                  module.label,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                    letterSpacing: 0.05,
+                  ),
                 ),
               ),
             ),

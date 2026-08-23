@@ -190,45 +190,56 @@ void showAcknowledgeDialog(
   );
 }
 
-Future<void> attemptGithubSync(WidgetRef ref,
-    {Map<String, String>? upsert}) async {
+Future<bool> attemptGithubSync(
+  WidgetRef ref, {
+  Map<String, String>? upsert,
+}) async {
   try {
     final settingsBox = Hive.box('rocen_settings_box');
+
     final String? globalPin = settingsBox.get('system_crypto_pin');
+
     final String? accessBlob = settingsBox.get('github_access_encrypted');
+
     if (globalPin == null || globalPin.isEmpty || accessBlob == null) {
       secureDebugLog(
-          'GITHUB SYNC ABORTED: missing PIN or stored access blob (globalPin null/empty: ${globalPin == null || globalPin.isEmpty}, accessBlob null: ${accessBlob == null})');
-      return;
+        'GITHUB SYNC ABORTED: missing PIN or stored access blob',
+      );
+      return false;
     }
 
     final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(
-        accessBlob,
-        keyAlias: CryptoEngine.githubTokenKeyAlias);
+      accessBlob,
+      keyAlias: CryptoEngine.githubTokenKeyAlias,
+    );
+
     final String accessJson = await CryptoEngine.decryptProcess(
-        unwrappedAccessBlob ?? accessBlob, globalPin);
+      unwrappedAccessBlob ?? accessBlob,
+      globalPin,
+    );
+
     if (accessJson == 'DECRYPTION FAULT') {
-      secureDebugLog(
-          'GITHUB SYNC ABORTED: stored access blob failed to decrypt with the current PIN');
-      return;
+      return false;
     }
+
     final Map<String, dynamic> access = jsonDecode(accessJson);
+
     final String? token = access['token'] as String?;
+
     final String? repo = access['repo'] as String?;
+
     if (token == null || token.isEmpty || repo == null || repo.isEmpty) {
-      secureDebugLog(
-          'GITHUB SYNC ABORTED: token or repo field empty after decrypt (token empty: ${token == null || token.isEmpty}, repo empty: ${repo == null || repo.isEmpty})');
-      return;
+      return false;
     }
 
-    secureDebugLog(
-        'GITHUB SYNC STARTING: repo="$repo" upsertKeys=${upsert?.keys.toList()}');
+    final service = GithubBackupService(
+      token: token,
+      repoPath: repo,
+    );
 
-    final service = GithubBackupService(token: token, repoPath: repo);
     final notifier = ref.read(localDatabaseProvider.notifier);
+
     final queue = await notifier.getSyncQueue();
-    secureDebugLog(
-        'GITHUB SYNC QUEUE: deleted=${queue['deleted']} renamed=${queue['renamed']}');
 
     await service.amendSync(
       upsertFiles: upsert ?? const {},
@@ -237,10 +248,14 @@ Future<void> attemptGithubSync(WidgetRef ref,
     );
 
     await notifier.clearSyncQueue();
+
     secureDebugLog('GITHUB SYNC SUCCEEDED');
+
+    return true;
   } catch (e, stackTrace) {
     secureDebugLog('GITHUB SYNC FAILED: $e');
     secureDebugLog('$stackTrace');
+    return false;
   }
 }
 
@@ -749,6 +764,7 @@ Future<void> showConflictResolutionDialog(
   WidgetRef ref,
   bool isDark,
   List<PendingRemoteNote> pendingRemoteNotes,
+  void Function(String phase)? onPhase,
 ) async {
   final theme = SecurityUiTheme(isDark);
   final Set<String> selectedRemoteIds = {};
@@ -892,17 +908,10 @@ Future<void> showConflictResolutionDialog(
                           return;
                         }
 
-                        int addedCount = 0;
-                        int replacedCount = 0;
-
                         for (final pending in pendingRemoteNotes) {
                           // ----------------------------------------------------------
                           // UNCHECKED:
                           // Do absolutely nothing.
-                          //
-                          // Existing local note stays exactly as it is.
-                          // New remote-only note is simply discarded from the
-                          // temporary PendingRemoteNote list.
                           // ----------------------------------------------------------
                           if (!selectedRemoteIds
                               .contains(pending.remoteFileId)) {
@@ -950,7 +959,7 @@ Future<void> showConflictResolutionDialog(
                               );
                             }
 
-                            final bool inserted = await notifier.insertItem(
+                            await notifier.insertItem(
                               localReadyContent,
                               pending.remoteType,
                               title: pending.title,
@@ -959,10 +968,6 @@ Future<void> showConflictResolutionDialog(
                               timestamp: pending.remoteTimestamp,
                               lastSyncedTimestamp: pending.remoteTimestamp,
                             );
-
-                            if (inserted) {
-                              addedCount++;
-                            }
 
                             continue;
                           }
@@ -985,44 +990,39 @@ Future<void> showConflictResolutionDialog(
                             cyphertext: pending.remoteCyphertext,
                             remoteTimestamp: pending.remoteTimestamp,
                           );
-
-                          replacedCount++;
                         }
 
-                        // ------------------------------------------------------------
-                        // ALL USER CHOICES HAVE NOW BEEN APPLIED.
-                        // CLOSE THE DIALOG.
-                        // ------------------------------------------------------------
+// Close the selection dialog after applying the user's choices.
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext);
                         }
 
-                        // ------------------------------------------------------------
-                        // PUSH THE RESULTING LOCAL DATABASE STATE BACK TO GITHUB.
-                        // ------------------------------------------------------------
+// Push the resulting local state to GitHub.
                         final String? pushError =
                             await pushAllBackupEnabledNotes(ref);
 
-                        if (context.mounted) {
-                          if (pushError != null) {
+// If the cloud update failed, do not report CLEAN.
+                        if (pushError != null) {
+                          if (context.mounted) {
                             showAcknowledgeDialog(
                               context,
                               isDark,
                               'SYNC PARTIALLY COMPLETE',
-                              '$addedCount NOTE${addedCount == 1 ? '' : 'S'} ADDED, '
-                                  '$replacedCount NOTE${replacedCount == 1 ? '' : 'S'} REPLACED. '
-                                  'GITHUB UPDATE FAILED: $pushError',
-                            );
-                          } else {
-                            showAcknowledgeDialog(
-                              context,
-                              isDark,
-                              'SYNC COMPLETE',
-                              '$addedCount NOTE${addedCount == 1 ? '' : 'S'} ADDED, '
-                                  '$replacedCount NOTE${replacedCount == 1 ? '' : 'S'} REPLACED.',
+                              'GITHUB UPDATE FAILED: $pushError',
                             );
                           }
+
+                          onPhase?.call('REFRESH');
+                          return;
                         }
+
+// Local and GitHub are now synchronized.
+                        onPhase?.call('CLEAN');
+                        await Future.delayed(
+                          const Duration(milliseconds: 700),
+                        );
+
+                        onPhase?.call('REFRESH');
                       },
                       child: Container(
                         width: double.infinity,
@@ -1119,6 +1119,17 @@ Future<void> performRefresh(
 
       if (result.pendingRemoteNotes.isNotEmpty) {
         pendingRemoteNotes = result.pendingRemoteNotes;
+
+        // Tell the user that the backup contains changes
+        // requiring a decision.
+        onPhase?.call('SUCCESS');
+
+        await Future.delayed(
+          const Duration(milliseconds: 300),
+        );
+
+        onPhase?.call('CHANGE');
+
         return;
       }
 
@@ -1126,18 +1137,28 @@ Future<void> performRefresh(
       // notes edited locally where remote was untouched) now that pull has
       // already reconciled anything that came from elsewhere first.
       final String? pushError = await pushAllBackupEnabledNotes(ref);
-      if (pushError != null) throw RefreshFailure(pushError);
 
+      if (pushError != null) {
+        throw RefreshFailure(pushError);
+      }
+
+// The refresh reached the backend successfully.
       onPhase?.call('SUCCESS');
 
-      if (!silent && context.mounted) {
-        showAcknowledgeDialog(
-          context,
-          isDark,
-          'REFRESH COMPLETE',
-          'YOUR NOTES ARE UP TO DATE.',
-        );
-      }
+      await Future.delayed(
+        const Duration(milliseconds: 450),
+      );
+
+// The local database is clean and matches the resulting
+// synchronized state.
+      onPhase?.call('CLEAN');
+
+      await Future.delayed(
+        const Duration(milliseconds: 700),
+      );
+
+// Return the button to its normal state.
+      onPhase?.call('REFRESH');
     }
 
     try {
@@ -1163,12 +1184,24 @@ Future<void> performRefresh(
 
     await settingsBox.put(
         'last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
-    await Future.delayed(const Duration(milliseconds: 900));
-    onPhase?.call('REFRESH');
 
-    // Pending remote notes are surfaced regardless of `silent`...- unlike the purely
-    // informational dialogs above, this requires an actual decision, so it
-    // isn't something a background/auto refresh should suppress and lose.
+    await Future.delayed(
+      const Duration(milliseconds: 900),
+    );
+
+// Do NOT reset to REFRESH here.
+//
+// runSync() already does:
+//   CLEAN → REFRESH
+// for a clean sync.
+//
+// When changes exist, runSync() leaves the button at:
+//   CHANGE
+//
+// That CHANGE state must remain visible while the selection dialog
+// is open.
+
+// Pending remote notes are surfaced while the button still says CHANGE.
     if (pendingRemoteNotes != null &&
         pendingRemoteNotes!.isNotEmpty &&
         context.mounted) {
@@ -1177,6 +1210,7 @@ Future<void> performRefresh(
         ref,
         isDark,
         pendingRemoteNotes!,
+        onPhase,
       );
     }
   } catch (e) {
@@ -1361,46 +1395,75 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         _isBackupEnabled ? DatabaseNotifier.generateRemoteFileId() : null;
     final DateTime saveTimestamp = DateTime.now();
 
+    // Save the current editor state in case the local insert fails.
+    final String savedTitle = cleanTitle;
+    final String savedBody = cleanBody;
+    final bool savedLocked = _isNoteLocked;
+    final bool savedBackupEnabled = _isBackupEnabled;
+
+// Clear the editor BEFORE inserting into the database.
+// This prevents the new list item from appearing while the
+// old title/body are still visible in the create form.
+    _titleController.clear();
+    _bodyController.clear();
+
+    setState(() {
+      _isNoteLocked = false;
+      _isBackupEnabled = false;
+    });
+
+    FocusScope.of(context).unfocus();
+
     final bool inserted =
         await ref.read(localDatabaseProvider.notifier).insertItem(
               finalPayload,
-              _isNoteLocked ? 'encrypted_note' : 'note',
-              title: cleanTitle,
-              backupEnabled: _isBackupEnabled,
+              savedLocked ? 'encrypted_note' : 'note',
+              title: savedTitle,
+              backupEnabled: savedBackupEnabled,
               remoteFileId: generatedRemoteId,
               timestamp: saveTimestamp,
             );
 
-    if (!inserted) return;
+    if (!inserted) {
+      // Roll back the editor if the local save failed.
+      _titleController.text = savedTitle;
+      _bodyController.text = savedBody;
 
-    if (_isBackupEnabled && generatedRemoteId != null) {
-      final String combined = _combineTitleAndBody(cleanTitle, cleanBody);
-      final Map<String, String> backupFields = _isNoteLocked
+      setState(() {
+        _isNoteLocked = savedLocked;
+        _isBackupEnabled = savedBackupEnabled;
+      });
+
+      return;
+    }
+
+    if (savedBackupEnabled && generatedRemoteId != null) {
+      final String combined = _combineTitleAndBody(savedTitle, savedBody);
+
+      final Map<String, String> backupFields = savedLocked
           ? {
               ...CryptoEngine.splitForBackup(
-                  await CryptoEngine.encryptProcess(combined, globalPin!)),
-              'timestamp': saveTimestamp.toIso8601String()
+                await CryptoEngine.encryptProcess(
+                  combined,
+                  globalPin!,
+                ),
+              ),
+              'timestamp': saveTimestamp.toIso8601String(),
             }
           : {
               'salt': '',
               'nonce': '',
               'cyphertext': combined,
-              'timestamp': saveTimestamp.toIso8601String()
+              'timestamp': saveTimestamp.toIso8601String(),
             };
 
       await attemptGithubSync(
         ref,
-        upsert: {generatedRemoteId: jsonEncode(backupFields)},
+        upsert: {
+          generatedRemoteId: jsonEncode(backupFields),
+        },
       );
     }
-
-    _titleController.clear();
-    _bodyController.clear();
-    setState(() {
-      _isNoteLocked = false;
-      _isBackupEnabled = false;
-    });
-    FocusScope.of(context).unfocus();
 
     Hive.box('rocen_settings_box')
         .put('last_active_crypto_pin_snapshot', globalPin);
@@ -2768,6 +2831,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 if (_isBackupEnabled && remoteIdForThisSave != null) {
                   final String combined =
                       _combineTitleAndBody(cleanTitle, rawBody);
+
                   final Map<String, String> backupFields = _isNoteLocked
                       ? {
                           ...CryptoEngine.splitForBackup(
@@ -2782,10 +2846,21 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                           'timestamp': saveTimestamp.toIso8601String()
                         };
 
-                  await attemptGithubSync(
+                  final bool pushSucceeded = await attemptGithubSync(
                     ref,
-                    upsert: {remoteIdForThisSave: jsonEncode(backupFields)},
+                    upsert: {
+                      remoteIdForThisSave: jsonEncode(backupFields),
+                    },
                   );
+
+                  if (pushSucceeded) {
+                    await ref.read(localDatabaseProvider.notifier).updateItem(
+                          widget.item.id,
+                          contentToPersist,
+                          timestamp: saveTimestamp,
+                          lastSyncedTimestamp: saveTimestamp,
+                        );
+                  }
                 } else {
                   unawaited(attemptGithubSync(ref));
                 }
