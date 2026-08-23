@@ -10,20 +10,21 @@
 
 
 ### 01 // SYSTEM OVERVIEW & THE INTENTIONAL MANIFESTO
+
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/f262c5db-7391-420b-bc81-c4fce6db8334" alt="1" width="19%" />
-  <img src="https://github.com/user-attachments/assets/45468945-c502-431b-b4ee-1a5575e215e3" alt="2" width="19%" />
-  <img src="https://github.com/user-attachments/assets/135189e5-b788-41cf-bdca-cf01e48648ec" alt="3" width="19%" />
-  <img src="https://github.com/user-attachments/assets/1ee8289c-fb2e-471a-b63a-bbc87bccacaa" alt="4" width="19%" />
-  <img src="https://github.com/user-attachments/assets/5e36a4ce-2495-4e9a-9be3-1423ab5b3055" alt="5" width="19%" />
+  <img src="https://github.com/user-attachments/assets/ac7c9e75-db7f-457c-a05d-d32df4d0a415" alt="1" width="19%" />
+  <img src="https://github.com/user-attachments/assets/6b7889ea-d837-45b1-b1ee-c420b083e5ac" alt="2" width="19%" />
+  <img src="https://github.com/user-attachments/assets/49b676b0-daf3-4589-b237-bb23826db724" alt="3" width="19%" />
+  <img src="https://github.com/user-attachments/assets/365bafd8-1d74-4d06-82d0-f1e3edb9c99c" alt="4" width="19%" />
+  <img src="https://github.com/user-attachments/assets/294e40c6-26d1-4727-b9f3-8f63a7f61365" alt="5" width="19%" />
 </p>
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/23b540b5-a1cf-4634-bb10-7143d0e5371a" alt="7" width="19%" />
-  <img src="https://github.com/user-attachments/assets/e7f49d0a-ebf6-41f5-8486-40c7ded0f9ab" alt="8" width="19%" />
-  <img src="https://github.com/user-attachments/assets/7a4ccb62-b7eb-4ac8-b9fa-016f05352bf1" alt="9" width="19%" />
-  <img src="https://github.com/user-attachments/assets/58159733-f166-4712-bbbe-7894ed279f80" alt="10" width="19%" />
-  <img src="https://github.com/user-attachments/assets/c464635c-967b-4c3a-a3dc-a814a052e09e" alt="11" width="19%" />
+  <img src="https://github.com/user-attachments/assets/067bc278-9be9-47aa-aef6-62ce68570a50" alt="7" width="19%" />
+  <img src="https://github.com/user-attachments/assets/71640a31-b5f4-4f5c-8e49-5eb520fe6c21" alt="8" width="19%" />
+  <img src="https://github.com/user-attachments/assets/51adae50-643a-4073-8da8-b786200af3c2" alt="9" width="19%" />
+  <img src="https://github.com/user-attachments/assets/7acbc965-a3e8-4b5e-91a0-1d0aeaed86af" alt="10" width="19%" />
+  <img src="https://github.com/user-attachments/assets/ba3d0471-863a-44d2-be4b-dfa290d6dd30" alt="11" width="19%" />
 </p>
 
 #### 1.1 The Problem Statement
