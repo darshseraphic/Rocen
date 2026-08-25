@@ -4,7 +4,7 @@
 
 **Copyright Holder:** Darshseraphic
 **Project:** Rocen
-**License Version:** 1.0
+**License Version:** 1.1
 **Contact:** [Darsh.seraphic@gmail.com](mailto:Darsh.seraphic@gmail.com)
 
 ## 1. PURPOSE
@@ -59,45 +59,48 @@ To the maximum extent permitted by applicable law, all rights, title, and intere
 
 Public availability of source code does not constitute abandonment of copyright or dedication of the Protected Material to the public domain.
 
-## 4. LIMITED VIEWING PERMISSION
+## 4. LIMITED USE, TESTING, AND MODIFICATION PERMISSION
 
-Subject to compliance with this License, the Recipient may access and view publicly available Rocen source code for personal, non commercial educational, learning, research, criticism, or review purposes.
+Subject to compliance with this License, the Recipient may, for personal, non-commercial, educational, learning, research, testing, bug-finding, or review purposes:
 
-This limited permission does not grant a license to:
+1. access, view, and study publicly available Rocen source code;
+2. clone or fork the repository through GitHub's own platform features;
+3. build and run the Software locally from source, including modified versions, on the Recipient's own devices;
+4. modify or adapt the Protected Material locally for the purpose of testing, debugging, identifying vulnerabilities, or personal experimentation;
+5. submit proposed changes, patches, bug reports, or pull requests back to the Copyright Holder's official repository.
 
-1. reproduce the Protected Material;
-2. distribute copies of the Protected Material;
-3. publish copies of the Protected Material elsewhere;
-4. modify or adapt the Protected Material;
-5. create derivative works;
-6. commercially exploit the Protected Material;
-7. sublicense or transfer the Protected Material;
-8. incorporate the Protected Material into another product or service;
-9. represent the Protected Material as the Recipient's own; or
-10. grant rights in the Protected Material to another person.
+This permission does **not** grant a license to:
+
+1. publish, distribute, or otherwise make available — to any third party, by any means, including but not limited to a public repository, package registry, app store, or hosted service — a copy or modified version of the Protected Material, except where the Recipient submits that modification back to the Copyright Holder's own official repository under Section 4(5);
+2. commercially exploit the Protected Material or any modified version of it;
+3. sublicense or transfer the Protected Material;
+4. incorporate the Protected Material into another product or service intended for use by anyone other than the Recipient;
+5. represent the Protected Material, or a modified version of it, as the Recipient's own original work; or
+6. grant rights in the Protected Material to another person.
+
+For clarity: this Section permits a Recipient to fork the repository, build it, break it, and modify it on their own machine or in their own private development environment for the purposes above. It does not permit publishing that fork, running it as a public or third-party-facing service, or distributing the resulting binary or source to others — those acts remain governed by Sections 5 and 9.
 
 This permission applies only to the extent permitted by applicable law.
 
 ## 5. RESTRICTIONS
 
-Except where expressly permitted by this License or required by applicable law, the Recipient may not:
+Except where expressly permitted by Section 4 of this License or required by applicable law, the Recipient may not:
 
-1. copy, reproduce, republish, or redistribute the Protected Material;
-2. modify, adapt, translate, or alter the Protected Material;
-3. create derivative works, modified versions, forks, ports, clones, or repackaged versions of the Protected Material;
-4. sell, lease, rent, sublicense, transfer, or otherwise commercially exploit the Protected Material;
-5. incorporate Protected Material into another software product, service, package, library, framework, dataset, or commercial offering;
-6. use Protected Material as a basis for a competing implementation where the resulting use infringes the Copyright Holder's rights;
-7. publish modified or unmodified copies of Protected Material outside an authorized distribution channel;
-8. remove, conceal, or alter copyright, license, attribution, trademark, or proprietary notices;
-9. claim authorship, ownership, or origin of Protected Material;
-10. grant a third party any rights that the Recipient does not possess;
-11. use Protected Material to facilitate unauthorized access to, extraction from, or circumvention of the Software;
-12. scrape, systematically harvest, or mass collect Protected Material for purposes prohibited by this License;
-13. use Protected Material, except where independently permitted by applicable law or by an applicable third party license, to train, fine tune, evaluate, benchmark, or construct an artificial intelligence or machine learning model or dataset; or
-14. use Protected Material for any purpose prohibited by applicable law.
+1. publish, republish, distribute, or redistribute the Protected Material, or any modified version of it, to any third party by any means;
+2. sell, lease, rent, sublicense, transfer, or otherwise commercially exploit the Protected Material or any modified version of it;
+3. incorporate Protected Material, or any modified version of it, into another software product, service, package, library, framework, dataset, or commercial offering made available to anyone other than the Recipient;
+4. operate, host, or offer the Protected Material, or any modified version of it, as a service accessible to any third party;
+5. use Protected Material as a basis for a competing product or service offered to third parties;
+6. publish modified or unmodified copies of Protected Material outside the Copyright Holder's own official repository (see Section 4(5) for the sole authorized channel for contributing changes back);
+7. remove, conceal, or alter copyright, license, attribution, trademark, or proprietary notices;
+8. claim authorship, ownership, or origin of Protected Material, or of a modified version of it, when distributing or discussing it publicly;
+9. grant a third party any rights that the Recipient does not possess;
+10. use Protected Material to facilitate unauthorized access to, extraction from, or circumvention of the Software beyond what Section 4 permits;
+11. scrape, systematically harvest, or mass collect Protected Material for purposes prohibited by this License;
+12. use Protected Material, except where independently permitted by applicable law or by an applicable third party license, to train, fine tune, evaluate, benchmark, or construct an artificial intelligence or machine learning model or dataset; or
+13. use Protected Material for any purpose prohibited by applicable law.
 
-Nothing in this Section prohibits a use that applicable law expressly permits notwithstanding a contractual restriction.
+Nothing in this Section prohibits a use that applicable law expressly permits notwithstanding a contractual restriction, and nothing in this Section restricts activity expressly permitted under Section 4.
 
 ## 6. NO GENERAL LICENSE
 
@@ -123,11 +126,11 @@ Nothing in this Section prohibits an act that applicable law expressly permits d
 
 ## 8. DERIVATIVE WORKS AND INDEPENDENT DEVELOPMENT
 
-The Copyright Holder does not grant permission to create derivative versions, modified versions, forks, ports, clones, or substantially copied implementations of the Protected Material.
+The Copyright Holder grants permission to create a private, unpublished fork or modified version of the Protected Material only as, and to the extent, expressly permitted by Section 4. The Copyright Holder does not grant permission to publish, distribute, commercially exploit, or make available to any third party any derivative version, modified version, fork, port, clone, or substantially copied implementation of the Protected Material, except by submitting it back to the Copyright Holder's own official repository under Section 4(5).
 
 This License does not claim ownership of independently developed ideas, concepts, algorithms, methods, procedures, or functionality that are created without copying Protected Material.
 
-Nothing in this Section grants permission to copy protected expression, confidential information, trademarks, trade secrets, or other protected material.
+Nothing in this Section grants permission to copy protected expression, confidential information, trademarks, trade secrets, or other protected material beyond what Section 4 permits.
 
 ## 9. COMMERCIAL USE
 
