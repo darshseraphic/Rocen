@@ -395,7 +395,7 @@ class CryptoEngine {
           await hardwareUnwrap(hwWrapped, keyAlias: passwordKeyAlias);
       return unwrapped == storedHash;
     } catch (_) {
-      return true;
+      return false;
     }
   }
 
