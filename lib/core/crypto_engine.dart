@@ -170,7 +170,8 @@ class CryptoEngine {
     return base64.encode(fullPackage.toBytes());
   }
 
-  static const int passwordLength = 8;
+  static const int passwordMinLength = 8;
+  static const int passwordMaxLength = 32;
 
   static int lockoutSecondsForAttempt(int attemptNumber) {
     if (attemptNumber < 2) return 0;
@@ -186,7 +187,7 @@ class CryptoEngine {
   static final RegExp _symbolPattern =
       RegExp(r'[!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]');
   static final RegExp _fullAllowedPattern =
-      RegExp(r'^[A-Za-z0-9!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]{8}$');
+      RegExp(r'^[A-Za-z0-9!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]{8,32}$');
   static List<String> _uniqueCharsMatching(String candidate, RegExp pattern) {
     final matched =
         candidate.split('').where((c) => pattern.hasMatch(c)).toList();
@@ -219,8 +220,10 @@ class CryptoEngine {
 
   static List<String> missingPasswordRequirements(String candidate) {
     final List<String> missing = [];
-    if (candidate.length != passwordLength)
-      missing.add('$passwordLength CHARACTERS');
+    if (candidate.length < passwordMinLength ||
+        candidate.length > passwordMaxLength) {
+      missing.add('$passwordMinLength-$passwordMaxLength CHARACTERS');
+    }
 
     final upperUnique = _uniqueCharsMatching(candidate, _upperPattern);
     final lowerUnique = _uniqueCharsMatching(candidate, _lowerPattern);

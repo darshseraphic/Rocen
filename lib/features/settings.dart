@@ -465,277 +465,270 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
               displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
             }
 
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 320,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayHeaderTitle,
-                        style: TextStyle(
-                          color: (hasPinFailed || lockStringStatus != null)
-                              ? const Color(0xFFEF4444)
-                              : theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05,
+            return Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: const TextSelectionThemeData(
+                  selectionColor: Color(0x335F0E0D),
+                  selectionHandleColor: Color(0xFF5F0E0D),
+                  cursorColor: Color(0xFF5F0E0D),
+                ),
+              ),
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: theme.dialogBg,
+                      border: Border.all(
+                          color: theme.dialogBorderColor, width: 0.8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayHeaderTitle,
+                          style: TextStyle(
+                            color: (hasPinFailed || lockStringStatus != null)
+                                ? const Color(0xFFEF4444)
+                                : theme.textMain,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.05,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      Stack(
-                        children: [
-                          Opacity(
-                            opacity: 0.0,
+                        const SizedBox(height: 20),
+                        Builder(builder: (context) {
+                          Color currentFieldBorderColor;
+                          if (hasPinFailed || lockStringStatus != null) {
+                            currentFieldBorderColor = const Color(0xFFEF4444);
+                          } else {
+                            currentFieldBorderColor = theme.dialogBorderColor;
+                          }
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: currentFieldBorderColor,
+                                width:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? 1.2
+                                        : 0.8,
+                              ),
+                            ),
                             child: TextField(
                               controller: pinVerifyController,
                               keyboardType: TextInputType.text,
-                              maxLength: 8,
+                              maxLength: 32,
+                              obscureText: true,
+                              obscuringCharacter: '#',
+                              cursorColor: const Color(0xFF5F0E0D),
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
+                              style: TextStyle(
+                                color:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? const Color(0xFFEF4444)
+                                        : theme.textMain,
+                                fontSize: 16,
+                                letterSpacing: 4,
+                                fontWeight: FontWeight.bold,
+                              ),
                               onChanged: (val) {
                                 setDialogState(() {
                                   if (hasPinFailed) hasPinFailed = false;
                                 });
                               },
                               decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                                  counterText: '',
+                                  border: InputBorder.none,
+                                  isDense: true),
                             ),
-                          ),
-                          IgnorePointer(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(8, (index) {
-                                final String text = pinVerifyController.text;
-                                bool isFilled = text.length > index;
-                                bool isCurrentFocus = text.length == index;
-
-                                Color currentBoxBorderColor;
-                                if (hasPinFailed || lockStringStatus != null) {
-                                  currentBoxBorderColor =
-                                      const Color(0xFFEF4444);
-                                } else if (isCurrentFocus) {
-                                  currentBoxBorderColor = theme.textMain;
-                                } else {
-                                  currentBoxBorderColor = isFilled
-                                      ? theme.textMain.withOpacity(0.6)
-                                      : theme.dialogBorderColor;
-                                }
-
-                                return Container(
-                                  width: 28,
-                                  height: 28,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: Colors.transparent,
+                          );
+                        }),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
                                     border: Border.all(
-                                      color: currentBoxBorderColor,
-                                      width: isCurrentFocus ||
-                                              hasPinFailed ||
-                                              lockStringStatus != null
-                                          ? 1.2
-                                          : 0.8,
-                                    ),
-                                  ),
-                                  child: isFilled
-                                      ? Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: (hasPinFailed ||
-                                                    lockStringStatus != null)
-                                                ? const Color(0xFFEF4444)
-                                                : theme.textMain,
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(),
-                                );
-                              }),
+                                        color: theme.dialogBorderColor,
+                                        width: 0.8)),
+                                child: Text('CANCEL',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFF888888)
+                                            : const Color(0xFF525252),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
-                              if (activeLockCheck != null) {
-                                setDialogState(() {
-                                  lockStringStatus = activeLockCheck;
-                                });
-                                return;
-                              }
-
-                              final bool isPinValid = await CryptoEngine
-                                  .verifyPinWithHardwareBinding(
-                                      pinVerifyController.text, globalPin);
-
-                              if (isPinValid) {
-                                final String rawPassword =
-                                    pinVerifyController.text;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
-
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                if (!screenContext.mounted) return;
-
-                                try {
-                                  final String? unwrappedForRestore =
-                                      await CryptoEngine.hardwareUnwrap(
-                                          accessBlob,
-                                          keyAlias:
-                                              CryptoEngine.githubTokenKeyAlias);
-                                  if (unwrappedForRestore == null) {
-                                    secureDebugLog(
-                                        '[settings] hardwareUnwrap failed for githubTokenKeyAlias during restore - treating stored blob as software-encrypted only');
-                                  }
-                                  final String accessJson =
-                                      await CryptoEngine.decryptProcess(
-                                          unwrappedForRestore ?? accessBlob,
-                                          globalPin);
-                                  if (accessJson == 'DECRYPTION FAULT') {
-                                    if (screenContext.mounted) {
-                                      _showStatusDialog(
-                                          screenContext,
-                                          'RESTORE ERROR',
-                                          'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD.');
-                                    }
-                                    return;
-                                  }
-                                  final Map<String, dynamic> access =
-                                      jsonDecode(accessJson);
-                                  final String? token =
-                                      access['token'] as String?;
-                                  final String? repo =
-                                      access['repo'] as String?;
-                                  if (token == null || repo == null) {
-                                    if (screenContext.mounted) {
-                                      _showStatusDialog(
-                                          screenContext,
-                                          'RESTORE ERROR',
-                                          'STORED TOKEN OR REPOSITORY WAS EMPTY.');
-                                    }
-                                    return;
-                                  }
-
-                                  if (!screenContext.mounted) return;
-                                  await _handlePostSaveGithubSync(screenContext,
-                                      token, repo, rawPassword, globalPin,
-                                      isExplicitRestore: true);
-                                } catch (e) {
-                                  if (screenContext.mounted) {
-                                    _showStatusDialog(
-                                        screenContext,
-                                        'RESTORE ERROR',
-                                        'UNEXPECTED ERROR: $e');
-                                  }
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () async {
+                                final activeLockCheck =
+                                    _checkLockoutViolation(settingsBox);
+                                if (activeLockCheck != null) {
+                                  setDialogState(() {
+                                    lockStringStatus = activeLockCheck;
+                                  });
+                                  return;
                                 }
-                              } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
 
-                                bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
+                                final bool isPinValid = await CryptoEngine
+                                    .verifyPinWithHardwareBinding(
+                                        pinVerifyController.text, globalPin);
 
-                                if (flagWipeConditionTriggered) {
-                                  await _purgeEncryptedNotesOnBruteForce();
+                                if (isPinValid) {
+                                  final String rawPassword =
+                                      pinVerifyController.text;
                                   await settingsBox.put(
                                       'secure_failed_attempts', 0);
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
+
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  _showAcknowledgeDialog(
-                                      screenContext,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
-                                  return;
-                                }
 
-                                if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
-                                }
+                                  try {
+                                    final String? unwrappedForRestore =
+                                        await CryptoEngine.hardwareUnwrap(
+                                            accessBlob,
+                                            keyAlias: CryptoEngine
+                                                .githubTokenKeyAlias);
+                                    if (unwrappedForRestore == null) {
+                                      secureDebugLog(
+                                          '[settings] hardwareUnwrap failed for githubTokenKeyAlias during restore - treating stored blob as software-encrypted only');
+                                    }
+                                    final String accessJson =
+                                        await CryptoEngine.decryptProcess(
+                                            unwrappedForRestore ?? accessBlob,
+                                            globalPin);
+                                    if (accessJson == 'DECRYPTION FAULT') {
+                                      if (screenContext.mounted) {
+                                        _showStatusDialog(
+                                            screenContext,
+                                            'RESTORE ERROR',
+                                            'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD.');
+                                      }
+                                      return;
+                                    }
+                                    final Map<String, dynamic> access =
+                                        jsonDecode(accessJson);
+                                    final String? token =
+                                        access['token'] as String?;
+                                    final String? repo =
+                                        access['repo'] as String?;
+                                    if (token == null || repo == null) {
+                                      if (screenContext.mounted) {
+                                        _showStatusDialog(
+                                            screenContext,
+                                            'RESTORE ERROR',
+                                            'STORED TOKEN OR REPOSITORY WAS EMPTY.');
+                                      }
+                                      return;
+                                    }
 
-                                setDialogState(() {
-                                  pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
-                                  if (lockStringStatus == null)
-                                    hasPinFailed = true;
-                                });
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                                    if (!screenContext.mounted) return;
+                                    await _handlePostSaveGithubSync(
+                                        screenContext,
+                                        token,
+                                        repo,
+                                        rawPassword,
+                                        globalPin,
+                                        isExplicitRestore: true);
+                                  } catch (e) {
+                                    if (screenContext.mounted) {
+                                      _showStatusDialog(
+                                          screenContext,
+                                          'RESTORE ERROR',
+                                          'UNEXPECTED ERROR: $e');
+                                    }
+                                  }
+                                } else {
+                                  int attempts = settingsBox.get(
+                                          'secure_failed_attempts',
+                                          defaultValue: 0) +
+                                      1;
+                                  await settingsBox.put(
+                                      'secure_failed_attempts', attempts);
+
+                                  bool flagWipeConditionTriggered =
+                                      attempts > 15;
+                                  int penaltyDurationSeconds =
+                                      flagWipeConditionTriggered
+                                          ? 0
+                                          : CryptoEngine
+                                              .lockoutSecondsForAttempt(
+                                                  attempts);
+
+                                  if (flagWipeConditionTriggered) {
+                                    await _purgeEncryptedNotesOnBruteForce();
+                                    await settingsBox.put(
+                                        'secure_failed_attempts', 0);
+                                    await settingsBox.put(
+                                        'secure_lockout_until', 0);
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    if (!screenContext.mounted) return;
+                                    _showAcknowledgeDialog(
+                                        screenContext,
+                                        'SECURITY COMPLIANCE AUDIT',
+                                        'DATA PURGED PERMANENTLY.');
+                                    return;
+                                  }
+
+                                  if (penaltyDurationSeconds > 0) {
+                                    final int unlockTimestampMillis =
+                                        DateTime.now().millisecondsSinceEpoch +
+                                            (penaltyDurationSeconds * 1000);
+                                    await settingsBox.put(
+                                        'secure_lockout_until',
+                                        unlockTimestampMillis);
+                                  }
+
+                                  setDialogState(() {
+                                    pinVerifyController.clear();
+                                    lockStringStatus =
+                                        _checkLockoutViolation(settingsBox);
+                                    if (lockStringStatus == null)
+                                      hasPinFailed = true;
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration:
+                                    BoxDecoration(color: theme.textMain),
+                                child: Text('VERIFY',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -878,181 +871,173 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               }
             }
 
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 320,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'SETUP CRYPTOGRAPHY PASSWORD',
-                        style: TextStyle(
-                            color: theme.textMain,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.05),
-                      ),
-                      const SizedBox(height: 20),
-                      Stack(
-                        children: [
-                          Opacity(
-                            opacity: 0.0,
-                            child: TextField(
-                              controller: pinController,
-                              keyboardType: TextInputType.text,
-                              maxLength: 8,
-                              autofocus: true,
-                              onChanged: (val) => setDialogState(() {}),
-                              decoration: const InputDecoration(
-                                counterText: '',
-                                border: InputBorder.none,
-                              ),
+            return Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: const TextSelectionThemeData(
+                  selectionColor: Color(0x335F0E0D),
+                  selectionHandleColor: Color(0xFF5F0E0D),
+                  cursorColor: Color(0xFF5F0E0D),
+                ),
+              ),
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: theme.dialogBg,
+                      border: Border.all(
+                          color: theme.dialogBorderColor, width: 0.8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SETUP CRYPTOGRAPHY PASSWORD',
+                          style: TextStyle(
+                              color: theme.textMain,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.05),
+                        ),
+                        const SizedBox(height: 20),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 400),
+                          curve: Curves.easeOutQuart,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: pinController.text.isEmpty
+                                  ? theme.dialogBorderColor
+                                  : progressColor,
+                              width: pinController.text.isEmpty ? 0.8 : 1.2,
                             ),
                           ),
-                          IgnorePointer(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(8, (index) {
-                                final String text = pinController.text;
-                                bool isFilled = text.length > index;
-                                bool isCurrentFocus = text.length == index;
-
-                                Color currentBoxBorderColor = isCurrentFocus
-                                    ? progressColor
-                                    : (isFilled
-                                        ? progressColor
-                                        : theme.dialogBorderColor);
-
-                                return AnimatedContainer(
+                          child: TextField(
+                            controller: pinController,
+                            keyboardType: TextInputType.text,
+                            maxLength: 32,
+                            obscureText: true,
+                            obscuringCharacter: '#',
+                            cursorColor: const Color(0xFF5F0E0D),
+                            autofocus: true,
+                            onChanged: (val) => setDialogState(() {}),
+                            style: TextStyle(
+                              color: pinController.text.isEmpty
+                                  ? theme.textMain
+                                  : progressColor,
+                              fontSize: 16,
+                              letterSpacing: 4,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            decoration: const InputDecoration(
+                              counterText: '',
+                              border: InputBorder.none,
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                height: 3,
+                                color: theme.dialogBorderColor,
+                                child: TweenAnimationBuilder<double>(
+                                  tween: Tween<double>(begin: 0.0, end: ratio),
                                   duration: const Duration(milliseconds: 400),
                                   curve: Curves.easeOutQuart,
-                                  width: 28,
-                                  height: 28,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: Colors.transparent,
-                                    border: Border.all(
-                                      color: currentBoxBorderColor,
-                                      width: isCurrentFocus ? 1.2 : 0.8,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    isFilled ? '●' : '',
-                                    style: TextStyle(
-                                        color: progressColor, fontSize: 10),
-                                  ),
-                                );
-                              }),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: 3,
-                              color: theme.dialogBorderColor,
-                              child: TweenAnimationBuilder<double>(
-                                tween: Tween<double>(begin: 0.0, end: ratio),
-                                duration: const Duration(milliseconds: 400),
-                                curve: Curves.easeOutQuart,
-                                builder: (context, value, child) {
-                                  return FractionallySizedBox(
-                                    alignment: Alignment.centerLeft,
-                                    widthFactor: value.clamp(0.0, 1.0),
-                                    child: Container(color: progressColor),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${(ratio * 100).round()}%',
-                            style: TextStyle(
-                                color: progressColor,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.02),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: statuses
-                            .map(
-                                (s) => _buildPasswordRequirementRow(s.$1, s.$2))
-                            .toList(),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.dialogBorderColor, width: 0.8),
-                              ),
-                              child: Text(
-                                'CANCEL',
-                                style: TextStyle(
-                                  color: isDark
-                                      ? const Color(0xFF888888)
-                                      : const Color(0xFF525252),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: !CryptoEngine.isPasswordComplexityValid(
-                                    pinController.text)
-                                ? null
-                                : () {
-                                    final typedPin = pinController.text;
-                                    Navigator.pop(context);
-                                    _showAreYouSureDialog(context, typedPin);
+                                  builder: (context, value, child) {
+                                    return FractionallySizedBox(
+                                      alignment: Alignment.centerLeft,
+                                      widthFactor: value.clamp(0.0, 1.0),
+                                      child: Container(color: progressColor),
+                                    );
                                   },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: CryptoEngine.isPasswordComplexityValid(
-                                        pinController.text)
-                                    ? theme.textMain
-                                    : theme.textMain.withOpacity(0.2),
-                              ),
-                              child: Text(
-                                'CONFIRM',
-                                style: TextStyle(
-                                  color: isDark ? Colors.black : Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      )
-                    ],
+                            const SizedBox(width: 8),
+                            Text(
+                              '${(ratio * 100).round()}%',
+                              style: TextStyle(
+                                  color: progressColor,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.02),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: statuses
+                              .map((s) =>
+                                  _buildPasswordRequirementRow(s.$1, s.$2))
+                              .toList(),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                      color: theme.dialogBorderColor,
+                                      width: 0.8),
+                                ),
+                                child: Text(
+                                  'CANCEL',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? const Color(0xFF888888)
+                                        : const Color(0xFF525252),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: !CryptoEngine.isPasswordComplexityValid(
+                                      pinController.text)
+                                  ? null
+                                  : () {
+                                      final typedPin = pinController.text;
+                                      Navigator.pop(context);
+                                      _showAreYouSureDialog(context, typedPin);
+                                    },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: CryptoEngine.isPasswordComplexityValid(
+                                          pinController.text)
+                                      ? theme.textMain
+                                      : theme.textMain.withOpacity(0.2),
+                                ),
+                                child: Text(
+                                  'CONFIRM',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.black : Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1309,220 +1294,209 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
             }
 
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 320,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayHeaderTitle,
-                        style: TextStyle(
-                          color: (hasPinFailed || lockStringStatus != null)
-                              ? const Color(0xFFEF4444)
-                              : theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05,
+            return Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: const TextSelectionThemeData(
+                  selectionColor: Color(0x335F0E0D),
+                  selectionHandleColor: Color(0xFF5F0E0D),
+                  cursorColor: Color(0xFF5F0E0D),
+                ),
+              ),
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: theme.dialogBg,
+                      border: Border.all(
+                          color: theme.dialogBorderColor, width: 0.8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayHeaderTitle,
+                          style: TextStyle(
+                            color: (hasPinFailed || lockStringStatus != null)
+                                ? const Color(0xFFEF4444)
+                                : theme.textMain,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.05,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      Stack(
-                        children: [
-                          Opacity(
-                            opacity: 0.0,
+                        const SizedBox(height: 20),
+                        Builder(builder: (context) {
+                          Color currentFieldBorderColor;
+                          if (hasPinFailed || lockStringStatus != null) {
+                            currentFieldBorderColor = const Color(0xFFEF4444);
+                          } else {
+                            currentFieldBorderColor = theme.dialogBorderColor;
+                          }
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: currentFieldBorderColor,
+                                width:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? 1.2
+                                        : 0.8,
+                              ),
+                            ),
                             child: TextField(
                               controller: pinVerifyController,
                               keyboardType: TextInputType.text,
-                              maxLength: 8,
+                              maxLength: 32,
+                              obscureText: true,
+                              obscuringCharacter: '#',
+                              cursorColor: const Color(0xFF5F0E0D),
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
+                              style: TextStyle(
+                                color:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? const Color(0xFFEF4444)
+                                        : theme.textMain,
+                                fontSize: 16,
+                                letterSpacing: 4,
+                                fontWeight: FontWeight.bold,
+                              ),
                               onChanged: (val) {
                                 setDialogState(() {
                                   if (hasPinFailed) hasPinFailed = false;
                                 });
                               },
                               decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                                  counterText: '',
+                                  border: InputBorder.none,
+                                  isDense: true),
                             ),
-                          ),
-                          IgnorePointer(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(8, (index) {
-                                final String text = pinVerifyController.text;
-                                bool isFilled = text.length > index;
-                                bool isCurrentFocus = text.length == index;
-
-                                Color currentBoxBorderColor;
-                                if (hasPinFailed || lockStringStatus != null) {
-                                  currentBoxBorderColor =
-                                      const Color(0xFFEF4444);
-                                } else if (isCurrentFocus) {
-                                  currentBoxBorderColor = theme.textMain;
-                                } else {
-                                  currentBoxBorderColor = isFilled
-                                      ? theme.textMain.withOpacity(0.6)
-                                      : theme.dialogBorderColor;
+                          );
+                        }),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                    border: Border.all(
+                                        color: theme.dialogBorderColor,
+                                        width: 0.8)),
+                                child: Text('CANCEL',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFF888888)
+                                            : const Color(0xFF525252),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () async {
+                                final activeLockCheck =
+                                    _checkLockoutViolation(settingsBox);
+                                if (activeLockCheck != null) {
+                                  setDialogState(() {
+                                    lockStringStatus = activeLockCheck;
+                                  });
+                                  return;
                                 }
 
-                                return Container(
-                                  width: 28,
-                                  height: 28,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: Colors.transparent,
-                                    border: Border.all(
-                                      color: currentBoxBorderColor,
-                                      width: isCurrentFocus ||
-                                              hasPinFailed ||
-                                              lockStringStatus != null
-                                          ? 1.2
-                                          : 0.8,
-                                    ),
-                                  ),
-                                  child: isFilled
-                                      ? Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: (hasPinFailed ||
-                                                    lockStringStatus != null)
-                                                ? const Color(0xFFEF4444)
-                                                : theme.textMain,
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(),
-                                );
-                              }),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
-                              if (activeLockCheck != null) {
-                                setDialogState(() {
-                                  lockStringStatus = activeLockCheck;
-                                });
-                                return;
-                              }
+                                final bool isPinValid = await CryptoEngine
+                                    .verifyPinWithHardwareBinding(
+                                        pinVerifyController.text, globalPin);
 
-                              final bool isPinValid = await CryptoEngine
-                                  .verifyPinWithHardwareBinding(
-                                      pinVerifyController.text, globalPin);
-
-                              if (isPinValid) {
-                                final String rawOldPassword =
-                                    pinVerifyController.text;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
-
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                if (!screenContext.mounted) return;
-                                _showNewPasswordDialog(
-                                    screenContext, globalPin, rawOldPassword);
-                              } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
-
-                                bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
-
-                                if (flagWipeConditionTriggered) {
-                                  await _purgeEncryptedNotesOnBruteForce();
+                                if (isPinValid) {
+                                  final String rawOldPassword =
+                                      pinVerifyController.text;
                                   await settingsBox.put(
                                       'secure_failed_attempts', 0);
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
+
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  _showAcknowledgeDialog(
-                                      screenContext,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
-                                  return;
-                                }
+                                  _showNewPasswordDialog(
+                                      screenContext, globalPin, rawOldPassword);
+                                } else {
+                                  int attempts = settingsBox.get(
+                                          'secure_failed_attempts',
+                                          defaultValue: 0) +
+                                      1;
+                                  await settingsBox.put(
+                                      'secure_failed_attempts', attempts);
 
-                                if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
-                                }
+                                  bool flagWipeConditionTriggered =
+                                      attempts > 15;
+                                  int penaltyDurationSeconds =
+                                      flagWipeConditionTriggered
+                                          ? 0
+                                          : CryptoEngine
+                                              .lockoutSecondsForAttempt(
+                                                  attempts);
 
-                                setDialogState(() {
-                                  pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
-                                  if (lockStringStatus == null)
-                                    hasPinFailed = true;
-                                });
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                                  if (flagWipeConditionTriggered) {
+                                    await _purgeEncryptedNotesOnBruteForce();
+                                    await settingsBox.put(
+                                        'secure_failed_attempts', 0);
+                                    await settingsBox.put(
+                                        'secure_lockout_until', 0);
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    if (!screenContext.mounted) return;
+                                    _showAcknowledgeDialog(
+                                        screenContext,
+                                        'SECURITY COMPLIANCE AUDIT',
+                                        'DATA PURGED PERMANENTLY.');
+                                    return;
+                                  }
+
+                                  if (penaltyDurationSeconds > 0) {
+                                    final int unlockTimestampMillis =
+                                        DateTime.now().millisecondsSinceEpoch +
+                                            (penaltyDurationSeconds * 1000);
+                                    await settingsBox.put(
+                                        'secure_lockout_until',
+                                        unlockTimestampMillis);
+                                  }
+
+                                  setDialogState(() {
+                                    pinVerifyController.clear();
+                                    lockStringStatus =
+                                        _checkLockoutViolation(settingsBox);
+                                    if (lockStringStatus == null)
+                                      hasPinFailed = true;
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration:
+                                    BoxDecoration(color: theme.textMain),
+                                child: Text('VERIFY',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1548,145 +1522,139 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 320,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('ENTER NEW PASSWORD',
-                          style: TextStyle(
+            return Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: const TextSelectionThemeData(
+                  selectionColor: Color(0x335F0E0D),
+                  selectionHandleColor: Color(0xFF5F0E0D),
+                  cursorColor: Color(0xFF5F0E0D),
+                ),
+              ),
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: theme.dialogBg,
+                      border: Border.all(
+                          color: theme.dialogBorderColor, width: 0.8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ENTER NEW PASSWORD',
+                            style: TextStyle(
+                                color: theme.textMain,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.05)),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: theme.dialogBorderColor,
+                              width: 0.8,
+                            ),
+                          ),
+                          child: TextField(
+                            controller: pinController,
+                            keyboardType: TextInputType.text,
+                            maxLength: 32,
+                            obscureText: true,
+                            obscuringCharacter: '#',
+                            cursorColor: const Color(0xFF5F0E0D),
+                            autofocus: true,
+                            onChanged: (val) => setDialogState(() {}),
+                            style: TextStyle(
                               color: theme.textMain,
-                              fontSize: 11,
+                              fontSize: 16,
+                              letterSpacing: 4,
                               fontWeight: FontWeight.bold,
-                              letterSpacing: 0.05)),
-                      const SizedBox(height: 20),
-                      Stack(
-                        children: [
-                          Opacity(
-                            opacity: 0.0,
-                            child: TextField(
-                              controller: pinController,
-                              keyboardType: TextInputType.text,
-                              maxLength: 8,
-                              autofocus: true,
-                              onChanged: (val) => setDialogState(() {}),
-                              decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                            ),
+                            decoration: const InputDecoration(
+                              counterText: '',
+                              border: InputBorder.none,
+                              isDense: true,
                             ),
                           ),
-                          IgnorePointer(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(8, (index) {
-                                final String text = pinController.text;
-                                bool isFilled = text.length > index;
-                                bool isCurrentFocus = text.length == index;
-
-                                Color currentBoxBorderColor = isCurrentFocus
-                                    ? theme.textMain
-                                    : (isFilled
-                                        ? theme.textMain.withOpacity(0.6)
-                                        : theme.dialogBorderColor);
-
-                                return Container(
-                                  width: 28,
-                                  height: 28,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: Colors.transparent,
+                        ),
+                        const SizedBox(height: 10),
+                        Builder(builder: (context) {
+                          final statuses =
+                              CryptoEngine.passwordRequirementStatus(
+                                  pinController.text);
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: statuses
+                                .map((s) =>
+                                    _buildPasswordRequirementRow(s.$1, s.$2))
+                                .toList(),
+                          );
+                        }),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
                                     border: Border.all(
-                                        color: currentBoxBorderColor,
-                                        width: isCurrentFocus ? 1.2 : 0.8),
-                                  ),
-                                  child: Text(isFilled ? '●' : '',
-                                      style: TextStyle(
-                                          color: theme.textMain, fontSize: 10)),
-                                );
-                              }),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Builder(builder: (context) {
-                        final statuses = CryptoEngine.passwordRequirementStatus(
-                            pinController.text);
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: statuses
-                              .map((s) =>
-                                  _buildPasswordRequirementRow(s.$1, s.$2))
-                              .toList(),
-                        );
-                      }),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: !CryptoEngine.isPasswordComplexityValid(
-                                    pinController.text)
-                                ? null
-                                : () async {
-                                    final String newPassword =
-                                        pinController.text;
-                                    Navigator.pop(context);
-                                    if (!screenContext.mounted) return;
-                                    await _executePasswordChange(
-                                        screenContext,
-                                        oldPinHash,
-                                        rawOldPassword,
-                                        newPassword);
-                                  },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: CryptoEngine.isPasswordComplexityValid(
-                                        pinController.text)
-                                    ? theme.textMain
-                                    : theme.textMain.withOpacity(0.2),
+                                        color: theme.dialogBorderColor,
+                                        width: 0.8)),
+                                child: Text('CANCEL',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFF888888)
+                                            : const Color(0xFF525252),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
                               ),
-                              child: Text('CONFIRM',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: !CryptoEngine.isPasswordComplexityValid(
+                                      pinController.text)
+                                  ? null
+                                  : () async {
+                                      final String newPassword =
+                                          pinController.text;
+                                      Navigator.pop(context);
+                                      if (!screenContext.mounted) return;
+                                      await _executePasswordChange(
+                                          screenContext,
+                                          oldPinHash,
+                                          rawOldPassword,
+                                          newPassword);
+                                    },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: CryptoEngine.isPasswordComplexityValid(
+                                          pinController.text)
+                                      ? theme.textMain
+                                      : theme.textMain.withOpacity(0.2),
+                                ),
+                                child: Text('CONFIRM',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1937,228 +1905,217 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
               displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
             }
 
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 320,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: theme.dialogBg,
-                    border:
-                        Border.all(color: theme.dialogBorderColor, width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayHeaderTitle,
-                        style: TextStyle(
-                          color: (hasPinFailed || lockStringStatus != null)
-                              ? const Color(0xFFEF4444)
-                              : theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05,
+            return Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: const TextSelectionThemeData(
+                  selectionColor: Color(0x335F0E0D),
+                  selectionHandleColor: Color(0xFF5F0E0D),
+                  cursorColor: Color(0xFF5F0E0D),
+                ),
+              ),
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: theme.dialogBg,
+                      border: Border.all(
+                          color: theme.dialogBorderColor, width: 0.8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayHeaderTitle,
+                          style: TextStyle(
+                            color: (hasPinFailed || lockStringStatus != null)
+                                ? const Color(0xFFEF4444)
+                                : theme.textMain,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.05,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      Stack(
-                        children: [
-                          Opacity(
-                            opacity: 0.0,
+                        const SizedBox(height: 20),
+                        Builder(builder: (context) {
+                          Color currentFieldBorderColor;
+                          if (hasPinFailed || lockStringStatus != null) {
+                            currentFieldBorderColor = const Color(0xFFEF4444);
+                          } else {
+                            currentFieldBorderColor = theme.dialogBorderColor;
+                          }
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: currentFieldBorderColor,
+                                width:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? 1.2
+                                        : 0.8,
+                              ),
+                            ),
                             child: TextField(
                               controller: pinVerifyController,
                               keyboardType: TextInputType.text,
-                              maxLength: 8,
+                              maxLength: 32,
+                              obscureText: true,
+                              obscuringCharacter: '#',
+                              cursorColor: const Color(0xFF5F0E0D),
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
+                              style: TextStyle(
+                                color:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? const Color(0xFFEF4444)
+                                        : theme.textMain,
+                                fontSize: 16,
+                                letterSpacing: 4,
+                                fontWeight: FontWeight.bold,
+                              ),
                               onChanged: (val) {
                                 setDialogState(() {
                                   if (hasPinFailed) hasPinFailed = false;
                                 });
                               },
                               decoration: const InputDecoration(
-                                  counterText: '', border: InputBorder.none),
+                                  counterText: '',
+                                  border: InputBorder.none,
+                                  isDense: true),
                             ),
-                          ),
-                          IgnorePointer(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(8, (index) {
-                                final String text = pinVerifyController.text;
-                                bool isFilled = text.length > index;
-                                bool isCurrentFocus = text.length == index;
-
-                                Color currentBoxBorderColor;
-                                if (hasPinFailed || lockStringStatus != null) {
-                                  currentBoxBorderColor =
-                                      const Color(0xFFEF4444);
-                                } else if (isCurrentFocus) {
-                                  currentBoxBorderColor = theme.textMain;
-                                } else {
-                                  currentBoxBorderColor = isFilled
-                                      ? theme.textMain.withOpacity(0.6)
-                                      : theme.dialogBorderColor;
+                          );
+                        }),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                    border: Border.all(
+                                        color: theme.dialogBorderColor,
+                                        width: 0.8)),
+                                child: Text('CANCEL',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFF888888)
+                                            : const Color(0xFF525252),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () async {
+                                final activeLockCheck =
+                                    _checkLockoutViolation(settingsBox);
+                                if (activeLockCheck != null) {
+                                  setDialogState(() {
+                                    lockStringStatus = activeLockCheck;
+                                  });
+                                  return;
                                 }
 
-                                return Container(
-                                  width: 28,
-                                  height: 28,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: Colors.transparent,
-                                    border: Border.all(
-                                      color: currentBoxBorderColor,
-                                      width: isCurrentFocus ||
-                                              hasPinFailed ||
-                                              lockStringStatus != null
-                                          ? 1.2
-                                          : 0.8,
-                                    ),
-                                  ),
-                                  child: isFilled
-                                      ? Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: (hasPinFailed ||
-                                                    lockStringStatus != null)
-                                                ? const Color(0xFFEF4444)
-                                                : theme.textMain,
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(),
-                                );
-                              }),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.dialogBorderColor,
-                                      width: 0.8)),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
-                              if (activeLockCheck != null) {
-                                setDialogState(() {
-                                  lockStringStatus = activeLockCheck;
-                                });
-                                return;
-                              }
+                                final bool isPinValid = await CryptoEngine
+                                    .verifyPinWithHardwareBinding(
+                                        pinVerifyController.text, globalPin);
 
-                              final bool isPinValid = await CryptoEngine
-                                  .verifyPinWithHardwareBinding(
-                                      pinVerifyController.text, globalPin);
-
-                              if (isPinValid) {
-                                final String rawPassword =
-                                    pinVerifyController.text;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
-
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                if (!screenContext.mounted) return;
-                                await _openGithubAccessDialog(
-                                    screenContext, globalPin, rawPassword);
-                              } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
-
-                                bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
-
-                                if (flagWipeConditionTriggered) {
-                                  await _purgeEncryptedNotesOnBruteForce();
+                                if (isPinValid) {
+                                  final String rawPassword =
+                                      pinVerifyController.text;
                                   await settingsBox.put(
                                       'secure_failed_attempts', 0);
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
+
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
-                                  _showAcknowledgeDialog(
-                                      screenContext,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
-                                  return;
-                                }
+                                  await _openGithubAccessDialog(
+                                      screenContext, globalPin, rawPassword);
+                                } else {
+                                  int attempts = settingsBox.get(
+                                          'secure_failed_attempts',
+                                          defaultValue: 0) +
+                                      1;
+                                  await settingsBox.put(
+                                      'secure_failed_attempts', attempts);
 
-                                if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
-                                }
+                                  bool flagWipeConditionTriggered =
+                                      attempts > 15;
+                                  int penaltyDurationSeconds =
+                                      flagWipeConditionTriggered
+                                          ? 0
+                                          : CryptoEngine
+                                              .lockoutSecondsForAttempt(
+                                                  attempts);
 
-                                setDialogState(() {
-                                  pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
-                                  if (lockStringStatus == null) {
-                                    hasPinFailed = true;
+                                  if (flagWipeConditionTriggered) {
+                                    await _purgeEncryptedNotesOnBruteForce();
+                                    await settingsBox.put(
+                                        'secure_failed_attempts', 0);
+                                    await settingsBox.put(
+                                        'secure_lockout_until', 0);
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    if (!screenContext.mounted) return;
+                                    _showAcknowledgeDialog(
+                                        screenContext,
+                                        'SECURITY COMPLIANCE AUDIT',
+                                        'DATA PURGED PERMANENTLY.');
+                                    return;
                                   }
-                                });
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+
+                                  if (penaltyDurationSeconds > 0) {
+                                    final int unlockTimestampMillis =
+                                        DateTime.now().millisecondsSinceEpoch +
+                                            (penaltyDurationSeconds * 1000);
+                                    await settingsBox.put(
+                                        'secure_lockout_until',
+                                        unlockTimestampMillis);
+                                  }
+
+                                  setDialogState(() {
+                                    pinVerifyController.clear();
+                                    lockStringStatus =
+                                        _checkLockoutViolation(settingsBox);
+                                    if (lockStringStatus == null) {
+                                      hasPinFailed = true;
+                                    }
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration:
+                                    BoxDecoration(color: theme.textMain),
+                                child: Text('VERIFY',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -3463,7 +3420,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 return _buildMenuTile(
                   title: 'CRYPTOGRAPHIC ACCESS PASSWORD',
                   subtitle: currentPin.isEmpty
-                      ? 'SETUP REQUIRED // 8-CHARACTER SECURITY KEY'
+                      ? 'SETUP REQUIRED // SECURITY KEY'
                       : 'ACTIVE // MODIFY SECURE TERMINAL DEPLOYMENT KEY',
                   textMain: theme.textMain,
                   textSub: currentPin.isEmpty
