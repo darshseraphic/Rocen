@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../main.dart';
 
-// --- 1. DATA MODEL ---
 class TodoItem {
   final String id;
   final String text;
@@ -16,16 +15,16 @@ class TodoItem {
   });
 
   Map<String, dynamic> toMap() => {
-    'id': id,
-    'text': text,
-    'isCompleted': isCompleted,
-  };
+        'id': id,
+        'text': text,
+        'isCompleted': isCompleted,
+      };
 
   factory TodoItem.fromMap(Map<String, dynamic> map) => TodoItem(
-    id: map['id'] ?? '',
-    text: map['text'] ?? '',
-    isCompleted: map['isCompleted'] ?? false,
-  );
+        id: map['id'] ?? '',
+        text: map['text'] ?? '',
+        isCompleted: map['isCompleted'] ?? false,
+      );
 
   TodoItem copyWith({String? id, String? text, bool? isCompleted}) {
     return TodoItem(
@@ -36,7 +35,6 @@ class TodoItem {
   }
 }
 
-// --- 2. STATE NOTIFIER ---
 class TodoNotifier extends Notifier<List<TodoItem>> {
   static const String _boxName = 'rocen_todos_box';
 
@@ -65,7 +63,6 @@ class TodoNotifier extends Notifier<List<TodoItem>> {
       text: text.trim(),
     );
 
-    // Append new item to the end of the list
     state = [...state, newItem];
     await _saveToDisk();
   }
@@ -91,9 +88,9 @@ class TodoNotifier extends Notifier<List<TodoItem>> {
   }
 }
 
-final todoProvider = NotifierProvider<TodoNotifier, List<TodoItem>>(TodoNotifier.new);
+final todoProvider =
+    NotifierProvider<TodoNotifier, List<TodoItem>>(TodoNotifier.new);
 
-// --- 3. UI SCREEN ---
 class BookmarksScreen extends ConsumerStatefulWidget {
   const BookmarksScreen({super.key});
 
@@ -122,8 +119,10 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
 
     final textMain = isDark ? Colors.white : Colors.black;
     final textSub = isDark ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
-    final borderColor = isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
-    final containerBg = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+    final borderColor =
+        isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE5E5E5);
+    final containerBg =
+        isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
 
     return Theme(
       data: Theme.of(context).copyWith(
@@ -139,11 +138,13 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
           children: [
             Text(
               'TO-DO LIST',
-              style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: -0.02),
+              style: TextStyle(
+                  color: textMain,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.02),
             ),
             const SizedBox(height: 16),
-
-            // TASK INPUT BAR (COMPACT AND SHORTENED)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
               decoration: BoxDecoration(
@@ -159,10 +160,12 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                       cursorColor: textMain,
                       decoration: InputDecoration(
                         hintText: 'ADD NEW TASK...',
-                        hintStyle: TextStyle(color: textSub, fontSize: 12, letterSpacing: 0.05),
+                        hintStyle: TextStyle(
+                            color: textSub, fontSize: 12, letterSpacing: 0.05),
                         border: InputBorder.none,
                         isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 10),
                       ),
                       onSubmitted: (_) => _submitTask(),
                     ),
@@ -171,7 +174,8 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                     onTap: _submitTask,
                     behavior: HitTestBehavior.opaque,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
                       child: Text(
                         '+',
                         style: TextStyle(
@@ -186,114 +190,127 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                 ],
               ),
             ),
-
             Divider(color: borderColor, height: 32, thickness: 0.8),
-
-            // TASK LIST
             Expanded(
               child: tasks.isEmpty
                   ? Center(
-                child: Text(
-                  'NO PENDING TASKS',
-                  style: TextStyle(color: textSub, fontSize: 11, letterSpacing: 0.05),
-                ),
-              )
+                      child: Text(
+                        'NO PENDING TASKS',
+                        style: TextStyle(
+                            color: textSub, fontSize: 11, letterSpacing: 0.05),
+                      ),
+                    )
                   : ListView.builder(
-                itemCount: tasks.length,
-                itemBuilder: (context, index) {
-                  final item = tasks[index];
+                      itemCount: tasks.length,
+                      itemBuilder: (context, index) {
+                        final item = tasks[index];
 
-                  final boxBorderColor = isDark ? const Color(0xFFCCCCCC) : Colors.black;
-                  final boxFillColor = item.isCompleted
-                      ? (isDark ? Colors.white : Colors.black)
-                      : Colors.transparent;
+                        final boxBorderColor =
+                            isDark ? const Color(0xFFCCCCCC) : Colors.black;
+                        final boxFillColor = item.isCompleted
+                            ? (isDark ? Colors.white : Colors.black)
+                            : Colors.transparent;
 
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        // FULL ROW CLICK AREA (BOX + TEXT + GAP)
-                        Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => ref.read(todoProvider.notifier).toggleTask(item.id),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                // CUSTOM ANIMATED SQUARE TOGGLE
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 350),
-                                  width: 20,
-                                  height: 20,
-                                  decoration: BoxDecoration(
-                                    color: boxFillColor,
-                                    border: Border.all(color: boxBorderColor, width: 1.4),
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-
-                                // TASK TITLE
-                                Expanded(
-                                  child: Stack(
-                                    alignment: Alignment.centerLeft,
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => ref
+                                      .read(todoProvider.notifier)
+                                      .toggleTask(item.id),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
                                     children: [
-                                      Text(
-                                        item.text,
-                                        style: TextStyle(
-                                          color: textMain,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          letterSpacing: -0.01,
+                                      AnimatedContainer(
+                                        duration:
+                                            const Duration(milliseconds: 350),
+                                        width: 20,
+                                        height: 20,
+                                        decoration: BoxDecoration(
+                                          color: boxFillColor,
+                                          border: Border.all(
+                                              color: boxBorderColor,
+                                              width: 1.4),
                                         ),
                                       ),
-                                      TweenAnimationBuilder<double>(
-                                        tween: Tween<double>(begin: 0.0, end: item.isCompleted ? 1.0 : 0.0),
-                                        duration: const Duration(milliseconds: 600),
-                                        curve: Curves.easeOutQuart,
-                                        builder: (context, value, child) {
-                                          return ClipRect(
-                                            child: Align(
-                                              alignment: Alignment.centerLeft,
-                                              widthFactor: value,
-                                              child: Text(
-                                                item.text,
-                                                style: TextStyle(
-                                                  color: textSub,
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.w600,
-                                                  letterSpacing: -0.01,
-                                                  decoration: TextDecoration.lineThrough,
-                                                  decorationColor: textSub,
-                                                  decorationThickness: 1.5,
-                                                ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Stack(
+                                          alignment: Alignment.centerLeft,
+                                          children: [
+                                            Text(
+                                              item.text,
+                                              style: TextStyle(
+                                                color: textMain,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                letterSpacing: -0.01,
                                               ),
                                             ),
-                                          );
-                                        },
+                                            TweenAnimationBuilder<double>(
+                                              tween: Tween<double>(
+                                                  begin: 0.0,
+                                                  end: item.isCompleted
+                                                      ? 1.0
+                                                      : 0.0),
+                                              duration: const Duration(
+                                                  milliseconds: 600),
+                                              curve: Curves.easeOutQuart,
+                                              builder: (context, value, child) {
+                                                return ClipRect(
+                                                  child: Align(
+                                                    alignment:
+                                                        Alignment.centerLeft,
+                                                    widthFactor: value,
+                                                    child: Text(
+                                                      item.text,
+                                                      style: TextStyle(
+                                                        color: textSub,
+                                                        fontSize: 13,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        letterSpacing: -0.01,
+                                                        decoration:
+                                                            TextDecoration
+                                                                .lineThrough,
+                                                        decorationColor:
+                                                            textSub,
+                                                        decorationThickness:
+                                                            1.5,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 12),
+                              GestureDetector(
+                                onTap: () => ref
+                                    .read(todoProvider.notifier)
+                                    .deleteTask(item.id),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4.0),
+                                  child: Icon(Icons.close,
+                                      color: textSub, size: 16),
+                                ),
+                              )
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 12),
-
-                        // ROW ITEM TERMINATOR (DELETE BUTTON)
-                        GestureDetector(
-                          onTap: () => ref.read(todoProvider.notifier).deleteTask(item.id),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4.0),
-                            child: Icon(Icons.close, color: textSub, size: 16),
-                          ),
-                        )
-                      ],
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         ),
