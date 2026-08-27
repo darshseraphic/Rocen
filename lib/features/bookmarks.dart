@@ -128,8 +128,8 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFF420000),
+          selectionColor: textMain.withOpacity(0.2),
+          selectionHandleColor: textMain,
         ),
       ),
       child: Padding(

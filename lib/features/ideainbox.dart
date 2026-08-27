@@ -92,8 +92,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
           child: Theme(
             data: Theme.of(context).copyWith(
               textSelectionTheme: TextSelectionThemeData(
-                selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-                selectionHandleColor: const Color(0xFF420000),
+                selectionColor: textMain.withOpacity(0.2),
+                selectionHandleColor: textMain,
                 cursorColor:
                     isDark ? const Color(0xFFFFFFFF) : const Color(0xFF000000),
               ),
@@ -399,8 +399,8 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                               Color textColor;
 
                               if (hasEvent) {
-                                boxColor = const Color(0xFF5F0E0D);
-                                borderColor = const Color(0xFF5F0E0D);
+                                boxColor = const Color(0xFF525252);
+                                borderColor = const Color(0xFF525252);
                                 textColor = Colors.white;
                               } else if (isPastOrToday) {
                                 boxColor = filledColor;
@@ -487,7 +487,7 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                     width: 7,
                     height: 7,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF5F0E0D),
+                      color: const Color(0xFF525252),
                       borderRadius: BorderRadius.circular(1.0),
                     ),
                   ),
