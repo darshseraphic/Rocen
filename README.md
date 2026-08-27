@@ -12,21 +12,20 @@
 ### 01 // SYSTEM OVERVIEW & THE INTENTIONAL MANIFESTO
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/cad9b75d-f291-4440-b783-e5b91df4642b" alt="1" width="19%" />
-  <img src="https://github.com/user-attachments/assets/fc9284d5-4a05-4b77-995a-c7fa94a250ca" alt="2" width="19%" />
-  <img src="https://github.com/user-attachments/assets/56d43090-c6a8-43c4-b02c-f77ef61483c2" alt="3" width="19%" />
-  <img src="https://github.com/user-attachments/assets/1e9c0644-2890-45e0-a47e-f411f5528a03" alt="4" width="19%" />
-  <img src="https://github.com/user-attachments/assets/d9ea101d-1111-4d82-9fff-43873347ea0b" alt="5" width="19%" />
+  <img src="https://github.com/user-attachments/assets/ac7c9e75-db7f-457c-a05d-d32df4d0a415" alt="1" width="19%" />
+  <img src="https://github.com/user-attachments/assets/6b7889ea-d837-45b1-b1ee-c420b083e5ac" alt="2" width="19%" />
+  <img src="https://github.com/user-attachments/assets/49b676b0-daf3-4589-b237-bb23826db724" alt="3" width="19%" />
+  <img src="https://github.com/user-attachments/assets/365bafd8-1d74-4d06-82d0-f1e3edb9c99c" alt="4" width="19%" />
+  <img src="https://github.com/user-attachments/assets/294e40c6-26d1-4727-b9f3-8f63a7f61365" alt="5" width="19%" />
 </p>
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/8e70c7a5-8e1b-4c21-9f8b-5a5fb15c974c" alt="6" width="19%" />
-  <img src="https://github.com/user-attachments/assets/0b6f336f-7300-4f8a-8806-8d4aacf39638" alt="7" width="19%" />
-  <img src="https://github.com/user-attachments/assets/8c6eff91-4444-405f-8532-fada5adedf62" alt="8" width="19%" />
-  <img src="https://github.com/user-attachments/assets/9f43db63-8a18-43d0-b8ed-9ccab5f47564" alt="9" width="19%" />
-  <img src="https://github.com/user-attachments/assets/be3f0825-880d-424b-9485-65430f1680d0" alt="10" width="19%" />
+  <img src="https://github.com/user-attachments/assets/067bc278-9be9-47aa-aef6-62ce68570a50" alt="7" width="19%" />
+  <img src="https://github.com/user-attachments/assets/71640a31-b5f4-4f5c-8e49-5eb520fe6c21" alt="8" width="19%" />
+  <img src="https://github.com/user-attachments/assets/51adae50-643a-4073-8da8-b786200af3c2" alt="9" width="19%" />
+  <img src="https://github.com/user-attachments/assets/7acbc965-a3e8-4b5e-91a0-1d0aeaed86af" alt="10" width="19%" />
+  <img src="https://github.com/user-attachments/assets/ba3d0471-863a-44d2-be4b-dfa290d6dd30" alt="11" width="19%" />
 </p>
-
 
 #### 1.1 The Problem Statement
 
@@ -102,6 +101,8 @@ Your cryptography password is exactly **8 ASCII characters**, but composition is
 
 At exactly 8 characters, requiring 2 of each of 4 categories uses the entire length — so this isn't "at least," it mathematically forces **exactly** 2 of each. The password-creation screen shows all 5 rules live, each one animating a strikethrough as it's satisfied, with the 8 input boxes themselves tinting from dark red toward neutral as your password gets stronger.
 
+**Roadmap note:** the fixed 8-character length is a known limitation, not a permanent ceiling. Argon2id's cost parameters do most of the brute-force resistance here, but length still matters — a fixed 8-character space is finite regardless of cost. Support for 12+ character passwords, keeping the same category-diversity rules, is planned. See §15 for tracked status.
+
 #### 4.2 Key Derivation & Encryption
 
 - **KDF:** Argon2id, both for the local authentication hash and for deriving the AES key used per encryption operation. Parameters are **adaptive**: standard cost on a normal device, automatically bumped to a higher memory/iteration cost if the device is detected as rooted (§4.5) — raising the bar for brute-force specifically on devices where the OS itself may already be compromised.
@@ -129,18 +130,19 @@ On launch, Rocen checks for common root indicators — `su` binaries in standard
 
 #### 4.6 Hardware-Backed Key Storage (StrongBox / TEE)
 
-Two **independent** AndroidKeyStore AES-256-GCM keys, separate aliases, one per purpose:
+Two AndroidKeyStore AES-256-GCM keys, separate aliases, one per purpose — **password verification** and **GitHub token protection** — with different protection models for each:
 
-- One protects the local password-verification chain.
-- One protects your stored GitHub access token.
+**Password verification chain:** hardware-bound directly. A correct password match is necessary but not sufficient — the app also has to successfully unwrap a hardware-encrypted copy of the stored hash using that device's specific Keystore key. If the Keystore entry is gone (app reinstall, factory reset, or the storage being moved to a different device entirely), that check **intentionally fails even with the correct password**, and the user is routed to recovery via the BIP-39 phrase (§4.7) instead. This means storage theft alone — pulling the Hive box off the device via root or ADB backup — is never enough to get in, even with a correct password in hand, because the hardware half of the check can't be extracted or replicated off-device.
 
-Compromising one key has zero implication for the other. Key generation tries **StrongBox** first (a physically separate secure-element chip, where present) and falls back to the **TEE** (Trusted Execution Environment) if StrongBox isn't available on that specific device — the tier actually achieved is independently verified via `KeyInfo`, not just inferred from which code branch ran, and the Privacy Policy panel reports which tier your device landed on.
+**GitHub access token:** protected in two layers, not one. The token is always encrypted first with your password-derived key (the same software encryption used for your notes), and that already-encrypted blob is then additionally hardware-wrapped using the second Keystore alias. So the password-derived layer is the floor — always applied — and the hardware wrap is a second layer on top when the device's Keystore/StrongBox cooperates. **Current known gap:** if hardware-wrapping fails on a given device (Keystore unavailable, StrongBox error, OS quirk), the app currently falls back to storing the password-encrypted-only blob **without surfacing that failure to the user** — the token is never left unencrypted, but it can silently lose its second protective layer with no visible indication. Debug logging for this fallback exists for developer-side diagnosis; a user-facing indicator does not yet. Tracked in §14.
 
-Password verification is **hardware-bound**: a correct password match is necessary but not sufficient — the app also has to successfully unwrap a hardware-encrypted copy of the stored hash using that device's specific Keystore key. If the Keystore entry is gone (app reinstall, factory reset, or the storage being moved to a different device entirely), that check **intentionally fails even with the correct password**, and the user is routed to recovery via the BIP-39 phrase (§4.7) instead. This is a deliberate design tradeoff: it means storage theft alone — pulling the Hive box off the device via root or ADB backup — is never enough to get in, even with a correct password in hand, because the hardware half of the check can't be extracted or replicated off-device.
+Key generation tries **StrongBox** first (a physically separate secure-element chip, where present) and falls back to the **TEE** (Trusted Execution Environment) if StrongBox isn't available on that specific device — the tier actually achieved is independently verified via `KeyInfo`, not just inferred from which code branch ran, and the Privacy Policy panel reports which tier your device landed on.
 
 #### 4.7 Recovery: BIP-39
 
-A 12-word recovery phrase is generated at setup. Combined with your password, it's used to wrap your local authentication salt for cross-device recovery — this is the sanctioned path back in if local storage and hardware keys are both lost (new phone, factory reset, reinstall). Without both the password *and* the phrase, there's no backdoor — including for the developer of this app.
+A 12-word recovery phrase is generated at setup. Combined with your password (concatenated into a single secret, not used as two separate independent checks), it's run through Argon2id to wrap your local authentication salt for cross-device recovery — this is the sanctioned path back in if local storage and hardware keys are both lost (new phone, factory reset, reinstall). Without both the password *and* the phrase together, there's no backdoor — including for the developer of this app.
+
+**This path is software-only, not hardware-bound.** Unlike §4.6's password-verification check, recovery via the phrase doesn't involve the Keystore at all — its strength comes entirely from Argon2id's cost parameters plus the phrase's own entropy (~128 bits for a 12-word BIP-39 phrase), not from device-specific hardware. Practically, this means: an attacker who has both your password *and* your recovery phrase can decrypt your data on any device, not only your original one — which is the intended behavior for a recovery mechanism, but worth understanding plainly rather than assuming it inherits the same hardware-binding property described in §4.6.
 
 #### 4.8 GitHub Backup: Zero-Knowledge By Architecture
 
@@ -383,26 +385,54 @@ Both go through the certificate-pinned client (§4.8) and your Personal Access T
 6. **Force-push** the branch reference to point at this new commit, overwriting whatever it pointed to a moment ago.
 
 **Why this "force-push a fresh root commit" strategy, instead of normal incremental commits:**
-- **The repo never grows a commit history**, no matter how many times you sync over years of daily use — every push replaces the previous state rather than stacking on top of it. A repo synced daily for five years looks identical, size-wise, to one synced once.
+- **Every save re-encrypts with a fresh random salt and nonce (§4.2 — nothing is ever reused), which means even a one-character edit produces an entirely different ciphertext blob for that note, not a small diff.** A normal incremental-commit strategy would mean daily use accumulates one full new ciphertext blob per save, indefinitely — years of daily notes would mean years of full encrypted blobs stacked in git history, growing the repo without bound. Force-pushing a fresh root commit means the repo only ever holds your *current* encrypted state, regardless of how many times you've saved.
 - **No merge conflicts, ever** — since each push is a clean snapshot built from the *current* remote tree, there's no divergent-history scenario to reconcile.
 - **Simpler mental model for a security tool specifically:** the repository *is* your current encrypted state, not an auditable log of every past state. For most apps that's a downside; for a zero-knowledge backup tool, minimizing how much old ciphertext lingers around by default is the right instinct.
 
 **The honest caveat, stated plainly because this is a security document:** force-pushing over a ref doesn't *instantly* destroy the previous commit — the old commit object becomes unreachable ("dangling") from the branch, but it can still exist on GitHub's servers until their own periodic garbage collection eventually cleans it up. In practice this is a narrow, time-limited window and the dangling object is still just ciphertext (meaningless without your password), not a meaningful exposure — but "gone the instant you push" would be an overstatement, and this document would rather be exactly accurate than reassuring.
 
 
-### 14 // LICENSE
+### 14 // KNOWN LIMITATIONS & ROADMAP — STATED PLAINLY
 
-**Rocen Proprietary Software License — Copyright © 2026 Darshseraphic. All Rights Reserved.**
+Every claim in §04–§13 describes what the code currently does. This section exists separately, to state clearly what hasn't happened yet and what's still a tradeoff, rather than let those items sit quietly inside sections that otherwise read as fully resolved.
+
+**Not yet independently verified.** Nothing in this document has been confirmed by a third-party security audit or penetration test. The cryptographic primitives (Argon2id, AES-256-GCM, hardware-backed Keystore) are standard and correctly chosen, and this README describes the implementation as accurately as possible — but a README is a claims document written by the author, not independent verification. Rocen is early (built over ~3 months by a single developer) and is being published publicly specifically so the implementation can be read, built, and tested by anyone who wants to check it — see §15 for exactly what that license permits. A completed third-party audit, once one happens, will be linked here.
+
+**Password length is currently fixed at 8 characters** (§4.1). This is a known, tracked limitation, not a final design decision — see the roadmap note in §4.1. Support for 12+ character passwords is planned.
+
+**RAM pinning is best-effort, not guaranteed** (§4.4). On many stock Android ROMs, `mlock` is denied by the OS outright, and pinning silently fails without blocking the app. This is disclosed here directly: treat pinning as a bonus hardening layer that may or may not be active on your specific device, not a property you can rely on.
+
+**Certificate pinning has a bounded, auto-expiring window** (§4.8). It's leaf-certificate pinning (a `dart:io` platform constraint, not a shortcut), and it's designed to fail open to ordinary system TLS trust past a fixed date or if unconfigured — meaning it can only make a working connection *more* resistant to interception for a bounded period, never turn a working connection into a broken one. Renewal depends on the developer shipping updated pins over time.
+
+**Force-pushed commits can dangle on GitHub's servers temporarily** (§13). Force-pushing over a ref doesn't instantly erase the previous commit object — it becomes unreachable from the branch but may persist until GitHub's own garbage collection runs. The dangling object is ciphertext only, not plaintext, but "gone the instant you push" would overstate it.
+
+**GitHub access token's hardware-wrap layer can fail silently to the user** (§4.6). The token is always protected by password-derived encryption — that layer is never skipped. On top of it, a second Keystore-backed hardware wrap is applied when the device supports it. If that second layer fails (Keystore unavailable, StrongBox error, OS quirk), the app currently falls back to the password-encrypted-only form without telling the user, though it does log this internally for developer-side diagnosis as of this writing. The token is never left unencrypted in either case — the gap is visibility into which protection tier is actually active on a given device, not exposure of the token itself. A user-facing indicator (matching the tier reporting already shown for password verification) is planned.
+
+**Recovery-phrase path is software-only, not hardware-bound** (§4.7). Unlike password verification, restoring access via the 12-word phrase doesn't route through the Android Keystore — its strength rests on Argon2id's cost plus the phrase's own entropy. This is expected, correct behavior for a cross-device recovery mechanism (hardware-binding a *recovery* path to one specific device's chip would defeat its purpose) — stated here so it isn't assumed to inherit §4.6's hardware guarantee.
+
+**Source is publicly viewable and forkable for testing, but not open-source in the OSI sense.** You can read it, build it, and modify your own copy (§15). You cannot publish a modified version, run it as a competing service, or redistribute it. This is a deliberate choice to allow real scrutiny while preventing resale — see §15 for the exact terms.
+
+**No formal bug bounty program exists yet.** If you find a vulnerability, the intended path is a pull request or a direct email to the address in §15 — there's currently no structured disclosure process or reward beyond that.
+
+This section will be updated as items resolve — a shipped fix means a section here changes from "planned" to gone, not softened language while nothing has actually shipped.
+
+
+### 15 // LICENSE
+
+**Rocen Proprietary Software License v1.1 — Copyright © 2026 Darshseraphic. All Rights Reserved.**
 
 The full license text lives in the [`LICENSE`](./LICENSE) file at the root of this repository — read that for the complete, authoritative terms. The summary below is for orientation only and is not a substitute for it.
 
-Publishing this source code publicly does not place it in the public domain, and does not by itself grant any license to use, copy, modify, distribute, sell, or build on it. Specifically:
+Publishing this source code publicly does not place it in the public domain. The license is written to encourage real, hands-on security review while stopping the code from being resold or repackaged elsewhere. Specifically:
 
-- **Viewing is permitted** — you're welcome to read the code for personal, non-commercial, educational, or review purposes. That's the entire scope of what's granted.
-- **Copying, modifying, redistributing, forking into a competing product, commercial use, and reverse engineering are all prohibited** without prior written permission.
+- **Read it, build it, run it, break it.** You're welcome to clone or fork the repo, build it from source, and modify your own copy — for testing, bug-hunting, security review, or personal use.
+- **Send fixes back.** If you find something, patches and pull requests to the official repository are the intended path — that's what this permission exists for.
+- **Don't publish, distribute, or sell your fork.** Publishing a modified or unmodified copy anywhere other than back to this repository, running it as a service for others, incorporating it into another product, or any commercial use — is not permitted without prior written permission.
+- **Don't misrepresent origin.** Claiming a fork or modified version as your own original work, or removing attribution, is not permitted.
 - **Use of this code (or Rocen's name/branding) to train, fine-tune, or evaluate an AI/ML model is explicitly prohibited.**
-- Forking or cloning the repository through GitHub's own platform features does not, by itself, grant any rights beyond what's stated above — GitHub's mechanics for viewing/cloning a public repo are not a license.
 - The software is provided with no warranty, and — specifically relevant given what this app is — **no guarantee that it protects against every possible security threat, device compromise, or data loss scenario.**
+
+**In short:** test it as hard as you want, on your own machine. Don't republish it, run it as a competing service, or sell it.
 
 For licensing requests, commercial permission, or anything not covered by the above: **Darsh.seraphic@gmail.com**
 
