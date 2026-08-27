@@ -474,10 +474,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             return Theme(
               data: Theme.of(context).copyWith(
-                textSelectionTheme: const TextSelectionThemeData(
-                  selectionColor: Color(0x335F0E0D),
-                  selectionHandleColor: Color(0xFF5F0E0D),
-                  cursorColor: Color(0xFF5F0E0D),
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionHandleColor: theme.textMain,
+                  cursorColor: theme.textMain,
                 ),
               ),
               child: Center(
@@ -531,7 +531,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               maxLength: 32,
                               obscureText: true,
                               obscuringCharacter: '#',
-                              cursorColor: const Color(0xFF5F0E0D),
+                              cursorColor: theme.textMain,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
                               style: TextStyle(
@@ -873,10 +873,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             return Theme(
               data: Theme.of(context).copyWith(
-                textSelectionTheme: const TextSelectionThemeData(
-                  selectionColor: Color(0x335F0E0D),
-                  selectionHandleColor: Color(0xFF5F0E0D),
-                  cursorColor: Color(0xFF5F0E0D),
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionHandleColor: theme.textMain,
+                  cursorColor: theme.textMain,
                 ),
               ),
               child: Center(
@@ -921,7 +921,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             maxLength: 32,
                             obscureText: true,
                             obscuringCharacter: '#',
-                            cursorColor: const Color(0xFF5F0E0D),
+                            cursorColor: theme.textMain,
                             autofocus: true,
                             onChanged: (val) => setDialogState(() {}),
                             style: TextStyle(
@@ -1296,10 +1296,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             return Theme(
               data: Theme.of(context).copyWith(
-                textSelectionTheme: const TextSelectionThemeData(
-                  selectionColor: Color(0x335F0E0D),
-                  selectionHandleColor: Color(0xFF5F0E0D),
-                  cursorColor: Color(0xFF5F0E0D),
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionHandleColor: theme.textMain,
+                  cursorColor: theme.textMain,
                 ),
               ),
               child: Center(
@@ -1353,7 +1353,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               maxLength: 32,
                               obscureText: true,
                               obscuringCharacter: '#',
-                              cursorColor: const Color(0xFF5F0E0D),
+                              cursorColor: theme.textMain,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
                               style: TextStyle(
@@ -1524,10 +1524,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           builder: (context, setDialogState) {
             return Theme(
               data: Theme.of(context).copyWith(
-                textSelectionTheme: const TextSelectionThemeData(
-                  selectionColor: Color(0x335F0E0D),
-                  selectionHandleColor: Color(0xFF5F0E0D),
-                  cursorColor: Color(0xFF5F0E0D),
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionHandleColor: theme.textMain,
+                  cursorColor: theme.textMain,
                 ),
               ),
               child: Center(
@@ -1566,7 +1566,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             maxLength: 32,
                             obscureText: true,
                             obscuringCharacter: '#',
-                            cursorColor: const Color(0xFF5F0E0D),
+                            cursorColor: theme.textMain,
                             autofocus: true,
                             onChanged: (val) => setDialogState(() {}),
                             style: TextStyle(
@@ -1914,10 +1914,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             return Theme(
               data: Theme.of(context).copyWith(
-                textSelectionTheme: const TextSelectionThemeData(
-                  selectionColor: Color(0x335F0E0D),
-                  selectionHandleColor: Color(0xFF5F0E0D),
-                  cursorColor: Color(0xFF5F0E0D),
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionHandleColor: theme.textMain,
+                  cursorColor: theme.textMain,
                 ),
               ),
               child: Center(
@@ -1971,7 +1971,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               maxLength: 32,
                               obscureText: true,
                               obscuringCharacter: '#',
-                              cursorColor: const Color(0xFF5F0E0D),
+                              cursorColor: theme.textMain,
                               autofocus: lockStringStatus == null,
                               enabled: lockStringStatus == null,
                               style: TextStyle(
@@ -2177,10 +2177,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       pageBuilder: (context, anim1, anim2) {
         return Theme(
           data: Theme.of(context).copyWith(
-            textSelectionTheme: const TextSelectionThemeData(
-              selectionColor: Color(0x335F0E0D),
-              selectionHandleColor: Color(0xFF5F0E0D),
-              cursorColor: Color(0xFF5F0E0D),
+            textSelectionTheme: TextSelectionThemeData(
+              selectionColor: theme.textMain.withOpacity(0.2),
+              selectionHandleColor: theme.textMain,
+              cursorColor: theme.textMain,
             ),
           ),
           child: Center(
@@ -2847,10 +2847,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
             return Theme(
               data: Theme.of(context).copyWith(
-                textSelectionTheme: const TextSelectionThemeData(
-                  selectionColor: Color(0x335F0E0D),
-                  selectionHandleColor: Color(0xFF5F0E0D),
-                  cursorColor: Color(0xFF5F0E0D),
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionHandleColor: theme.textMain,
+                  cursorColor: theme.textMain,
                 ),
               ),
               child: Center(

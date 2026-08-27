@@ -89,7 +89,7 @@ This is the part that actually matters, so it gets the longest section. Every cl
 
 #### 4.1 The Password
 
-Your cryptography password is exactly **8 ASCII characters**, but composition is deliberately strict — not just "one of each type," but:
+Your cryptography password is **8 to 32 ASCII characters**, with composition rules that are deliberately strict — not just "one of each type," but:
 
 - 2 **unique** uppercase letters (not the same letter twice)
 - 2 **unique** lowercase letters
@@ -99,9 +99,9 @@ Your cryptography password is exactly **8 ASCII characters**, but composition is
 
 **In plain terms:** no character category can be satisfied by repeating the same key twice. `AA12!!bb` fails — the uppercase pair and symbol pair each repeat the same character. `AB12!@bc` passes — every character within each category is genuinely different from its pair.
 
-At exactly 8 characters, requiring 2 of each of 4 categories uses the entire length — so this isn't "at least," it mathematically forces **exactly** 2 of each. The password-creation screen shows all 5 rules live, each one animating a strikethrough as it's satisfied, with the 8 input boxes themselves tinting from dark red toward neutral as your password gets stronger.
+At the 8-character floor, requiring 2 of each of 4 categories uses the entire minimum length — so at exactly 8 characters, this isn't "at least," it mathematically forces **exactly** 2 of each. Past 8 characters, the same 5 rules still apply (you still need at least 2 unique of each category somewhere in the password), but the extra characters up to the 32-character ceiling are free-form — any allowed character, in any position, is fine once the floor is met. The password-creation screen shows all 5 rules live, each one animating a strikethrough as it's satisfied.
 
-**Roadmap note:** the fixed 8-character length is a known limitation, not a permanent ceiling. Argon2id's cost parameters do most of the brute-force resistance here, but length still matters — a fixed 8-character space is finite regardless of cost. Support for 12+ character passwords, keeping the same category-diversity rules, is planned. See §15 for tracked status.
+**On length specifically:** the input is a single flowing field (not fixed character boxes — that changed from an earlier version of this app), obscured with the app's own `#` glyph rather than a generic dot, so there's no visual ceiling suggesting a fixed length. Argon2id's cost parameters do the heavy lifting against brute-force regardless of where in the 8–32 range you land, but length still matters on top of that — a longer password is a larger keyspace no matter how expensive each individual guess is. Previously this app enforced an exact 8-character length as a shipped constraint; that ceiling has since been lifted to 32, resolving the roadmap item that was tracked in §14 as of the last revision of this document.
 
 #### 4.2 Key Derivation & Encryption
 
@@ -132,7 +132,7 @@ On launch, Rocen checks for common root indicators — `su` binaries in standard
 
 Two AndroidKeyStore AES-256-GCM keys, separate aliases, one per purpose — **password verification** and **GitHub token protection** — with different protection models for each:
 
-**Password verification chain:** hardware-bound directly. A correct password match is necessary but not sufficient — the app also has to successfully unwrap a hardware-encrypted copy of the stored hash using that device's specific Keystore key. If the Keystore entry is gone (app reinstall, factory reset, or the storage being moved to a different device entirely), that check **intentionally fails even with the correct password**, and the user is routed to recovery via the BIP-39 phrase (§4.7) instead. This means storage theft alone — pulling the Hive box off the device via root or ADB backup — is never enough to get in, even with a correct password in hand, because the hardware half of the check can't be extracted or replicated off-device.
+**Password verification chain:** hardware-bound directly. A correct password match is necessary but not sufficient — the app also has to successfully unwrap a hardware-encrypted copy of the stored hash using that device's specific Keystore key. If the Keystore entry is gone (app reinstall, factory reset, or the storage being moved to a different device entirely), that check **intentionally fails even with the correct password**, and the user is routed to recovery via the BIP-39 phrase (§4.7) instead. This means storage theft alone — pulling the Hive box off the device via root or ADB backup — is never enough to get in, even with a correct password in hand, because the hardware half of the check can't be extracted or replicated off-device. This check fails closed on any unexpected error from the platform Keystore call as well — an exception here denies the check rather than defaulting to pass, per the fix noted in §14.
 
 **GitHub access token:** protected in two layers, not one. The token is always encrypted first with your password-derived key (the same software encryption used for your notes), and that already-encrypted blob is then additionally hardware-wrapped using the second Keystore alias. So the password-derived layer is the floor — always applied — and the hardware wrap is a second layer on top when the device's Keystore/StrongBox cooperates. **Current known gap:** if hardware-wrapping fails on a given device (Keystore unavailable, StrongBox error, OS quirk), the app currently falls back to storing the password-encrypted-only blob **without surfacing that failure to the user** — the token is never left unencrypted, but it can silently lose its second protective layer with no visible indication. Debug logging for this fallback exists for developer-side diagnosis; a user-facing indicator does not yet. Tracked in §14.
 
@@ -248,10 +248,10 @@ Section §04 above is the full technical breakdown. If you want the short versio
 
 #### 8.1 First Launch: Creating Your Password
 
-You'll be asked to create an 8-character password meeting 5 composition rules (§4.1) — the setup screen shows you live, animated feedback for each one as you type, so you'll know immediately what's still missing. A few honest notes:
+You'll be asked to create an 8–32 character password meeting 5 composition rules (§4.1) — the setup screen shows you live, animated feedback for each one as you type, so you'll know immediately what's still missing. A few honest notes:
 
 - This password cannot be recovered by anyone if you forget it and also lose your recovery phrase. Choose something you can reliably remember, or store it in a password manager you trust — don't rely on memory alone for something this consequential.
-- Longer isn't an option here by design (exactly 8 characters) — the security comes from Argon2id's computational cost and the strict character diversity rules, not from raw length.
+- Longer is genuinely stronger here — Argon2id's computational cost is the main defense regardless of length, but a longer password within the 8–32 range still means a larger keyspace on top of that. There's no reason to stay at the 8-character floor if you're comfortable typing more.
 
 #### 8.2 Your Recovery Phrase — The Single Most Important Step
 
@@ -332,7 +332,7 @@ None of this is accidental — each area got specific engineering attention:
 ### 11 // COMPLETE CRYPTOGRAPHIC WORKFLOW — STEP BY STEP
 
 **What actually happens when you create your password:**
-1. You type an 8-character password meeting all 5 composition rules (§4.1).
+1. You type an 8–32 character password meeting all 5 composition rules (§4.1).
 2. A random salt is generated.
 3. Argon2id derives a hash from your password + that salt, using standard or hardened cost parameters depending on whether root was detected (§4.5) — this runs inside a spawned Isolate (§4.3), never on the UI thread.
 4. The salt and hash are stored together (`salt:hash` format) — never your raw password.
@@ -396,9 +396,13 @@ Both go through the certificate-pinned client (§4.8) and your Personal Access T
 
 Every claim in §04–§13 describes what the code currently does. This section exists separately, to state clearly what hasn't happened yet and what's still a tradeoff, rather than let those items sit quietly inside sections that otherwise read as fully resolved.
 
-**Not yet independently verified.** Nothing in this document has been confirmed by a third-party security audit or penetration test. The cryptographic primitives (Argon2id, AES-256-GCM, hardware-backed Keystore) are standard and correctly chosen, and this README describes the implementation as accurately as possible — but a README is a claims document written by the author, not independent verification. Rocen is early (built over ~3 months by a single developer) and is being published publicly specifically so the implementation can be read, built, and tested by anyone who wants to check it — see §15 for exactly what that license permits. A completed third-party audit, once one happens, will be linked here.
+**Resolved since this section was first written:**
+- The password length cap (previously fixed at exactly 8 characters) has been raised to a range of 8–32, with the composition rules unchanged — see §4.1.
+- A code-review pass found that the hardware-binding check in password verification (§4.6) failed open on an unexpected Keystore exception — meaning an error there could have been silently treated as a passed check rather than a failed one. This has been fixed to fail closed. It's mentioned here rather than left unstated because a security document that only ever describes success isn't a credible one — catching and fixing this is a normal, expected part of the process this README already asks readers to trust (§15's "read it, test it, find bugs").
 
-**Password length is currently fixed at 8 characters** (§4.1). This is a known, tracked limitation, not a final design decision — see the roadmap note in §4.1. Support for 12+ character passwords is planned.
+These are removed from the list below because they're shipped, not because the wording was softened.
+
+**Not yet independently verified.** Nothing in this document has been confirmed by a third-party security audit or penetration test. The cryptographic primitives (Argon2id, AES-256-GCM, hardware-backed Keystore) are standard and correctly chosen, and this README describes the implementation as accurately as possible — but a README is a claims document written by the author, not independent verification. Rocen is early (built over ~3 months by a single developer) and is being published publicly specifically so the implementation can be read, built, and tested by anyone who wants to check it — see §15 for exactly what that license permits. A completed third-party audit, once one happens, will be linked here.
 
 **RAM pinning is best-effort, not guaranteed** (§4.4). On many stock Android ROMs, `mlock` is denied by the OS outright, and pinning silently fails without blocking the app. This is disclosed here directly: treat pinning as a bonus hardening layer that may or may not be active on your specific device, not a property you can rely on.
 

@@ -1510,269 +1510,252 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER 8-CHARACTER PASSWORD';
+            String displayHeaderTitle = 'ENTER PASSWORD';
             if (lockStringStatus != null) {
               displayHeaderTitle = lockStringStatus!;
             } else if (hasPinFailed) {
               displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
             }
 
-            return Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 320,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: theme.dialogBg,
-                    border: Border.all(color: theme.borderColor, width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(displayHeaderTitle,
-                          style: TextStyle(
+            return Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionHandleColor: theme.textMain,
+                  cursorColor: theme.textMain,
+                ),
+              ),
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: theme.dialogBg,
+                      border: Border.all(color: theme.borderColor, width: 0.8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(displayHeaderTitle,
+                            style: TextStyle(
+                                color:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? const Color(0xFFEF4444)
+                                        : theme.textMain,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.05)),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: (hasPinFailed || lockStringStatus != null)
+                                  ? const Color(0xFFEF4444)
+                                  : theme.borderColor,
+                              width: (hasPinFailed || lockStringStatus != null)
+                                  ? 1.2
+                                  : 0.8,
+                            ),
+                          ),
+                          child: TextField(
+                            controller: pinVerifyController,
+                            keyboardType: TextInputType.text,
+                            maxLength: 32,
+                            obscureText: true,
+                            obscuringCharacter: '#',
+                            cursorColor: theme.textMain,
+                            autofocus: lockStringStatus == null,
+                            enabled: lockStringStatus == null,
+                            style: TextStyle(
                               color: (hasPinFailed || lockStringStatus != null)
                                   ? const Color(0xFFEF4444)
                                   : theme.textMain,
-                              fontSize: 11,
+                              fontSize: 16,
+                              letterSpacing: 4,
                               fontWeight: FontWeight.bold,
-                              letterSpacing: 0.05)),
-                      const SizedBox(height: 20),
-                      Stack(
-                        children: [
-                          Opacity(
-                            opacity: 0.0,
-                            child: TextField(
-                              controller: pinVerifyController,
-                              keyboardType: TextInputType.text,
-                              maxLength: 8,
-                              autofocus: lockStringStatus == null,
-                              enabled: lockStringStatus == null,
-                              onChanged: (val) {
-                                setDialogState(() {
-                                  if (hasPinFailed) {
-                                    hasPinFailed = false;
-                                  }
-                                });
-                              },
-                              decoration: const InputDecoration(
-                                counterText: '',
-                                border: InputBorder.none,
+                            ),
+                            onChanged: (val) {
+                              setDialogState(() {
+                                if (hasPinFailed) {
+                                  hasPinFailed = false;
+                                }
+                              });
+                            },
+                            decoration: const InputDecoration(
+                              counterText: '',
+                              border: InputBorder.none,
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                      color: theme.borderColor, width: 0.8),
+                                ),
+                                child: Text('CANCEL',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFF888888)
+                                            : const Color(0xFF525252),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
                               ),
                             ),
-                          ),
-                          IgnorePointer(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: List.generate(8, (index) {
-                                final String text = pinVerifyController.text;
-                                bool isFilled = text.length > index;
-                                bool isCurrentFocus = text.length == index;
-
-                                Color currentBoxBorderColor;
-                                if (hasPinFailed || lockStringStatus != null) {
-                                  currentBoxBorderColor =
-                                      const Color(0xFFEF4444);
-                                } else if (isCurrentFocus) {
-                                  currentBoxBorderColor = theme.textMain;
-                                } else {
-                                  currentBoxBorderColor = isFilled
-                                      ? theme.textMain.withOpacity(0.6)
-                                      : theme.borderColor;
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () async {
+                                final activeLockCheck =
+                                    _checkLockoutViolation(settingsBox);
+                                if (activeLockCheck != null) {
+                                  setDialogState(() {
+                                    lockStringStatus = activeLockCheck;
+                                  });
+                                  return;
                                 }
 
-                                return Container(
-                                  width: 28,
-                                  height: 28,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: Colors.transparent,
-                                    border: Border.all(
-                                      color: currentBoxBorderColor,
-                                      width: isCurrentFocus ||
-                                              hasPinFailed ||
-                                              lockStringStatus != null
-                                          ? 1.2
-                                          : 0.8,
-                                    ),
-                                  ),
-                                  child: isFilled
-                                      ? Container(
-                                          width: 7,
-                                          height: 7,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: (hasPinFailed ||
-                                                    lockStringStatus != null)
-                                                ? const Color(0xFFEF4444)
-                                                : theme.textMain,
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(),
-                                );
-                              }),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.borderColor, width: 0.8),
-                              ),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
-                              if (activeLockCheck != null) {
-                                setDialogState(() {
-                                  lockStringStatus = activeLockCheck;
-                                });
-                                return;
-                              }
+                                final bool isPinValid =
+                                    await CryptoEngine.verifyPin(
+                                        pinVerifyController.text, globalPin);
 
-                              final bool isPinValid =
-                                  await CryptoEngine.verifyPin(
-                                      pinVerifyController.text, globalPin);
-
-                              if (isPinValid) {
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
-
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                if (!screenContext.mounted) return;
-
-                                if (openForEditing) {
-                                  String rawContent = '';
-                                  try {
-                                    rawContent =
-                                        await CryptoEngine.decryptProcess(
-                                            item.content, globalPin);
-                                    if (rawContent != 'DECRYPTION FAULT' &&
-                                        item.pendingReviewAfterSync) {
-                                      // Content was swapped in from backup without decryption during
-                                      // conflict resolution - it may still be in the combined
-                                      // title+body format used for the GitHub payload. Strip that
-                                      // back down to just the body for display/editing, and clear
-                                      // the pending flag now that the real content has been seen.
-                                      rawContent =
-                                          _splitTitleAndBody(rawContent).body;
-                                      await ref
-                                          .read(localDatabaseProvider.notifier)
-                                          .updateItem(
-                                            item.id,
-                                            item.content,
-                                            pendingReviewAfterSync: false,
-                                          );
-                                    }
-                                  } catch (_) {
-                                    rawContent = 'DECRYPTION FAULT';
-                                  }
-                                  final unpackedItem = CaptureItem(
-                                    id: item.id,
-                                    title: item.title,
-                                    content: rawContent,
-                                    type: item.type,
-                                    timestamp: item.timestamp,
-                                    backupEnabled: item.backupEnabled,
-                                    remoteFileId: item.remoteFileId,
-                                    lastSyncedTimestamp:
-                                        item.lastSyncedTimestamp,
-                                    pendingReviewAfterSync:
-                                        item.pendingReviewAfterSync,
-                                  );
-                                  _navigateToEdit(screenContext, unpackedItem);
-                                } else {
-                                  _revealEncryptedNotePayload(
-                                      item, globalPin, isDark);
-                                }
-                              } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
-
-                                bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
-
-                                if (flagWipeConditionTriggered) {
-                                  _executeWipeSequence();
+                                if (isPinValid) {
                                   await settingsBox.put(
                                       'secure_failed_attempts', 0);
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
+
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
-                                  showAcknowledgeDialog(
-                                      context,
-                                      isDark,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
-                                  return;
-                                }
+                                  if (!screenContext.mounted) return;
 
-                                if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
-                                }
-
-                                setDialogState(() {
-                                  pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
-                                  if (lockStringStatus == null) {
-                                    hasPinFailed = true;
+                                  if (openForEditing) {
+                                    String rawContent = '';
+                                    try {
+                                      rawContent =
+                                          await CryptoEngine.decryptProcess(
+                                              item.content, globalPin);
+                                      if (rawContent != 'DECRYPTION FAULT' &&
+                                          item.pendingReviewAfterSync) {
+                                        // Content was swapped in from backup without decryption during
+                                        // conflict resolution - it may still be in the combined
+                                        // title+body format used for the GitHub payload. Strip that
+                                        // back down to just the body for display/editing, and clear
+                                        // the pending flag now that the real content has been seen.
+                                        rawContent =
+                                            _splitTitleAndBody(rawContent).body;
+                                        await ref
+                                            .read(
+                                                localDatabaseProvider.notifier)
+                                            .updateItem(
+                                              item.id,
+                                              item.content,
+                                              pendingReviewAfterSync: false,
+                                            );
+                                      }
+                                    } catch (_) {
+                                      rawContent = 'DECRYPTION FAULT';
+                                    }
+                                    final unpackedItem = CaptureItem(
+                                      id: item.id,
+                                      title: item.title,
+                                      content: rawContent,
+                                      type: item.type,
+                                      timestamp: item.timestamp,
+                                      backupEnabled: item.backupEnabled,
+                                      remoteFileId: item.remoteFileId,
+                                      lastSyncedTimestamp:
+                                          item.lastSyncedTimestamp,
+                                      pendingReviewAfterSync:
+                                          item.pendingReviewAfterSync,
+                                    );
+                                    _navigateToEdit(
+                                        screenContext, unpackedItem);
+                                  } else {
+                                    _revealEncryptedNotePayload(
+                                        item, globalPin, isDark);
                                   }
-                                });
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                                } else {
+                                  int attempts = settingsBox.get(
+                                          'secure_failed_attempts',
+                                          defaultValue: 0) +
+                                      1;
+                                  await settingsBox.put(
+                                      'secure_failed_attempts', attempts);
+
+                                  bool flagWipeConditionTriggered =
+                                      attempts > 15;
+                                  int penaltyDurationSeconds =
+                                      flagWipeConditionTriggered
+                                          ? 0
+                                          : CryptoEngine
+                                              .lockoutSecondsForAttempt(
+                                                  attempts);
+
+                                  if (flagWipeConditionTriggered) {
+                                    _executeWipeSequence();
+                                    await settingsBox.put(
+                                        'secure_failed_attempts', 0);
+                                    await settingsBox.put(
+                                        'secure_lockout_until', 0);
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    showAcknowledgeDialog(
+                                        context,
+                                        isDark,
+                                        'SECURITY COMPLIANCE AUDIT',
+                                        'DATA PURGED PERMANENTLY.');
+                                    return;
+                                  }
+
+                                  if (penaltyDurationSeconds > 0) {
+                                    final int unlockTimestampMillis =
+                                        DateTime.now().millisecondsSinceEpoch +
+                                            (penaltyDurationSeconds * 1000);
+                                    await settingsBox.put(
+                                        'secure_lockout_until',
+                                        unlockTimestampMillis);
+                                  }
+
+                                  setDialogState(() {
+                                    pinVerifyController.clear();
+                                    lockStringStatus =
+                                        _checkLockoutViolation(settingsBox);
+                                    if (lockStringStatus == null) {
+                                      hasPinFailed = true;
+                                    }
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration:
+                                    BoxDecoration(color: theme.textMain),
+                                child: Text('VERIFY',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
                             ),
-                          ),
-                        ],
-                      )
-                    ],
+                          ],
+                        )
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -2065,8 +2048,8 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFF420000),
+          selectionColor: theme.textMain.withOpacity(0.2),
+          selectionHandleColor: theme.textMain,
         ),
       ),
       child: Padding(
@@ -2590,9 +2573,6 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   }
 
   Future<void> _performTitleCheck(String title) async {
-    // See note in the create-note screen's _performTitleCheck - remote
-    // uniqueness is no longer cheaply checkable now that filenames are
-    // opaque, so this is local-only.
     final bool taken = ref
         .read(localDatabaseProvider.notifier)
         .titleExists(title, excludingId: widget.item.id);
@@ -2699,8 +2679,8 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: const Color(0xFF5F0E0D).withOpacity(0.6),
-          selectionHandleColor: const Color(0xFF5F0E0D),
+          selectionColor: theme.textMain.withOpacity(0.2),
+          selectionHandleColor: theme.textMain,
         ),
       ),
       child: Scaffold(
@@ -2789,11 +2769,6 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 }
 
                 bool success;
-
-                // Remote filename is a stable opaque id, decoupled from
-                // title - carry the existing one forward whenever possible
-                // so a lock-status change doesn't orphan the already-synced
-                // remote file under a second, abandoned filename.
                 final String? existingRemoteId = widget.item.remoteFileId;
                 final String? remoteIdForThisSave = _isBackupEnabled
                     ? (existingRemoteId ??
