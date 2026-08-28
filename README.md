@@ -1,6 +1,6 @@
 ### ROCEN // THE COMPLETE TECHNICAL SYSTEM MANIFESTO & REFERENCE MANUAL
 
-**DOCUMENT VERSION:** 2026.8.1
+**DOCUMENT VERSION:** 2026.8.28
 
 **CORE ENGINEER:** DARSHSERAPHIC
 
@@ -12,19 +12,19 @@
 ### 01 // SYSTEM OVERVIEW & THE INTENTIONAL MANIFESTO
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/cad9b75d-f291-4440-b783-e5b91df4642b" alt="1" width="19%" />
-  <img src="https://github.com/user-attachments/assets/fc9284d5-4a05-4b77-995a-c7fa94a250ca" alt="2" width="19%" />
-  <img src="https://github.com/user-attachments/assets/56d43090-c6a8-43c4-b02c-f77ef61483c2" alt="3" width="19%" />
-  <img src="https://github.com/user-attachments/assets/1e9c0644-2890-45e0-a47e-f411f5528a03" alt="4" width="19%" />
-  <img src="https://github.com/user-attachments/assets/d9ea101d-1111-4d82-9fff-43873347ea0b" alt="5" width="19%" />
+  <img src="https://github.com/user-attachments/assets/ac7c9e75-db7f-457c-a05d-d32df4d0a415" alt="1" width="19%" />
+  <img src="https://github.com/user-attachments/assets/6b7889ea-d837-45b1-b1ee-c420b083e5ac" alt="2" width="19%" />
+  <img src="https://github.com/user-attachments/assets/49b676b0-daf3-4589-b237-bb23826db724" alt="3" width="19%" />
+  <img src="https://github.com/user-attachments/assets/365bafd8-1d74-4d06-82d0-f1e3edb9c99c" alt="4" width="19%" />
+  <img src="https://github.com/user-attachments/assets/294e40c6-26d1-4727-b9f3-8f63a7f61365" alt="5" width="19%" />
 </p>
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/8e70c7a5-8e1b-4c21-9f8b-5a5fb15c974c" alt="6" width="19%" />
-  <img src="https://github.com/user-attachments/assets/0b6f336f-7300-4f8a-8806-8d4aacf39638" alt="7" width="19%" />
-  <img src="https://github.com/user-attachments/assets/8c6eff91-4444-405f-8532-fada5adedf62" alt="8" width="19%" />
-  <img src="https://github.com/user-attachments/assets/9f43db63-8a18-43d0-b8ed-9ccab5f47564" alt="9" width="19%" />
-  <img src="https://github.com/user-attachments/assets/be3f0825-880d-424b-9485-65430f1680d0" alt="10" width="19%" />
+  <img src="https://github.com/user-attachments/assets/067bc278-9be9-47aa-aef6-62ce68570a50" alt="7" width="19%" />
+  <img src="https://github.com/user-attachments/assets/71640a31-b5f4-4f5c-8e49-5eb520fe6c21" alt="8" width="19%" />
+  <img src="https://github.com/user-attachments/assets/51adae50-643a-4073-8da8-b786200af3c2" alt="9" width="19%" />
+  <img src="https://github.com/user-attachments/assets/7acbc965-a3e8-4b5e-91a0-1d0aeaed86af" alt="10" width="19%" />
+  <img src="https://github.com/user-attachments/assets/ba3d0471-863a-44d2-be4b-dfa290d6dd30" alt="11" width="19%" />
 </p>
 
 #### 1.1 The Problem Statement
@@ -36,6 +36,12 @@ Modern mobile engineering is experiencing an era of massive aesthetic and struct
 **Rocen** is a highly focused, low-fidelity, brutalist mobile workspace that rejects both problems at once. It is local-first (your data lives on your device, full stop) and, for anyone who wants cross-device backup, **zero-knowledge GitHub-backed** — meaning your encrypted data can leave your device, but only into a GitHub repository *you* own, using *your* access token, encrypted with a key that never leaves your device in a form anyone else could use. Nobody — not GitHub, not the developer of this app, not anyone who gains read access to your repo — can read your notes without your password and, if needed, your 12-word recovery phrase.
 
 Rocen discards decorative elements: no animations beyond deliberate, purposeful state transitions, zero rounded button edges, zero color-depth gradients. Data entry is a raw pipeline; everything about the interface is built to get out of the way of your thoughts.
+
+#### 1.3 Where This App Is Right Now
+
+Rocen is early — built solo, and still moving fast. That's not a caveat tucked away to cover myself; it's an invitation. I'm actively looking for people to use it day-to-day, push on the parts that feel rough, and tell me what breaks. **[Discord](https://discord.gg/Jc5EErKm4n)** — bug reports, UI complaints, feature requests, "this confused me," all of it is useful right now.
+
+Two different things are true about the state of this project, and it's worth being upfront about both rather than picking one to emphasize: the day-to-day experience — sync, note-taking, the UI — has been stable through regular daily use, including my own. Separately, the cryptography follows correct, standard primitives (Argon2id, AES-256-GCM, hardware-backed Keystore — see §04), but hasn't yet been through an independent third-party security audit. If you're using Rocen for everyday notes, ideas, and tasks, jump in — that's exactly the kind of use that helps most right now. If you're planning to store something where a cryptographic flaw would be genuinely costly to you, know that going in, and treat that decision as your own call rather than mine to make for you. §14 tracks exactly what's been verified, what's pending, and what's already been found and fixed along the way.
 
 
 ### 02 // FEATURE MATRIX
