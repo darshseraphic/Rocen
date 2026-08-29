@@ -1669,19 +1669,68 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       String rawOldPassword, String newPassword) async {
     final settingsBox = Hive.box(_boxName);
 
-    final currentItems = ref.read(localDatabaseProvider);
-    final targetsToPurge =
-        currentItems.where((item) => item.type == 'encrypted_note').toList();
-    for (var target in targetsToPurge) {
-      await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
+    // Step 1: capture the OLD KDF parameter tier before anything else
+    // changes. This is a snapshot, not a live reference — it cannot be
+    // affected by anything this function does later, including writing
+    // kdf_hardened in Step 4.
+    final KdfParams oldParams = CryptoEngine.currentAuthParams();
+    final KdfParams oldEncryptionParams =
+        CryptoEngine.currentEncryptionParams();
+
+    // Step 2: evaluate the device's CURRENT rooted status and compute
+    // the NEW parameter tier that will become active once this rotation
+    // completes — explicitly, from `rooted`, WITHOUT writing
+    // kdf_hardened yet and without reading it back. This is exactly the
+    // ({auth, encryption}) pair that Steps 3 onward will use.
+    final bool rooted = await CryptoEngine.isDeviceRooted();
+    final newTier = CryptoEngine.paramsForHardenedState(rooted);
+    final KdfParams newAuthParams = newTier.auth;
+    final KdfParams newEncryptionParams = newTier.encryption;
+
+    // Step 3: derive the new password hash using the NEW auth params
+    // explicitly — this is what verifyPin will need to match against
+    // once kdf_hardened actually flips to `rooted` in Step 5. Deriving
+    // this with the OLD params (what the previous version of this
+    // function did, implicitly, via the live global) would silently
+    // produce a hash that stops verifying the moment kdf_hardened changes.
+    final Uint8List authSalt = CryptoEngine.extractAuthSalt(oldPinHash);
+    final String newPinHash = await CryptoEngine.hashPinWithSaltUsingParams(
+        newPassword, authSalt, newAuthParams);
+
+    // Step 4: migrate every encrypted_note, decrypting each under the
+    // OLD encryption params (matching how they were actually encrypted
+    // before this rotation) and re-encrypting under the NEW encryption
+    // params explicitly (matching what decryptProcess will expect once
+    // kdf_hardened flips). Builds a complete replacement collection in
+    // memory and commits it in a single Hive write, or changes nothing
+    // at all if any note fails to decrypt. Only proceed to change the
+    // active password if this succeeds.
+    final bool notesMigrated =
+        await ref.read(localDatabaseProvider.notifier).migrateEncryptedNotes(
+              oldPinHash,
+              newPinHash,
+              oldParams: oldEncryptionParams,
+              newParams: newEncryptionParams,
+            );
+
+    if (!notesMigrated) {
+      if (context.mounted) {
+        _showStatusDialog(
+          context,
+          'PASSWORD CHANGE FAILED',
+          'YOUR ENCRYPTED NOTES COULD NOT BE MIGRATED TO THE NEW PASSWORD. NOTHING WAS CHANGED — YOUR OLD PASSWORD IS STILL ACTIVE AND YOUR NOTES ARE UNTOUCHED.',
+        );
+      }
+      return;
     }
 
-    final bool rooted = await CryptoEngine.isDeviceRooted();
+    // Step 5: notes are confirmed migrated (already re-encrypted under
+    // newEncryptionParams) and newPinHash (already derived under
+    // newAuthParams) are both consistent with the tier we're about to
+    // make live. Only now is it safe to flip kdf_hardened and commit the
+    // new password — every value being written from this point on
+    // already matches the tier kdf_hardened is about to declare active.
     await settingsBox.put('kdf_hardened', rooted);
-
-    final Uint8List authSalt = CryptoEngine.extractAuthSalt(oldPinHash);
-    final String newPinHash =
-        await CryptoEngine.hashPinWithSalt(newPassword, authSalt);
 
     await settingsBox.put('system_crypto_pin', newPinHash);
     await settingsBox.put('last_active_crypto_pin_snapshot', newPinHash);
@@ -1694,6 +1743,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await settingsBox.delete('hw_wrapped_pin');
     }
 
+    // Step 4: existing GitHub token / device-key rotation, unchanged in
+    // what it does, but its failures are now tracked instead of silently
+    // swallowed — a failure here no longer results in an unconditional
+    // "PASSWORD UPDATED" message at the end.
+    bool githubRotationOk = true;
     final String? accessBlob = settingsBox.get('github_access_encrypted');
     if (accessBlob != null) {
       try {
@@ -1704,12 +1758,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           secureDebugLog(
               '[settings] hardwareUnwrap failed for githubTokenKeyAlias during password rotation - treating stored blob as software-encrypted only');
         }
-        final String accessJson = await CryptoEngine.decryptProcess(
-            unwrappedForRead ?? accessBlob, oldPinHash);
+        final String accessJson = await CryptoEngine.decryptProcessWithParams(
+            unwrappedForRead ?? accessBlob, oldPinHash, oldEncryptionParams);
         if (accessJson != 'DECRYPTION FAULT') {
           final Map<String, dynamic> access = jsonDecode(accessJson);
           final String reEncrypted =
-              await CryptoEngine.encryptProcess(accessJson, newPinHash);
+              await CryptoEngine.encryptProcessWithParams(
+                  accessJson, newPinHash, newEncryptionParams);
           final String? hwWrapped = await CryptoEngine.hardwareWrap(reEncrypted,
               keyAlias: CryptoEngine.githubTokenKeyAlias);
           if (hwWrapped == null) {
@@ -1724,10 +1779,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               await _promptMnemonicRecovery(context);
           if (mnemonicWords != null) {
             final Map<String, String> rewrapped =
-                await CryptoEngine.wrapDeviceKey(
+                await CryptoEngine.wrapDeviceKeyWithParams(
               authSaltBytes: authSalt,
               password: newPassword,
               mnemonicWords: mnemonicWords,
+              params: newEncryptionParams,
             );
 
             try {
@@ -1737,15 +1793,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   upsertFiles: {'device_key.json': jsonEncode(rewrapped)},
                   message: 'password rotation');
               await settingsBox.put('device_key_owned_repo', access['repo']);
-            } catch (_) {}
+            } catch (e) {
+              githubRotationOk = false;
+              secureDebugLog(
+                  '[settings] device_key.json re-upload failed during password rotation: $e');
+            }
           }
+        } else {
+          githubRotationOk = false;
+          secureDebugLog(
+              '[settings] stored GitHub credentials failed to decrypt with the old password during rotation — GitHub token was not re-encrypted');
         }
-      } catch (_) {}
+      } catch (e) {
+        githubRotationOk = false;
+        secureDebugLog(
+            '[settings] unexpected error re-encrypting GitHub credentials during password rotation: $e');
+      }
     }
 
     if (context.mounted) {
-      _showAcknowledgeDialog(context, 'PASSWORD UPDATED',
-          'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.');
+      if (githubRotationOk) {
+        _showAcknowledgeDialog(context, 'PASSWORD UPDATED',
+            'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.');
+      } else {
+        _showStatusDialog(
+          context,
+          'PASSWORD UPDATED — GITHUB SYNC NEEDS ATTENTION',
+          'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT YOUR STORED GITHUB CREDENTIALS COULD NOT BE FULLY RE-ENCRYPTED. RE-ENTER YOUR GITHUB TOKEN IN SETTINGS TO RESTORE SYNC.',
+        );
+      }
     }
   }
 

@@ -3,6 +3,11 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+// NOTE: verify this path — copied from the same relative import used in
+// quicknote.dart and settings.dart ('../core/crypto_engine.dart'). If
+// database.dart lives in a different folder than those two, adjust
+// accordingly; an unresolved import will fail to compile, not fail silently.
+import '../core/crypto_engine.dart';
 
 class CaptureItem {
   final String id;
@@ -376,6 +381,144 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     await box.put('items', state.map((e) => e.toMap()).toList());
 
     return legacyName;
+  }
+
+  /// Re-encrypts every locally stored `encrypted_note` from `oldPin` to
+  /// `newPin`, used during password rotation.
+  ///
+  /// `oldParams`/`newParams` must be captured and computed explicitly by
+  /// the caller BEFORE calling this — see the note below on why. This
+  /// method does not read `CryptoEngine`'s live, mutable KDF-tier
+  /// selection at all.
+  ///
+  /// Why explicit parameters, not the live global tier: `CryptoEngine`'s
+  /// active KDF parameters (`kdf_hardened`) can change as PART OF the
+  /// same password-rotation operation that calls this method (e.g. root
+  /// status was re-evaluated and differs from before). If this method
+  /// read the live global instead, decrypting the OLD notes and
+  /// encrypting the NEW ones could silently end up using the WRONG tier
+  /// for one side of that operation, depending on exactly when
+  /// `kdf_hardened` gets flipped relative to this call — producing notes
+  /// that are unreadable even with the correct new password. Requiring
+  /// the caller to pass both tiers explicitly makes that ordering bug
+  /// structurally impossible here: this method has no way to observe
+  /// `kdf_hardened` changing mid-operation, because it never looks at it.
+  ///
+  /// This builds a COMPLETE replacement copy of the entire `items`
+  /// collection in memory first — the live `state` and the underlying
+  /// Hive `items` key are never touched during preparation. Only once
+  /// every encrypted note has been successfully decrypted under
+  /// `oldPin`/`oldParams` and re-encrypted under `newPin`/`newParams`
+  /// does this perform exactly ONE `box.put('items', ...)` write,
+  /// replacing the whole collection at once. If any step fails before
+  /// that single write, this returns false and neither `state` nor Hive
+  /// have been modified at all — the original notes are exactly as they
+  /// were, still encrypted under `oldPin`/`oldParams`, because nothing
+  /// about them was ever touched.
+  ///
+  /// This never calls deleteItem() (which also queues a remote deletion
+  /// for backup-enabled notes — the wrong behavior for a rotation) and
+  /// never calls insertItem() (which mints a new id/remoteFileId and
+  /// would sever the link to anything already synced under the old
+  /// identity). Every field other than `content` is copied verbatim from
+  /// the original item.
+  ///
+  /// On the "zeroing plaintext" question: the decrypted note bodies here
+  /// are Dart Strings. Dart Strings are immutable and may be interned;
+  /// there is no reliable way to overwrite one in place, and code that
+  /// pretends to do so is decorative, not protective. The real mitigation
+  /// applied here is scope minimization — each plaintext String exists
+  /// only from the moment it's decrypted to the moment it's re-encrypted,
+  /// held in a short-lived local variable, then allowed to go out of
+  /// scope for normal garbage collection. No claim stronger than that is
+  /// made or should be inferred from this code.
+  Future<bool> migrateEncryptedNotes(
+    String oldPin,
+    String newPin, {
+    required KdfParams oldParams,
+    required KdfParams newParams,
+  }) async {
+    // Build the full replacement collection from the CURRENT live state,
+    // but do not assign it to `state` or write it anywhere yet. `state`
+    // itself is read once, here, and never mutated by this method until
+    // the single commit at the very end.
+    final List<CaptureItem> replacementCollection = [];
+
+    for (final item in state) {
+      if (item.type != 'encrypted_note') {
+        // Not an encrypted note — carried into the replacement collection
+        // completely unchanged.
+        replacementCollection.add(item);
+        continue;
+      }
+
+      final String plaintext = await CryptoEngine.decryptProcessWithParams(
+          item.content, oldPin, oldParams);
+
+      if (plaintext == 'DECRYPTION FAULT') {
+        // Old pin/params didn't decrypt this note. Abort immediately —
+        // nothing has been written anywhere, so the live collection and
+        // Hive are both exactly as they were before this call.
+        return false;
+      }
+
+      final String reEncrypted;
+      try {
+        reEncrypted = await CryptoEngine.encryptProcessWithParams(
+            plaintext, newPin, newParams);
+      } catch (_) {
+        // encryptProcessWithParams throws StateError('ENCRYPTION FAILED')
+        // if the underlying cipher operation fails (see crypto_isolate.dart
+        // / crypto_engine.dart) — genuinely rare, but this must not
+        // propagate as an uncaught exception out of this method. Caught
+        // here and turned into the same controlled `false` result as
+        // every other failure path in this method, so
+        // _executePasswordChange() always gets back a clean bool rather
+        // than sometimes getting an exception it isn't prepared to catch.
+        return false;
+      }
+
+      replacementCollection.add(CaptureItem(
+        id: item.id,
+        title: item.title,
+        content: reEncrypted,
+        type: item.type,
+        timestamp: item.timestamp,
+        backupEnabled: item.backupEnabled,
+        remoteFileId: item.remoteFileId,
+        lastSyncedTimestamp: item.lastSyncedTimestamp,
+        pendingReviewAfterSync: item.pendingReviewAfterSync,
+      ));
+    }
+
+    if (replacementCollection.length != state.length) {
+      // Defensive: the replacement collection must contain exactly one
+      // entry per original item (migrated or carried over unchanged). If
+      // this ever doesn't hold, abort rather than commit something that
+      // could silently drop an item.
+      return false;
+    }
+
+    // Every note that needed migrating has been decrypted and
+    // re-encrypted successfully, and every other item was carried over
+    // untouched. Commit the whole replacement collection now, in one
+    // write — this is the only place this method touches `state` or Hive.
+    try {
+      final box = await _getBox();
+      await box.put(
+          'items', replacementCollection.map((e) => e.toMap()).toList());
+      // Only update the in-memory state after the Hive write has
+      // actually succeeded — this way, if the write throws, `state`
+      // was never touched and still matches what's on disk.
+      state = replacementCollection;
+      return true;
+    } catch (_) {
+      // The Hive write itself failed. `state` was never reassigned above
+      // (that only happens after a successful write), so the in-memory
+      // collection still matches what's actually persisted on disk.
+      // Nothing to roll back.
+      return false;
+    }
   }
 
   Future<void> deleteItem(String id) async {

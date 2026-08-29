@@ -1,10 +1,87 @@
+import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'secure_bytes.dart';
 
 class CryptoIsolate {
-  static Future<Map<String, Uint8List>> deriveAndEncrypt({
+  /// Loan pattern: derives a key, base64-encodes it, and zeros the raw
+  /// key bytes in `finally` — entirely inside this isolate — before
+  /// returning. Only the encoded String ever crosses back out; the raw
+  /// derived key never does, under any exit path (normal return,
+  /// exception, or early return).
+  static Future<String> deriveKeyAsBase64({
+    required String password,
+    required Uint8List salt,
+    required int memory,
+    required int iterations,
+  }) {
+    return Isolate.run(() async {
+      final kdf = Argon2id(
+          memory: memory,
+          iterations: iterations,
+          parallelism: 1,
+          hashLength: 32);
+      final secretKey =
+          await kdf.deriveKeyFromPassword(password: password, nonce: salt);
+      final keyBytes =
+          SecureBytes(Uint8List.fromList(await secretKey.extractBytes()));
+
+      try {
+        return base64.encode(keyBytes.bytes);
+      } finally {
+        keyBytes.zero();
+      }
+    });
+  }
+
+  /// Loan pattern: derives a key and constant-time-compares it against
+  /// `expected` — entirely inside this isolate — zeroing both buffers in
+  /// `finally` before returning. Only the bool result ever crosses back
+  /// out; neither the derived key nor `expected` do, under any exit path.
+  /// `expected` is copied into a locked buffer inside the isolate before
+  /// the original (now-transferred) copy is zeroed, so both sides of the
+  /// comparison get the same handling as the derived key itself.
+  static Future<bool> deriveKeyAndCompare({
+    required String password,
+    required Uint8List salt,
+    required int memory,
+    required int iterations,
+    required Uint8List expected,
+  }) {
+    return Isolate.run(() async {
+      final kdf = Argon2id(
+          memory: memory,
+          iterations: iterations,
+          parallelism: 1,
+          hashLength: 32);
+      final secretKey =
+          await kdf.deriveKeyFromPassword(password: password, nonce: salt);
+      final keyBytes =
+          SecureBytes(Uint8List.fromList(await secretKey.extractBytes()));
+      final pinnedExpected = SecureBytes(expected);
+      zeroBytes(expected);
+
+      try {
+        return _constantTimeEquals(keyBytes.bytes, pinnedExpected.bytes);
+      } finally {
+        keyBytes.zero();
+        pinnedExpected.zero();
+      }
+    });
+  }
+
+  static bool _constantTimeEquals(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+
+    int result = 0;
+    for (int i = 0; i < a.length; i++) {
+      result |= a[i] ^ b[i];
+    }
+    return result == 0;
+  }
+
+  static Future<Map<String, Uint8List>?> deriveAndEncrypt({
     required Uint8List plaintext,
     required String password,
     required Uint8List salt,
@@ -32,6 +109,8 @@ class CryptoIsolate {
           'cipherText': Uint8List.fromList(box.cipherText),
           'mac': Uint8List.fromList(box.mac.bytes),
         };
+      } catch (_) {
+        return null;
       } finally {
         keyBytes.zero();
       }
@@ -70,25 +149,6 @@ class CryptoIsolate {
       } finally {
         keyBytes.zero();
       }
-    });
-  }
-
-  static Future<Uint8List> deriveKeyBytes({
-    required String password,
-    required Uint8List salt,
-    required int memory,
-    required int iterations,
-  }) {
-    return Isolate.run(() async {
-      final kdf = Argon2id(
-          memory: memory,
-          iterations: iterations,
-          parallelism: 1,
-          hashLength: 32);
-      final secretKey =
-          await kdf.deriveKeyFromPassword(password: password, nonce: salt);
-      final bytes = await secretKey.extractBytes();
-      return Uint8List.fromList(bytes);
     });
   }
 }
