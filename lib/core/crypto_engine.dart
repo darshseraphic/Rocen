@@ -8,6 +8,21 @@ import 'bip39.dart';
 import 'crypto_isolate.dart';
 import 'secure_bytes.dart';
 
+/// Thrown by [CryptoEngine.splitForBackup] and [CryptoEngine.mergeFromBackup]
+/// when the given input fails structural validation (invalid base64, wrong
+/// version byte, or wrong/insufficient length) before any byte-slicing is
+/// attempted. A caller that already wraps these calls in a broad
+/// `catch (e)` will catch this like any other exception; a caller that
+/// wants to specifically recognize "this record was malformed" can check
+/// `is BackupFormatException`.
+class BackupFormatException implements Exception {
+  final String message;
+  const BackupFormatException(this.message);
+
+  @override
+  String toString() => 'BackupFormatException: $message';
+}
+
 class KdfParams {
   final int memory;
   final int iterations;
@@ -183,8 +198,32 @@ class CryptoEngine {
     }
   }
 
+  /// Minimum plausible length, in bytes, for the combined MAC+ciphertext
+  /// portion of a package: at least the MAC itself. A real ciphertext
+  /// will always add more than zero bytes on top of this for any
+  /// non-empty plaintext, but this floor is what's structurally
+  /// guaranteed regardless of plaintext length.
+  static const int _minCipherAndMacLength = _macLength;
+
   static Map<String, String> splitForBackup(String fullPackageBase64) {
-    final bytes = base64.decode(fullPackageBase64);
+    final Uint8List bytes;
+    try {
+      bytes = base64.decode(fullPackageBase64);
+    } on FormatException {
+      throw BackupFormatException('splitForBackup: input is not valid base64');
+    }
+
+    final int minLength =
+        1 + _saltLength + _nonceLength + _minCipherAndMacLength;
+    if (bytes.length < minLength) {
+      throw BackupFormatException(
+          'splitForBackup: input too short (${bytes.length} bytes, need at least $minLength)');
+    }
+
+    if (bytes[0] != _version) {
+      throw BackupFormatException(
+          'splitForBackup: unsupported version byte (${bytes[0]}, expected $_version)');
+    }
 
     final versionByte = bytes.sublist(0, 1);
     final salt = bytes.sublist(1, 1 + _saltLength);
@@ -205,9 +244,33 @@ class CryptoEngine {
 
   static String mergeFromBackup(
       String saltBase64, String nonceBase64, String cyphertextBase64) {
-    final saltBytes = base64.decode(saltBase64);
-    final nonceBytes = base64.decode(nonceBase64);
-    final cypherBytes = base64.decode(cyphertextBase64);
+    final Uint8List saltBytes;
+    final Uint8List nonceBytes;
+    final Uint8List cypherBytes;
+    try {
+      saltBytes = base64.decode(saltBase64);
+      nonceBytes = base64.decode(nonceBase64);
+      cypherBytes = base64.decode(cyphertextBase64);
+    } on FormatException {
+      throw BackupFormatException('mergeFromBackup: input is not valid base64');
+    }
+
+    if (saltBytes.length != _saltLength) {
+      throw BackupFormatException(
+          'mergeFromBackup: salt is ${saltBytes.length} bytes, expected exactly $_saltLength');
+    }
+    if (nonceBytes.length != _nonceLength) {
+      throw BackupFormatException(
+          'mergeFromBackup: nonce is ${nonceBytes.length} bytes, expected exactly $_nonceLength');
+    }
+    if (cypherBytes.length < 1 + _minCipherAndMacLength) {
+      throw BackupFormatException(
+          'mergeFromBackup: cyphertext too short (${cypherBytes.length} bytes, need at least ${1 + _minCipherAndMacLength})');
+    }
+    if (cypherBytes[0] != _version) {
+      throw BackupFormatException(
+          'mergeFromBackup: unsupported version byte (${cypherBytes[0]}, expected $_version)');
+    }
 
     final versionByte = cypherBytes.sublist(0, 1);
     final macAndCipher = cypherBytes.sublist(1);

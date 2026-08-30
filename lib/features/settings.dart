@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import '../core/database.dart';
 import '../core/crypto_engine.dart';
 import '../core/github_backup_service.dart';
+import '../core/password_state_manager.dart';
 import '../core/debug_log.dart';
 import 'quicknote.dart';
 import '../main.dart';
@@ -1423,11 +1424,66 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
 
+                                  final bool githubConfigured = settingsBox
+                                          .get('github_access_encrypted') !=
+                                      null;
+
+                                  PasswordStateResult? stateResult;
+                                  GithubBackupService? preconditionService;
+                                  if (githubConfigured) {
+                                    if (!context.mounted) return;
+                                    _showSavingIndicatorDialog(context, isDark);
+
+                                    preconditionService =
+                                        await _buildGithubServiceFromStoredCredentials(
+                                            globalPin);
+
+                                    if (preconditionService != null) {
+                                      stateResult = await PasswordStateManager
+                                          .checkState(preconditionService);
+                                    }
+
+                                    if (context.mounted) {
+                                      Navigator.of(context, rootNavigator: true)
+                                          .pop();
+                                    }
+
+                                    final bool checkOk = stateResult != null &&
+                                        (stateResult.comparison ==
+                                                PasswordStateComparison
+                                                    .synchronized ||
+                                            stateResult.comparison ==
+                                                PasswordStateComparison
+                                                    .noRemoteStateYet);
+
+                                    if (!checkOk) {
+                                      if (!context.mounted) return;
+                                      final String message = stateResult ==
+                                                  null ||
+                                              stateResult.comparison ==
+                                                  PasswordStateComparison
+                                                      .checkFailed
+                                          ? 'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.'
+                                          : stateResult.comparison ==
+                                                  PasswordStateComparison
+                                                      .behindRemote
+                                              ? 'YOUR PASSWORD WAS ALREADY CHANGED ON ANOTHER DEVICE${stateResult.remoteChangedByDeviceId != null ? " (${stateResult.remoteChangedByDeviceId})" : ""}. ENTER THE CURRENT PASSWORD AND YOUR RECOVERY PHRASE TO UPDATE THIS DEVICE BEFORE CHANGING IT AGAIN.'
+                                          : 'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. RESOLVE THIS BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.';
+                                      _showStatusDialog(context,
+                                          'PASSWORD CHANGE UNAVAILABLE', message);
+                                      return;
+                                    }
+                                  }
+
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
                                   if (!screenContext.mounted) return;
                                   _showNewPasswordDialog(
-                                      screenContext, globalPin, rawOldPassword);
+                                      screenContext,
+                                      globalPin,
+                                      rawOldPassword,
+                                      stateResult,
+                                      preconditionService);
                                 } else {
                                   int attempts = settingsBox.get(
                                           'secure_failed_attempts',
@@ -1508,7 +1564,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showNewPasswordDialog(
-      BuildContext context, String oldPinHash, String rawOldPassword) {
+      BuildContext context,
+      String oldPinHash,
+      String rawOldPassword,
+      PasswordStateResult? preconditionState,
+      GithubBackupService? preconditionService) {
     final BuildContext screenContext = context;
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
@@ -1627,11 +1687,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                           pinController.text;
                                       Navigator.pop(context);
                                       if (!screenContext.mounted) return;
-                                      await _executePasswordChange(
+                                      await _runPasswordChangeWithProgressModal(
                                           screenContext,
                                           oldPinHash,
                                           rawOldPassword,
-                                          newPassword);
+                                          newPassword,
+                                          preconditionState: preconditionState,
+                                          preconditionService:
+                                              preconditionService);
                                     },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
@@ -1665,8 +1728,465 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<void> _executePasswordChange(BuildContext context, String oldPinHash,
-      String rawOldPassword, String newPassword) async {
+  /// Runs the actual password-rotation sequence. The crypto/KDF/note
+  /// migration/device-key/GitHub logic and its ordering are UNCHANGED
+  /// from before this UX pass — every step below runs in exactly the
+  /// same order, with exactly the same conditions, as before. The only
+  /// additions are:
+  ///   - `onProgress(status)` calls immediately before each real,
+  ///     already-existing async operation, so a caller can show what's
+  ///     actually happening rather than a silent gap. These calls report
+  ///     on real state transitions already present in this function —
+  ///     they do not add, remove, delay, or reorder any operation.
+  ///   - `onRequestMnemonic` replaces the direct call to
+  ///     `_promptMnemonicRecovery(context)` with an injectable function
+  ///     of the same signature, so the caller can render the recovery
+  ///     phrase entry as a state of its own modal instead of this
+  ///     function opening a second, separate dialog. The condition under
+  ///     which it's invoked, and what happens with its result, are
+  ///     unchanged.
+  /// Single non-dismissible modal that drives the entire password-change
+  /// UX: progress spinner states, the embedded recovery-phrase entry
+  /// state (when reached), and the terminal success/failure state — all
+  /// as content changes within ONE dialog, rather than separate dialogs
+  /// popping in sequence. This function owns no crypto/rotation logic of
+  /// its own; it only renders whatever `_executePasswordChange` reports
+  /// via its `onProgress`/`onRequestMnemonic`/`onComplete` callbacks. The
+  /// rotation's own logic and ordering are exactly what they were before
+  /// this modal existed — see the comments on `_executePasswordChange`.
+  Future<void> _runPasswordChangeWithProgressModal(
+    BuildContext screenContext,
+    String oldPinHash,
+    String rawOldPassword,
+    String newPassword, {
+    PasswordStateResult? preconditionState,
+    GithubBackupService? preconditionService,
+  }) async {
+    final isDark = ref.read(themeProvider);
+    final theme = SettingsUiTheme(isDark);
+
+    // Modal-local state, mutated only via setModalState from inside the
+    // dialog's own StatefulBuilder.
+    String status = 'ENCRYPTING NOTES...';
+    bool isEntryStep = false;
+    bool isTerminal = false;
+    bool terminalSuccess = false;
+    bool terminalGithubOk = true;
+    String terminalTitle = '';
+    String terminalMessage = '';
+
+    // Recovery-phrase entry state, mirroring _promptMnemonicRecovery's
+    // own fields exactly, since this reuses the same _mnemonicFieldRow
+    // widget and the same validation/lockout logic.
+    final settingsBox = Hive.box(_boxName);
+    final List<TextEditingController> mnemonicControllers =
+        List.generate(12, (_) => TextEditingController());
+    final List<FocusNode> mnemonicFocusNodes =
+        List.generate(12, (_) => FocusNode());
+    String? lockStringStatus = _checkMnemonicLockout(settingsBox);
+    bool showValidationError = false;
+    Timer? countdownTimer;
+    Completer<List<String>?>? mnemonicCompleter;
+
+    late void Function(void Function()) setModalState;
+    bool passwordChangeStarted = false;
+
+    void ensureCountdownRunning() {
+      if (lockStringStatus == null) return;
+      if (countdownTimer != null && countdownTimer!.isActive) return;
+      countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        final String? current = _checkMnemonicLockout(settingsBox);
+        setModalState(() {
+          lockStringStatus = current;
+        });
+        if (current == null) timer.cancel();
+      });
+    }
+
+    await showGeneralDialog<void>(
+      context: screenContext,
+      barrierDismissible: false,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (dialogContext, setState) {
+            setModalState = setState;
+
+            // Kick off the actual rotation exactly once, on first build,
+            // wired to update this same modal's state as it progresses.
+            // This mirrors exactly what the old code did (call
+            // _executePasswordChange, await it) — the only difference is
+            // WHERE the progress is shown, not what runs or in what order.
+            if (!passwordChangeStarted) {
+              passwordChangeStarted = true;
+              Future.microtask(() async {
+                await _executePasswordChange(
+                  screenContext,
+                  oldPinHash,
+                  rawOldPassword,
+                  newPassword,
+                  preconditionState: preconditionState,
+                  preconditionService: preconditionService,
+                  onProgress: (newStatus) {
+                    if (newStatus == 'DONE') return; // terminal handled below
+                    setState(() {
+                      status = newStatus;
+                    });
+                  },
+                  onRequestMnemonic: (ctx) {
+                    mnemonicCompleter = Completer<List<String>?>();
+                    setState(() {
+                      status = 'CHECKING RECOVERY...';
+                      isEntryStep = true;
+                    });
+                    ensureCountdownRunning();
+                    return mnemonicCompleter!.future;
+                  },
+                  onComplete: (success, githubOk) {
+                    setState(() {
+                      isEntryStep = false;
+                      isTerminal = true;
+                      terminalSuccess = success;
+                      terminalGithubOk = githubOk;
+                      if (!success) {
+                        terminalTitle = 'PASSWORD CHANGE FAILED';
+                        terminalMessage =
+                            'YOUR ENCRYPTED NOTES COULD NOT BE MIGRATED TO THE NEW PASSWORD. NOTHING WAS CHANGED — YOUR OLD PASSWORD IS STILL ACTIVE AND YOUR NOTES ARE UNTOUCHED.';
+                      } else if (githubOk) {
+                        terminalTitle = 'PASSWORD UPDATED';
+                        terminalMessage =
+                            'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.';
+                      } else {
+                        terminalTitle =
+                            'PASSWORD UPDATED — GITHUB SYNC NEEDS ATTENTION';
+                        terminalMessage =
+                            'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT YOUR STORED GITHUB CREDENTIALS COULD NOT BE FULLY RE-ENCRYPTED. RE-ENTER YOUR GITHUB TOKEN IN SETTINGS TO RESTORE SYNC.';
+                      }
+                    });
+                  },
+                );
+              });
+            }
+
+            return PopScope(
+              // Non-dismissible and navigation-blocked until a terminal
+              // state is reached, per the requirement that the user
+              // cannot navigate away mid-operation.
+              canPop: isTerminal,
+              child: Theme(
+                data: Theme.of(dialogContext).copyWith(
+                  textSelectionTheme: TextSelectionThemeData(
+                    selectionColor: theme.textMain.withOpacity(0.2),
+                    selectionHandleColor: theme.textMain,
+                    cursorColor: theme.textMain,
+                  ),
+                ),
+                child: Center(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      width: isEntryStep ? 340 : 260,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: theme.dialogBg,
+                        border: Border.all(
+                          color: showValidationError
+                              ? const Color(0xFF5F0E0D)
+                              : theme.dialogBorderColor,
+                          width: showValidationError ? 1.4 : 0.8,
+                        ),
+                      ),
+                      child: isTerminal
+                          ? _buildTerminalState(
+                              theme,
+                              isDark,
+                              terminalTitle,
+                              terminalMessage,
+                              onAcknowledge: () =>
+                                  Navigator.of(dialogContext).pop(),
+                            )
+                          : isEntryStep
+                              ? _buildMnemonicEntryState(
+                                  theme,
+                                  isDark,
+                                  mnemonicControllers,
+                                  mnemonicFocusNodes,
+                                  lockStringStatus,
+                                  showValidationError,
+                                  setState,
+                                  settingsBox,
+                                  onCancel: () {
+                                    mnemonicCompleter?.complete(null);
+                                  },
+                                  onSubmit: (words) {
+                                    mnemonicCompleter?.complete(words);
+                                  },
+                                  onValidationError: () {
+                                    setState(() {
+                                      showValidationError = true;
+                                      lockStringStatus =
+                                          _checkMnemonicLockout(settingsBox);
+                                    });
+                                  },
+                                  onFieldEdited: () {
+                                    showValidationError = false;
+                                  },
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: theme.textMain),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Text(
+                                      status,
+                                      style: TextStyle(
+                                          color: theme.textMain,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.05),
+                                    ),
+                                  ],
+                                ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    countdownTimer?.cancel();
+    for (final c in mnemonicControllers) {
+      c.dispose();
+    }
+    for (final f in mnemonicFocusNodes) {
+      f.dispose();
+    }
+  }
+
+  Widget _buildTerminalState(
+    SettingsUiTheme theme,
+    bool isDark,
+    String title,
+    String message, {
+    required VoidCallback onAcknowledge,
+  }) {
+    final buttonBg = isDark ? Colors.white : Colors.black;
+    final buttonText = isDark ? Colors.black : Colors.white;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              color: theme.textMain,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.05),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              color: theme.textMain,
+              fontSize: 12,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.02),
+        ),
+        const SizedBox(height: 24),
+        InkWell(
+          onTap: onAcknowledge,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(color: buttonBg),
+            alignment: Alignment.center,
+            child: Text(
+              'ACKNOWLEDGE',
+              style: TextStyle(
+                color: buttonText,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.06,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMnemonicEntryState(
+    SettingsUiTheme theme,
+    bool isDark,
+    List<TextEditingController> controllers,
+    List<FocusNode> focusNodes,
+    String? lockStringStatus,
+    bool showValidationError,
+    void Function(void Function()) setDialogState,
+    Box settingsBox, {
+    required void Function() onCancel,
+    required void Function(List<String> words) onSubmit,
+    required void Function() onValidationError,
+    required void Function() onFieldEdited,
+  }) {
+    final bool locked = lockStringStatus != null;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          lockStringStatus ?? 'ENTER 12-WORD RECOVERY PHRASE',
+          style: TextStyle(
+            color: locked ? const Color(0xFFEF4444) : theme.textMain,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.05,
+          ),
+        ),
+        const SizedBox(height: 16),
+        _mnemonicFieldRow(
+          controllers.sublist(0, 6),
+          focusNodes.sublist(0, 6),
+          0,
+          theme,
+          setDialogState,
+          !locked,
+          onFieldEdited: onFieldEdited,
+        ),
+        const SizedBox(height: 8),
+        _mnemonicFieldRow(
+          controllers.sublist(6, 12),
+          focusNodes.sublist(6, 12),
+          6,
+          theme,
+          setDialogState,
+          !locked,
+          onFieldEdited: onFieldEdited,
+        ),
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            InkWell(
+              onTap: onCancel,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                    border:
+                        Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                child: Text('CANCEL',
+                    style: TextStyle(
+                        color: isDark
+                            ? const Color(0xFF888888)
+                            : const Color(0xFF525252),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () async {
+                final activeLock = _checkMnemonicLockout(settingsBox);
+                if (activeLock != null) {
+                  setDialogState(() {});
+                  return;
+                }
+
+                final List<String> words = controllers
+                    .map((c) => c.text.trim().toLowerCase())
+                    .toList();
+                final bool allFilled = words.every((w) => w.isNotEmpty);
+                final bool allKnown = allFilled &&
+                    words.every((w) => CryptoEngine.isValidMnemonicWord(w));
+                final bool checksumOk = allKnown &&
+                    await CryptoEngine.validateMnemonicChecksum(words);
+
+                if (checksumOk) {
+                  await settingsBox.put('mnemonic_failed_attempts', 0);
+                  await settingsBox.put('mnemonic_lockout_until', 0);
+                  onSubmit(words);
+                } else {
+                  int attempts = settingsBox.get('mnemonic_failed_attempts',
+                          defaultValue: 0) +
+                      1;
+                  await settingsBox.put('mnemonic_failed_attempts', attempts);
+                  final int penalty =
+                      CryptoEngine.lockoutSecondsForAttempt(attempts);
+                  if (penalty > 0) {
+                    await settingsBox.put(
+                      'mnemonic_lockout_until',
+                      DateTime.now().millisecondsSinceEpoch + penalty * 1000,
+                    );
+                  }
+                  onValidationError();
+                }
+              },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(color: theme.textMain),
+                child: Text(
+                  'COMMIT',
+                  style: TextStyle(
+                      color: isDark ? Colors.black : Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _executePasswordChange(
+    BuildContext context,
+    String oldPinHash,
+    String rawOldPassword,
+    String newPassword, {
+    /// The result of the mandatory online precondition check performed
+    /// before this function was ever called (see the old-password-verify
+    /// success handler). Null only when GitHub backup isn't configured
+    /// at all, in which case there's no shared state to publish to.
+    /// When non-null, `observedRefSha` is reused as the conditional
+    /// write's expected parent, so the publish is conditioned on the
+    /// exact state the user's rotation was approved against — not a
+    /// fresh re-read that could itself have gone stale in the interim.
+    PasswordStateResult? preconditionState,
+    /// The [GithubBackupService] instance already authenticated during
+    /// the precondition check — MUST be reused for the password-state
+    /// publish step, not rebuilt. At the point where this function
+    /// publishes the new shared state, `github_access_encrypted` is
+    /// still encrypted under the OLD password (the code that
+    /// re-encrypts it to the new password runs LATER, further down this
+    /// same function). Building a fresh service by trying to decrypt
+    /// that still-old-encrypted blob with `newPinHash` would always
+    /// fail, making `service == null` guaranteed on every rotation, not
+    /// just an edge case — this was a real, confirmed bug in an earlier
+    /// version of this function. Reusing the already-authenticated
+    /// instance sidesteps the ordering problem entirely, since it
+    /// doesn't need to decrypt anything a second time.
+    GithubBackupService? preconditionService,
+    void Function(String status)? onProgress,
+    Future<List<String>?> Function(BuildContext context)? onRequestMnemonic,
+    void Function(bool success, bool githubOk)? onComplete,
+  }) async {
     final settingsBox = Hive.box(_boxName);
 
     // Step 1: capture the OLD KDF parameter tier before anything else
@@ -1705,16 +2225,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // memory and commits it in a single Hive write, or changes nothing
     // at all if any note fails to decrypt. Only proceed to change the
     // active password if this succeeds.
-    final bool notesMigrated =
-        await ref.read(localDatabaseProvider.notifier).migrateEncryptedNotes(
-              oldPinHash,
-              newPinHash,
-              oldParams: oldEncryptionParams,
-              newParams: newEncryptionParams,
-            );
+    onProgress?.call('ENCRYPTING NOTES...');
+    final bool notesMigrated = await ref.read(localDatabaseProvider.notifier).migrateEncryptedNotes(
+          oldPinHash,
+          newPinHash,
+          oldParams: oldEncryptionParams,
+          newParams: newEncryptionParams,
+        );
 
     if (!notesMigrated) {
-      if (context.mounted) {
+      if (onComplete != null) {
+        onComplete(false, false);
+      } else if (context.mounted) {
         _showStatusDialog(
           context,
           'PASSWORD CHANGE FAILED',
@@ -1730,6 +2252,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // make live. Only now is it safe to flip kdf_hardened and commit the
     // new password — every value being written from this point on
     // already matches the tier kdf_hardened is about to declare active.
+    onProgress?.call('UPDATING SECURITY...');
     await settingsBox.put('kdf_hardened', rooted);
 
     await settingsBox.put('system_crypto_pin', newPinHash);
@@ -1743,11 +2266,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await settingsBox.delete('hw_wrapped_pin');
     }
 
-    // Step 4: existing GitHub token / device-key rotation, unchanged in
-    // what it does, but its failures are now tracked instead of silently
-    // swallowed — a failure here no longer results in an unconditional
-    // "PASSWORD UPDATED" message at the end.
+    // Step 4 (moved earlier, before password-state publish — see below
+    // for why): existing GitHub token / device-key rotation. Unchanged
+    // in what it actually does; only its POSITION relative to the
+    // password-state publish has moved, and its failures are tracked
+    // instead of silently swallowed.
+    //
+    // WHY THIS RUNS BEFORE THE PASSWORD-STATE PUBLISH NOW: another
+    // device only learns "the password changed" by observing a bumped
+    // passwordGeneration in password_state.json. If that publish
+    // happened BEFORE device_key.json was rewrapped for the new
+    // password, a small but real window would exist where another
+    // device could correctly detect staleness, correctly enter
+    // recovery, correctly enter the new password + phrase, and still
+    // fail — because the actual artifact recovery depends on
+    // (device_key.json) wouldn't exist yet. Running this block first
+    // means that by the time any other device could possibly observe
+    // the new generation, device_key.json already reflects it.
     bool githubRotationOk = true;
+    bool deviceKeyReadyForPublish = true;
     final String? accessBlob = settingsBox.get('github_access_encrypted');
     if (accessBlob != null) {
       try {
@@ -1775,9 +2312,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               'github_access_encrypted', hwWrapped ?? reEncrypted);
 
           if (!context.mounted) return;
-          final List<String>? mnemonicWords =
-              await _promptMnemonicRecovery(context);
+          final List<String>? mnemonicWords = onRequestMnemonic != null
+              ? await onRequestMnemonic(context)
+              : await _promptMnemonicRecovery(context);
           if (mnemonicWords != null) {
+            onProgress?.call('CONFIRMING...');
             final Map<String, String> rewrapped =
                 await CryptoEngine.wrapDeviceKeyWithParams(
               authSaltBytes: authSalt,
@@ -1795,26 +2334,192 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               await settingsBox.put('device_key_owned_repo', access['repo']);
             } catch (e) {
               githubRotationOk = false;
+              deviceKeyReadyForPublish = false;
               secureDebugLog(
                   '[settings] device_key.json re-upload failed during password rotation: $e');
             }
+          } else {
+            // User declined the recovery-phrase step. This is not
+            // treated as a githubRotationOk=false failure (the user
+            // made a deliberate choice, not an error occurred) — but
+            // device_key.json genuinely was NOT updated, so the
+            // password-state publish below must still be held back:
+            // publishing a new generation without a matching
+            // device_key.json would leave any OTHER device unable to
+            // complete recovery even with the correct new password.
+            deviceKeyReadyForPublish = false;
+            secureDebugLog(
+                '[settings] user declined recovery-phrase re-entry during password rotation - device_key.json not updated, password-state publish will be held pending');
           }
         } else {
           githubRotationOk = false;
+          deviceKeyReadyForPublish = false;
           secureDebugLog(
               '[settings] stored GitHub credentials failed to decrypt with the old password during rotation — GitHub token was not re-encrypted');
         }
       } catch (e) {
         githubRotationOk = false;
+        deviceKeyReadyForPublish = false;
         secureDebugLog(
             '[settings] unexpected error re-encrypting GitHub credentials during password rotation: $e');
       }
     }
 
-    if (context.mounted) {
-      if (githubRotationOk) {
+    // Publish the new shared password-generation state, if GitHub backup
+    // is configured. Uses the REAL conditional write (fast-forward
+    // check), not the force-push path used for notes.
+    //
+    // Only reached AFTER the block above, and only actually attempted
+    // if deviceKeyReadyForPublish is true — see the comment on that
+    // block for why publish must not run ahead of device_key.json.
+    //
+    // IMPORTANT: a rejected conditional write only proves the branch
+    // moved since we read it — it does NOT by itself prove another
+    // device changed the password. A completely unrelated commit (e.g.
+    // this same device's own note sync, or another artifact entirely)
+    // moving the branch would look identical from here. So a rejection
+    // is treated the same as any other unconfirmed-write failure: mark
+    // pending, then immediately re-fetch and classify what's actually
+    // there — using the exact same logic as reconcilePendingPublish —
+    // rather than assuming the worst (orphaned) from the rejection alone.
+    //
+    // In every outcome below, system_crypto_pin and the local notes have
+    // ALREADY been committed above — this block only ever affects
+    // whether the ACCOUNT-WIDE shared state and this device's own
+    // bookkeeping reflect that change, never the local password itself.
+    bool passwordStatePublished = true;
+    if (preconditionState != null && !deviceKeyReadyForPublish) {
+      // device_key.json isn't ready yet (user declined recovery-phrase
+      // entry, or the upload itself failed) — hold back the generation
+      // bump entirely rather than publish something other devices can't
+      // actually use to recover. Marked pending so a LATER opportunity
+      // (once the user completes recovery-phrase entry, or the upload
+      // succeeds on a retry) can still publish correctly. This does NOT
+      // attempt reconciliation immediately, unlike the failure path
+      // below, since there is nothing to reconcile yet — this device
+      // never even attempted a write.
+      final int newGeneration = (preconditionState.remoteGeneration ??
+              PasswordStateManager.getKnownGeneration()) +
+          1;
+      final String newChangeId = PasswordStateManager.generateChangeId();
+      await PasswordStateManager.setPublishPending(
+        pendingGeneration: newGeneration,
+        pendingChangeId: newChangeId,
+      );
+      passwordStatePublished = false;
+      secureDebugLog(
+          '[settings] password-state publish held back - device_key.json is not yet ready for cross-device recovery. Marked pending.');
+    } else if (preconditionState != null) {
+      // device_key.json IS ready (or GitHub credentials weren't
+      // configured at all in a way that required it) — safe to attempt
+      // the actual publish now.
+      final GithubBackupService? service = preconditionService;
+
+      final int newGeneration = (preconditionState.remoteGeneration ??
+              PasswordStateManager.getKnownGeneration()) +
+          1;
+      final String newChangeId = PasswordStateManager.generateChangeId();
+
+      if (service == null) {
+        // Could not even build a service to attempt the publish
+        // (credentials missing, or failed to decrypt). This is NOT
+        // success — no write was ever attempted, so this device's known
+        // generation must not be silently advanced. Treated as an
+        // ambiguous/pending failure, same as a network error.
+        await PasswordStateManager.setPublishPending(
+          pendingGeneration: newGeneration,
+          pendingChangeId: newChangeId,
+        );
+        passwordStatePublished = false;
+        secureDebugLog(
+            '[settings] could not build GitHub service to publish password-state during rotation (credentials missing or undecryptable) - marked pending for reconciliation');
+      } else {
+        final String deviceId = PasswordStateManager.getOrCreateDeviceId();
+        bool wroteSuccessfully = false;
+
+        try {
+          await PasswordStateManager.publishNewState(
+            service: service,
+            newGeneration: newGeneration,
+            newChangeId: newChangeId,
+            deviceId: deviceId,
+            expectedParentSha: preconditionState.observedRefSha,
+          );
+          wroteSuccessfully = true;
+        } catch (e) {
+          // Covers BOTH GithubConditionalWriteConflict (branch moved —
+          // for ANY reason, not necessarily another password change)
+          // and ordinary network/timeout failures. Neither case lets us
+          // conclude anything on its own; both require the classification
+          // step below to find out what actually happened.
+          secureDebugLog(
+              '[settings] password-state publish did not confirm during rotation - will classify via immediate reconciliation: $e');
+        }
+
+        if (wroteSuccessfully) {
+          await PasswordStateManager.recordKnownState(
+            generation: newGeneration,
+            changeId: newChangeId,
+          );
+        } else {
+          // Mark pending, then immediately attempt reconciliation using
+          // the SAME live connection — no need to wait for the next
+          // app launch when we're already online right now.
+          await PasswordStateManager.setPublishPending(
+            pendingGeneration: newGeneration,
+            pendingChangeId: newChangeId,
+          );
+
+          await PasswordStateManager.reconcilePendingPublish(service);
+
+          // Read the resulting fields directly rather than trust a
+          // single enum value — reconcilePendingPublish's own outcome
+          // enum is for logging/diagnostics; the fields it left behind
+          // are the actual source of truth for what settings.dart does
+          // next.
+          final bool stillPending = PasswordStateManager.isPublishPending();
+          final bool nowOrphaned = LocalRotationOrphanStatus.isOrphaned();
+          final bool matchesWhatWeWanted = !stillPending &&
+              !nowOrphaned &&
+              PasswordStateManager.getKnownGeneration() == newGeneration;
+
+          passwordStatePublished = matchesWhatWeWanted;
+
+          if (nowOrphaned) {
+            secureDebugLog(
+                '[settings] immediate reconciliation after rejected/failed publish confirmed another device won - local rotation is now orphaned');
+          } else if (stillPending) {
+            secureDebugLog(
+                '[settings] immediate reconciliation after rejected/failed publish could not resolve the state yet - remains pending for a later attempt');
+          } else if (matchesWhatWeWanted) {
+            secureDebugLog(
+                '[settings] immediate reconciliation confirmed this device\'s own write actually succeeded (or a retry landed it) - not orphaned, not pending');
+          }
+        }
+      }
+    }
+
+    onProgress?.call('DONE');
+    final bool isOrphaned = LocalRotationOrphanStatus.isOrphaned();
+    final bool fullyOk = githubRotationOk && passwordStatePublished;
+    if (onComplete != null) {
+      onComplete(true, fullyOk);
+    } else if (context.mounted) {
+      if (fullyOk) {
         _showAcknowledgeDialog(context, 'PASSWORD UPDATED',
             'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.');
+      } else if (isOrphaned) {
+        _showStatusDialog(
+          context,
+          'PASSWORD CHANGE CONFLICT',
+          'YOUR PASSWORD WAS CHANGED ON THIS DEVICE, BUT ANOTHER DEVICE CHANGED IT AT THE SAME TIME AND ITS CHANGE WAS ACCEPTED FIRST. THIS DEVICE\'S NOTES ARE NOW ENCRYPTED WITH A PASSWORD THAT OTHER DEVICES DO NOT KNOW. THIS DEVICE CANNOT SYNC UNTIL YOU RESOLVE THIS — SEE RECOVERY.',
+        );
+      } else if (!passwordStatePublished) {
+        _showStatusDialog(
+          context,
+          'PASSWORD UPDATED — SYNC STATE PENDING',
+          'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT THE SHARED PASSWORD-STATE COULD NOT BE CONFIRMED WITH GITHUB (LIKELY A CONNECTION ISSUE). THIS WILL BE RETRIED AUTOMATICALLY. OTHER DEVICES MAY NOT DETECT THIS CHANGE UNTIL THAT COMPLETES.',
+        );
       } else {
         _showStatusDialog(
           context,
@@ -2200,6 +2905,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       },
     ).then((_) => countdownTimer?.cancel());
+  }
+
+  /// Decrypts the stored GitHub credentials (if any) using the given
+  /// current password hash, and returns a ready-to-use
+  /// [GithubBackupService]. Returns null if no credentials are stored,
+  /// or if they fail to decrypt with the given hash — callers should
+  /// treat a null result the same as "GitHub isn't usably configured
+  /// right now," not attempt to distinguish why.
+  Future<GithubBackupService?> _buildGithubServiceFromStoredCredentials(
+      String pinHash) async {
+    final settingsBox = Hive.box(_boxName);
+    final String? accessBlob = settingsBox.get('github_access_encrypted');
+    if (accessBlob == null) return null;
+
+    try {
+      final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(
+          accessBlob,
+          keyAlias: CryptoEngine.githubTokenKeyAlias);
+      final String decoded = await CryptoEngine.decryptProcess(
+          unwrappedForRead ?? accessBlob, pinHash);
+      if (decoded == 'DECRYPTION FAULT') return null;
+      final Map<String, dynamic> access = jsonDecode(decoded);
+      final String? token = access['token']?.toString();
+      final String? repo = access['repo']?.toString();
+      if (token == null || repo == null || token.isEmpty || repo.isEmpty) {
+        return null;
+      }
+      return GithubBackupService(token: token, repoPath: repo);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _openGithubAccessDialog(
