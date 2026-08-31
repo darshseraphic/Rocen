@@ -7,6 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../core/database.dart';
 import '../core/crypto_engine.dart';
 import '../core/github_backup_service.dart';
+import '../core/password_state_manager.dart';
 import '../core/debug_log.dart';
 import '../main.dart';
 
@@ -190,6 +191,139 @@ void showAcknowledgeDialog(
   );
 }
 
+/// Result of [isGithubSyncCurrentlyAllowed] — carries not just whether
+/// sync is allowed, but WHY not, so callers can surface an accurate
+/// message instead of a generic one. See that function's own doc for
+/// the full list of states this distinguishes.
+class GithubSyncGateResult {
+  final bool allowed;
+  final String blockedReason;
+  const GithubSyncGateResult._(this.allowed, this.blockedReason);
+
+  static const GithubSyncGateResult ok =
+      GithubSyncGateResult._(true, '');
+}
+
+/// Checks whether GitHub sync (push OR pull) is currently allowed, per
+/// the shared password-generation state — WITHOUT preparing/encrypting
+/// any note content and WITHOUT attempting to decrypt any remote note.
+/// Intended to be called before EITHER direction of sync work begins,
+/// so a stale-generation device never spends effort encrypting a
+/// payload it isn't allowed to upload, and never attempts to decrypt
+/// remote content against a password generation that may not match it.
+///
+/// Returns a result whose `allowed` is true if GitHub isn't configured
+/// at all (there is nothing to gate) or if the state check passes, and
+/// false for every blocked state — with `blockedReason` describing
+/// SPECIFICALLY which of: pending-publish, orphaned rotation, behind,
+/// missing, conflict, or an unreachable check caused the block. Callers
+/// that only need the boolean can check `.allowed` and ignore the
+/// reason; callers surfacing a message to the user should use
+/// `.blockedReason` rather than writing their own generic text, so the
+/// message always reflects what was actually detected.
+Future<GithubSyncGateResult> isGithubSyncCurrentlyAllowed() async {
+  try {
+    final settingsBox = Hive.box('rocen_settings_box');
+    final String? globalPin = settingsBox.get('system_crypto_pin');
+    final String? accessBlob = settingsBox.get('github_access_encrypted');
+
+    if (globalPin == null || accessBlob == null) {
+      // GitHub isn't configured for this device at all - nothing to
+      // gate. Matches how attemptGithubSync/pushAllBackupEnabledNotes
+      // already treat this case (they simply don't have anything to
+      // push to).
+      return GithubSyncGateResult.ok;
+    }
+
+    // Check the local, no-network state first — these two are checked
+    // directly rather than via PasswordStateManager.isPushAllowed so
+    // this function can report WHICH of the two applies, since
+    // isPushAllowed itself only returns a bool.
+    if (LocalRotationOrphanStatus.isOrphaned()) {
+      return const GithubSyncGateResult._(
+        false,
+        'THIS DEVICE HAS AN UNRESOLVED PASSWORD-STATE CONFLICT FROM A PREVIOUS PASSWORD CHANGE. YOUR LOCAL NOTES ARE UNTOUCHED. RESOLVE THIS BEFORE SYNCING — SEE RECOVERY.',
+      );
+    }
+    if (PasswordStateManager.isPublishPending()) {
+      final bool isDeviceKeyIssue =
+          PasswordStateManager.getPendingReason() ==
+              PendingReason.deviceKeyNotReady;
+      return GithubSyncGateResult._(
+        false,
+        isDeviceKeyIssue
+            ? 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE IS STILL WAITING ON RECOVERY SETUP TO COMPLETE. YOUR LOCAL NOTES ARE UNTOUCHED. FINISH RECOVERY SETUP BEFORE SYNCING.'
+            : 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE HASN\'T BEEN CONFIRMED WITH GITHUB YET. YOUR LOCAL NOTES ARE UNTOUCHED. TRY AGAIN SHORTLY, OR CHECK YOUR CONNECTION.',
+      );
+    }
+
+    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(
+        accessBlob,
+        keyAlias: CryptoEngine.githubTokenKeyAlias);
+    final String accessJson = await CryptoEngine.decryptProcess(
+        unwrappedAccessBlob ?? accessBlob, globalPin);
+    if (accessJson == 'DECRYPTION FAULT') {
+      // Can't even read the stored credentials - fail closed for the
+      // cloud operation, exactly like a state-check failure would.
+      return const GithubSyncGateResult._(
+        false,
+        'STORED GITHUB CREDENTIALS COULD NOT BE READ WITH THE CURRENT PASSWORD. YOUR LOCAL NOTES ARE UNTOUCHED. RE-ENTER YOUR GITHUB TOKEN IN SETTINGS.',
+      );
+    }
+    final Map<String, dynamic> access = jsonDecode(accessJson);
+    final String? token = access['token'] as String?;
+    final String? repo = access['repo'] as String?;
+    if (token == null || repo == null) {
+      return const GithubSyncGateResult._(
+        false,
+        'STORED GITHUB TOKEN OR REPOSITORY WAS EMPTY. YOUR LOCAL NOTES ARE UNTOUCHED.',
+      );
+    }
+
+    final service = GithubBackupService(token: token, repoPath: repo);
+    final PasswordStateResult result =
+        await PasswordStateManager.checkState(service);
+
+    switch (result.comparison) {
+      case PasswordStateComparison.synchronized:
+      case PasswordStateComparison.noRemoteStateYet:
+        return GithubSyncGateResult.ok;
+      case PasswordStateComparison.behindRemote:
+        return GithubSyncGateResult._(
+          false,
+          'YOUR PASSWORD WAS CHANGED ON ANOTHER DEVICE${result.remoteChangedByDeviceId != null ? " (${result.remoteChangedByDeviceId})" : ""}. YOUR LOCAL NOTES ARE UNTOUCHED. UPDATE YOUR PASSWORD ON THIS DEVICE (RECOVERY PHRASE REQUIRED) BEFORE SYNCING.',
+        );
+      case PasswordStateComparison.conflict:
+        return const GithubSyncGateResult._(
+          false,
+          'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. YOUR LOCAL NOTES ARE UNTOUCHED. SEE RECOVERY TO RESOLVE THIS BEFORE SYNCING.',
+        );
+      case PasswordStateComparison.remoteStateBehind:
+        return const GithubSyncGateResult._(
+          false,
+          'THE PASSWORD STATE ON GITHUB APPEARS OLDER THAN WHAT THIS DEVICE ALREADY KNOWS (POSSIBLY A REVERTED OR RESTORED FILE). YOUR LOCAL NOTES ARE UNTOUCHED. THIS NEEDS INVESTIGATION BEFORE SYNCING CAN CONTINUE.',
+        );
+      case PasswordStateComparison.remoteStateMissing:
+        return const GithubSyncGateResult._(
+          false,
+          'THIS DEVICE HAS A PASSWORD GENERATION ON RECORD, BUT THE SHARED PASSWORD STATE FILE IS MISSING FROM GITHUB. YOUR LOCAL NOTES ARE UNTOUCHED. THIS NEEDS INVESTIGATION BEFORE SYNCING CAN CONTINUE.',
+        );
+      case PasswordStateComparison.checkFailed:
+        return const GithubSyncGateResult._(
+          false,
+          'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN. YOUR LOCAL NOTES ARE UNTOUCHED.',
+        );
+    }
+  } catch (e) {
+    secureDebugLog(
+        'PASSWORD-STATE PRE-CHECK FAILED (failing closed for this sync): $e');
+    return const GithubSyncGateResult._(
+      false,
+      'COULD NOT VERIFY THE CURRENT PASSWORD STATE. YOUR LOCAL NOTES ARE UNTOUCHED. CHECK YOUR CONNECTION AND TRY AGAIN.',
+    );
+  }
+}
+
 Future<bool> attemptGithubSync(
   WidgetRef ref, {
   Map<String, String>? upsert,
@@ -237,6 +371,21 @@ Future<bool> attemptGithubSync(
       repoPath: repo,
     );
 
+    // Password-state gate: refuse to push if this device's known
+    // password generation doesn't match the shared account state, or if
+    // a previous rotation is still pending/orphaned. isPushAllowed()
+    // covers all of: pending publish, orphaned rotation, behindRemote,
+    // remoteStateBehind, remoteStateMissing, conflict, and check
+    // failure — only synchronized/noRemoteStateYet pass. This is an
+    // ALLOW-list by design (see isPushAllowed's own doc), so a future
+    // new PasswordStateComparison value is blocked by default.
+    final bool pushAllowed = await PasswordStateManager.isPushAllowed(service);
+    if (!pushAllowed) {
+      secureDebugLog(
+          'GITHUB SYNC BLOCKED: password-state gate did not allow push (stale generation, pending rotation, or unreachable state check)');
+      return false;
+    }
+
     final notifier = ref.read(localDatabaseProvider.notifier);
 
     final queue = await notifier.getSyncQueue();
@@ -281,6 +430,31 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
     final String? repo = access['repo'] as String?;
     if (token == null || repo == null) {
       return 'STORED TOKEN OR REPOSITORY WAS EMPTY.';
+    }
+
+    final service = GithubBackupService(token: token, repoPath: repo);
+
+    // Password-state gate: this is the SECOND, INDEPENDENT authorization
+    // checkpoint for this push — the first already ran in the caller
+    // (e.g. runSync's upfront gate) before pull/reconciliation, and it
+    // answers a DIFFERENT question than this one does. That earlier
+    // check answered "was I allowed to even start preparing an
+    // encrypted package a moment ago." This check answers "am I STILL
+    // allowed to actually send it, right now, after preparation
+    // finished" — the encryption loop below (and everything upstream of
+    // it) takes real time, during which the shared account state could
+    // change. Reusing the earlier boolean here would silently collapse
+    // two distinct security boundaries into one stale answer. This is a
+    // deliberate, INDEPENDENT network round-trip on every call — do not
+    // skip or cache it, even though it means checking twice per normal
+    // save/sync cycle. That extra request is an accepted latency
+    // tradeoff for having two real checkpoints instead of one reused
+    // answer.
+    final bool pushAllowed = await PasswordStateManager.isPushAllowed(service);
+    if (!pushAllowed) {
+      secureDebugLog(
+          'GITHUB SYNC BLOCKED (pushAllBackupEnabledNotes): password-state gate did not allow push. No notes were encrypted or uploaded.');
+      return 'PASSWORD STATE IS OUT OF SYNC WITH GITHUB. THIS DEVICE\'S NOTES WERE NOT UPLOADED — SEE RECOVERY/SETTINGS.';
     }
 
     final backedUpItems = ref
@@ -357,13 +531,37 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
       }
     }
 
-    final service = GithubBackupService(token: token, repoPath: repo);
     final queue = await notifier.getSyncQueue();
     final List<String> deleteList = [
       ...List<String>.from(queue['deleted']),
       ...legacyFilesToDelete
     ];
 
+    // RESIDUAL RACE, ACCEPTED DELIBERATELY: the password-state gate
+    // above ran before the encryption loop, not immediately before this
+    // amendSync call — so the shared password state could theoretically
+    // change in the gap between them (another device rotating while
+    // this loop was running). This is NOT re-checked here, on purpose:
+    //
+    // Unlike password_state.json (which got a real fast-forward
+    // conditional write specifically because a stale write there could
+    // let ANOTHER device wrongly believe recovery is possible when it
+    // isn't), a note pushed here under a since-superseded generation is
+    // self-limiting in its damage: it simply becomes one orphaned file
+    // that fails to decrypt cleanly for any device already on the new
+    // generation (the same clean "DECRYPTION FAULT, skip this file"
+    // path already built into mergeFromBackup's validation and the pull
+    // loop's per-note error isolation) — not corruption, not data loss,
+    // not a false cross-device signal. It resolves itself the next time
+    // THIS device catches up and re-pushes correctly.
+    //
+    // Re-checking here would add another network round-trip to every
+    // single push for a race whose worst case is "one harmless orphaned
+    // file" — judged not worth the cost to the normal-path speed this
+    // integration was asked to preserve. If this judgment changes, the
+    // least-invasive fix is a second `PasswordStateManager.checkState`
+    // call right here, immediately before amendSync — no change to
+    // amendSync's own force-push architecture would be needed.
     await service.amendSync(
       upsertFiles: upsertFiles,
       deleteFiles: deleteList,
@@ -1116,6 +1314,32 @@ Future<void> performRefresh(
     }
 
     Future<void> runSync() async {
+      // Password-state gate, checked BEFORE any pull/decrypt work
+      // begins — not just before push. If this device's known password
+      // generation doesn't match the shared account state, decrypting
+      // remote notes with this device's (possibly stale) password would
+      // either silently fail per-note (indistinguishable from "nothing
+      // changed") or, worse, succeed against the wrong expectations.
+      //
+      // This is an INDEPENDENT checkpoint from the later push-side
+      // check in pushAllBackupEnabledNotes — the two answer different
+      // questions at different points in time (pull-authorization here,
+      // push-authorization there, after pull/reconciliation has run).
+      // Its result is captured (not just a bool) so the failure message
+      // reflects the SPECIFIC reason detected (pending, orphaned,
+      // behind, missing, conflict, or unreachable) rather than one
+      // generic sentence covering all of them.
+      final bool githubConfigured = Hive.box('rocen_settings_box')
+              .get('github_access_encrypted') !=
+          null;
+      if (githubConfigured) {
+        final GithubSyncGateResult syncGateResult =
+            await isGithubSyncCurrentlyAllowed();
+        if (!syncGateResult.allowed) {
+          throw RefreshFailure(syncGateResult.blockedReason);
+        }
+      }
+
       // PULL FIRST, THEN PUSH - this order matters. Pushing before pulling
       // means every refresh would blindly overwrite GitHub with this
       // device's current (possibly stale) copy of every note BEFORE ever
@@ -1148,6 +1372,14 @@ Future<void> performRefresh(
       // No pending remote decisions - safe to push local-only changes...(new notes, or
       // notes edited locally where remote was untouched) now that pull has
       // already reconciled anything that came from elsewhere first.
+      //
+      // This performs its OWN independent password-state check
+      // internally (see pushAllBackupEnabledNotes' own comment) — a
+      // deliberate second checkpoint, not a redundant repeat of the
+      // pull-side check above. The two answer different questions at
+      // different points in time, and the small extra request this
+      // costs is an accepted security tradeoff, not something to
+      // optimize away.
       final String? pushError = await pushAllBackupEnabledNotes(ref);
 
       if (pushError != null) {
@@ -1450,6 +1682,15 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     }
 
     if (savedBackupEnabled && generatedRemoteId != null) {
+      final GithubSyncGateResult syncGate =
+          await isGithubSyncCurrentlyAllowed();
+      if (!syncGate.allowed) {
+        // Password-state gate blocked this push BEFORE any encryption
+        // was attempted. The note is already saved locally (untouched,
+        // correct) — simply skip the cloud sync attempt for this save.
+        secureDebugLog(
+            'SKIPPING GITHUB SYNC FOR "$savedTitle" - ${syncGate.blockedReason}');
+      } else {
       final String combined = _combineTitleAndBody(savedTitle, savedBody);
 
       Map<String, String>? backupFields;
@@ -1491,6 +1732,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
             generatedRemoteId: jsonEncode(backupFields),
           },
         );
+      }
       }
     }
 
@@ -1555,238 +1797,230 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                 ),
               ),
               child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    width: 320,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: theme.dialogBg,
-                      border: Border.all(color: theme.borderColor, width: 0.8),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(displayHeaderTitle,
-                            style: TextStyle(
-                                color:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? const Color(0xFFEF4444)
-                                        : theme.textMain,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.05)),
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: (hasPinFailed || lockStringStatus != null)
-                                  ? const Color(0xFFEF4444)
-                                  : theme.borderColor,
-                              width: (hasPinFailed || lockStringStatus != null)
-                                  ? 1.2
-                                  : 0.8,
-                            ),
-                          ),
-                          child: TextField(
-                            controller: pinVerifyController,
-                            keyboardType: TextInputType.text,
-                            maxLength: 32,
-                            obscureText: true,
-                            obscuringCharacter: '#',
-                            cursorColor: theme.textMain,
-                            autofocus: lockStringStatus == null,
-                            enabled: lockStringStatus == null,
-                            style: TextStyle(
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 320,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: theme.dialogBg,
+                    border: Border.all(color: theme.borderColor, width: 0.8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(displayHeaderTitle,
+                          style: TextStyle(
                               color: (hasPinFailed || lockStringStatus != null)
                                   ? const Color(0xFFEF4444)
                                   : theme.textMain,
-                              fontSize: 16,
-                              letterSpacing: 4,
+                              fontSize: 11,
                               fontWeight: FontWeight.bold,
-                            ),
-                            onChanged: (val) {
-                              setDialogState(() {
-                                if (hasPinFailed) {
-                                  hasPinFailed = false;
-                                }
-                              });
-                            },
-                            decoration: const InputDecoration(
-                              counterText: '',
-                              border: InputBorder.none,
-                              isDense: true,
-                            ),
+                              letterSpacing: 0.05)),
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: (hasPinFailed || lockStringStatus != null)
+                                ? const Color(0xFFEF4444)
+                                : theme.borderColor,
+                            width: (hasPinFailed || lockStringStatus != null)
+                                ? 1.2
+                                : 0.8,
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            InkWell(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.borderColor, width: 0.8),
-                                ),
-                                child: Text('CANCEL',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFF888888)
-                                            : const Color(0xFF525252),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
+                        child: TextField(
+                          controller: pinVerifyController,
+                          keyboardType: TextInputType.text,
+                          maxLength: 32,
+                          obscureText: true,
+                          obscuringCharacter: '#',
+                          cursorColor: theme.textMain,
+                          autofocus: lockStringStatus == null,
+                          enabled: lockStringStatus == null,
+                          style: TextStyle(
+                            color: (hasPinFailed || lockStringStatus != null)
+                                ? const Color(0xFFEF4444)
+                                : theme.textMain,
+                            fontSize: 16,
+                            letterSpacing: 4,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          onChanged: (val) {
+                            setDialogState(() {
+                              if (hasPinFailed) {
+                                hasPinFailed = false;
+                              }
+                            });
+                          },
+                          decoration: const InputDecoration(
+                            counterText: '',
+                            border: InputBorder.none,
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          InkWell(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                    color: theme.borderColor, width: 0.8),
                               ),
+                              child: Text('CANCEL',
+                                  style: TextStyle(
+                                      color: isDark
+                                          ? const Color(0xFF888888)
+                                          : const Color(0xFF525252),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
                             ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: () async {
-                                final activeLockCheck =
-                                    _checkLockoutViolation(settingsBox);
-                                if (activeLockCheck != null) {
-                                  setDialogState(() {
-                                    lockStringStatus = activeLockCheck;
-                                  });
-                                  return;
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () async {
+                              final activeLockCheck =
+                                  _checkLockoutViolation(settingsBox);
+                              if (activeLockCheck != null) {
+                                setDialogState(() {
+                                  lockStringStatus = activeLockCheck;
+                                });
+                                return;
+                              }
+
+                              final bool isPinValid =
+                                  await CryptoEngine.verifyPin(
+                                      pinVerifyController.text, globalPin);
+
+                              if (isPinValid) {
+                                await settingsBox.put(
+                                    'secure_failed_attempts', 0);
+                                await settingsBox.put(
+                                    'secure_lockout_until', 0);
+
+                                if (!context.mounted) return;
+                                Navigator.pop(context);
+                                if (!screenContext.mounted) return;
+
+                                if (openForEditing) {
+                                  String rawContent = '';
+                                  try {
+                                    rawContent =
+                                        await CryptoEngine.decryptProcess(
+                                            item.content, globalPin);
+                                    if (rawContent != 'DECRYPTION FAULT' &&
+                                        item.pendingReviewAfterSync) {
+                                      // Content was swapped in from backup without decryption during
+                                      // conflict resolution - it may still be in the combined
+                                      // title+body format used for the GitHub payload. Strip that
+                                      // back down to just the body for display/editing, and clear
+                                      // the pending flag now that the real content has been seen.
+                                      rawContent =
+                                          _splitTitleAndBody(rawContent).body;
+                                      await ref
+                                          .read(localDatabaseProvider.notifier)
+                                          .updateItem(
+                                            item.id,
+                                            item.content,
+                                            pendingReviewAfterSync: false,
+                                          );
+                                    }
+                                  } catch (_) {
+                                    rawContent = 'DECRYPTION FAULT';
+                                  }
+                                  final unpackedItem = CaptureItem(
+                                    id: item.id,
+                                    title: item.title,
+                                    content: rawContent,
+                                    type: item.type,
+                                    timestamp: item.timestamp,
+                                    backupEnabled: item.backupEnabled,
+                                    remoteFileId: item.remoteFileId,
+                                    lastSyncedTimestamp:
+                                        item.lastSyncedTimestamp,
+                                    pendingReviewAfterSync:
+                                        item.pendingReviewAfterSync,
+                                  );
+                                  _navigateToEdit(screenContext, unpackedItem);
+                                } else {
+                                  _revealEncryptedNotePayload(
+                                      item, globalPin, isDark);
                                 }
+                              } else {
+                                int attempts = settingsBox.get(
+                                        'secure_failed_attempts',
+                                        defaultValue: 0) +
+                                    1;
+                                await settingsBox.put(
+                                    'secure_failed_attempts', attempts);
 
-                                final bool isPinValid =
-                                    await CryptoEngine.verifyPin(
-                                        pinVerifyController.text, globalPin);
+                                bool flagWipeConditionTriggered = attempts > 15;
+                                int penaltyDurationSeconds =
+                                    flagWipeConditionTriggered
+                                        ? 0
+                                        : CryptoEngine.lockoutSecondsForAttempt(
+                                            attempts);
 
-                                if (isPinValid) {
+                                if (flagWipeConditionTriggered) {
+                                  _executeWipeSequence();
                                   await settingsBox.put(
                                       'secure_failed_attempts', 0);
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
-
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
-                                  if (!screenContext.mounted) return;
-
-                                  if (openForEditing) {
-                                    String rawContent = '';
-                                    try {
-                                      rawContent =
-                                          await CryptoEngine.decryptProcess(
-                                              item.content, globalPin);
-                                      if (rawContent != 'DECRYPTION FAULT' &&
-                                          item.pendingReviewAfterSync) {
-                                        // Content was swapped in from backup without decryption during
-                                        // conflict resolution - it may still be in the combined
-                                        // title+body format used for the GitHub payload. Strip that
-                                        // back down to just the body for display/editing, and clear
-                                        // the pending flag now that the real content has been seen.
-                                        rawContent =
-                                            _splitTitleAndBody(rawContent).body;
-                                        await ref
-                                            .read(
-                                                localDatabaseProvider.notifier)
-                                            .updateItem(
-                                              item.id,
-                                              item.content,
-                                              pendingReviewAfterSync: false,
-                                            );
-                                      }
-                                    } catch (_) {
-                                      rawContent = 'DECRYPTION FAULT';
-                                    }
-                                    final unpackedItem = CaptureItem(
-                                      id: item.id,
-                                      title: item.title,
-                                      content: rawContent,
-                                      type: item.type,
-                                      timestamp: item.timestamp,
-                                      backupEnabled: item.backupEnabled,
-                                      remoteFileId: item.remoteFileId,
-                                      lastSyncedTimestamp:
-                                          item.lastSyncedTimestamp,
-                                      pendingReviewAfterSync:
-                                          item.pendingReviewAfterSync,
-                                    );
-                                    _navigateToEdit(
-                                        screenContext, unpackedItem);
-                                  } else {
-                                    _revealEncryptedNotePayload(
-                                        item, globalPin, isDark);
-                                  }
-                                } else {
-                                  int attempts = settingsBox.get(
-                                          'secure_failed_attempts',
-                                          defaultValue: 0) +
-                                      1;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', attempts);
-
-                                  bool flagWipeConditionTriggered =
-                                      attempts > 15;
-                                  int penaltyDurationSeconds =
-                                      flagWipeConditionTriggered
-                                          ? 0
-                                          : CryptoEngine
-                                              .lockoutSecondsForAttempt(
-                                                  attempts);
-
-                                  if (flagWipeConditionTriggered) {
-                                    _executeWipeSequence();
-                                    await settingsBox.put(
-                                        'secure_failed_attempts', 0);
-                                    await settingsBox.put(
-                                        'secure_lockout_until', 0);
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    showAcknowledgeDialog(
-                                        context,
-                                        isDark,
-                                        'SECURITY COMPLIANCE AUDIT',
-                                        'DATA PURGED PERMANENTLY.');
-                                    return;
-                                  }
-
-                                  if (penaltyDurationSeconds > 0) {
-                                    final int unlockTimestampMillis =
-                                        DateTime.now().millisecondsSinceEpoch +
-                                            (penaltyDurationSeconds * 1000);
-                                    await settingsBox.put(
-                                        'secure_lockout_until',
-                                        unlockTimestampMillis);
-                                  }
-
-                                  setDialogState(() {
-                                    pinVerifyController.clear();
-                                    lockStringStatus =
-                                        _checkLockoutViolation(settingsBox);
-                                    if (lockStringStatus == null) {
-                                      hasPinFailed = true;
-                                    }
-                                  });
+                                  showAcknowledgeDialog(
+                                      context,
+                                      isDark,
+                                      'SECURITY COMPLIANCE AUDIT',
+                                      'DATA PURGED PERMANENTLY.');
+                                  return;
                                 }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration:
-                                    BoxDecoration(color: theme.textMain),
-                                child: Text('VERIFY',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
+
+                                if (penaltyDurationSeconds > 0) {
+                                  final int unlockTimestampMillis =
+                                      DateTime.now().millisecondsSinceEpoch +
+                                          (penaltyDurationSeconds * 1000);
+                                  await settingsBox.put('secure_lockout_until',
+                                      unlockTimestampMillis);
+                                }
+
+                                setDialogState(() {
+                                  pinVerifyController.clear();
+                                  lockStringStatus =
+                                      _checkLockoutViolation(settingsBox);
+                                  if (lockStringStatus == null) {
+                                    hasPinFailed = true;
+                                  }
+                                });
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(color: theme.textMain),
+                              child: Text('VERIFY',
+                                  style: TextStyle(
+                                      color:
+                                          isDark ? Colors.black : Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
                             ),
-                          ],
-                        )
-                      ],
-                    ),
+                          ),
+                        ],
+                      )
+                    ],
                   ),
                 ),
+              ),
               ),
             );
           },
@@ -2841,6 +3075,16 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 if (!success) return;
 
                 if (_isBackupEnabled && remoteIdForThisSave != null) {
+                  final GithubSyncGateResult syncGate =
+                      await isGithubSyncCurrentlyAllowed();
+                  if (!syncGate.allowed) {
+                    // Password-state gate blocked this push BEFORE any
+                    // encryption was attempted. The note is already
+                    // saved locally (untouched, correct) — simply skip
+                    // the cloud sync attempt for this save.
+                    secureDebugLog(
+                        'SKIPPING GITHUB SYNC FOR "$cleanTitle" - ${syncGate.blockedReason}');
+                  } else {
                   final String combined =
                       _combineTitleAndBody(cleanTitle, rawBody);
 
@@ -2879,13 +3123,16 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                     );
 
                     if (pushSucceeded) {
-                      await ref.read(localDatabaseProvider.notifier).updateItem(
+                      await ref
+                          .read(localDatabaseProvider.notifier)
+                          .updateItem(
                             widget.item.id,
                             contentToPersist,
                             timestamp: saveTimestamp,
                             lastSyncedTimestamp: saveTimestamp,
                           );
                     }
+                  }
                   }
                 } else {
                   unawaited(attemptGithubSync(ref));

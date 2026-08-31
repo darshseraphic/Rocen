@@ -33,11 +33,36 @@ enum PasswordStateComparison {
   /// for a fork.
   conflict,
 
-  /// No `password_state.json` exists on the remote yet (e.g. very first
-  /// setup, before any device has ever registered shared state there).
-  /// Not a failure — the caller should treat this as "this device may
-  /// establish the initial shared state."
+  /// Remote generation is LOWER than this device's own established
+  /// local generation. This should never happen in normal operation —
+  /// it means the shared state moved backwards (a reverted file, a
+  /// restored old backup overwriting the current one, or some other
+  /// external interference). This is NOT "synchronized" and must never
+  /// be treated as such: a caller seeing this must fail closed (block
+  /// push, block rotation) and must NOT attempt to repair it — not by
+  /// overwriting the remote with the local generation, and not by
+  /// lowering the local generation to match. Detection only; any actual
+  /// repair/recovery behavior is a separate, deliberate decision.
+  remoteStateBehind,
+
+  /// No `password_state.json` exists on the remote, AND this device has
+  /// no established local generation either (`localGeneration == 0`).
+  /// This is the genuine first-ever-setup case — not a failure. The
+  /// caller may treat this as "this device may establish the initial
+  /// shared state." See [remoteStateMissing] for the DIFFERENT case
+  /// where a device that previously had state sees the file vanish —
+  /// that is deliberately NOT this value.
   noRemoteStateYet,
+
+  /// No `password_state.json` exists on the remote, but this device HAS
+  /// an established local generation (`localGeneration > 0`). Unlike
+  /// [noRemoteStateYet], this is not a benign "first setup" situation —
+  /// an established device is seeing the shared state disappear, which
+  /// could mean the file was deleted, the repository was reset, or
+  /// something is wrong with the backup. Must fail closed (block push,
+  /// block rotation) and must NOT be treated as license to silently
+  /// recreate/reset the shared state — detection only.
+  remoteStateMissing,
 
   /// The remote state could not be read at all (offline, GitHub
   /// unreachable, auth failure, malformed file). Distinct from
@@ -50,6 +75,33 @@ enum PasswordStateComparison {
 }
 
 /// Outcome of [PasswordStateManager.reconcilePendingPublish].
+/// Why a password-state publish is currently pending. These are
+/// genuinely different situations, not just different log messages:
+/// one is safe for automatic background reconciliation to resolve on
+/// its own, the other must NOT be auto-resolved because doing so would
+/// publish a generation bump before the cross-device recovery artifact
+/// (device_key.json) it depends on actually exists.
+enum PendingReason {
+  /// The publish attempt itself was unconfirmed (network failure,
+  /// ambiguous timeout, or a rejected conditional write that turned out
+  /// — per reconciliation — to still need a retry). device_key.json
+  /// WAS already successfully updated for the new password before this
+  /// publish was attempted. Safe for
+  /// [PasswordStateManager.reconcilePendingPublish] to automatically
+  /// retry.
+  publishUnconfirmed,
+
+  /// device_key.json is NOT yet updated for the new password — either
+  /// the user declined the recovery-phrase re-entry step, or the upload
+  /// itself failed. Automatic reconciliation must NOT attempt to
+  /// publish this generation, because doing so would let other devices
+  /// observe a password change they cannot actually recover from yet.
+  /// Requires the user to complete the device-key step (re-run the
+  /// recovery-phrase confirmation, or retry the upload) before this can
+  /// ever be published — never resolved by background retry alone.
+  deviceKeyNotReady,
+}
+
 enum ReconciliationOutcome {
   /// No pending publish existed — nothing to do.
   nothingPending,
@@ -88,6 +140,13 @@ enum ReconciliationOutcome {
   /// changes, no orphaning, no local state advancement. Safe to
   /// retry again on the next opportunity.
   checkFailed,
+
+  /// Reconciliation was not attempted at all because the pending
+  /// reason is [PendingReason.deviceKeyNotReady] — publishing is
+  /// blocked until the user completes the device-key step. This is
+  /// distinct from every other outcome: it means "nothing was even
+  /// tried," not "something was tried and didn't resolve."
+  blockedOnDeviceKey,
 }
 
 /// Whether this device's local rotation was left in a state that
@@ -186,6 +245,7 @@ class PasswordStateManager {
   static const String _keyPendingGeneration =
       'password_state_pending_generation';
   static const String _keyPendingChangeId = 'password_state_pending_change_id';
+  static const String _keyPendingReason = 'password_state_pending_reason';
 
   /// This device's stable identifier. Generated once, on first use, and
   /// persisted locally — never regenerated for the lifetime of the
@@ -257,20 +317,35 @@ class PasswordStateManager {
     return box.get(_keyPublishPending, defaultValue: false);
   }
 
-  /// Records that a rotation's shared-state publish attempt did not
-  /// receive a confirmed outcome (network failure, timeout, or any
-  /// other error where we can't tell whether the write actually landed
-  /// on GitHub before the failure). Persisted — this must survive an
-  /// app restart, since the reconciliation on next launch/sync depends
-  /// on knowing exactly which (generation, changeId) pair was pending.
+  /// The reason the current pending publish (if any) is pending. Null
+  /// if nothing is pending. Callers MUST check this before assuming a
+  /// pending publish is safe for automatic retry — see [PendingReason].
+  static PendingReason? getPendingReason() {
+    final box = Hive.box(_boxName);
+    final String? raw = box.get(_keyPendingReason);
+    if (raw == null) return null;
+    return PendingReason.values.firstWhere(
+      (r) => r.name == raw,
+      orElse: () => PendingReason.publishUnconfirmed,
+    );
+  }
+
+  /// Records that a rotation's shared-state publish is pending, and WHY
+  /// — this is not optional bookkeeping, it is what determines whether
+  /// [reconcilePendingPublish] is allowed to automatically retry.
+  /// Persisted — this must survive an app restart, since reconciliation
+  /// on next launch/sync depends on knowing exactly which (generation,
+  /// changeId, reason) triple was pending.
   static Future<void> setPublishPending({
     required int pendingGeneration,
     required String pendingChangeId,
+    required PendingReason reason,
   }) async {
     final box = Hive.box(_boxName);
     await box.put(_keyPublishPending, true);
     await box.put(_keyPendingGeneration, pendingGeneration);
     await box.put(_keyPendingChangeId, pendingChangeId);
+    await box.put(_keyPendingReason, reason.name);
   }
 
   static Future<void> clearPublishPending() async {
@@ -278,6 +353,7 @@ class PasswordStateManager {
     await box.put(_keyPublishPending, false);
     await box.delete(_keyPendingGeneration);
     await box.delete(_keyPendingChangeId);
+    await box.delete(_keyPendingReason);
   }
 
   static int? getPendingGeneration() {
@@ -311,8 +387,16 @@ class PasswordStateManager {
     }
 
     if (fetched.content == null) {
+      // Distinguish "this device has never had a generation" (genuine
+      // first-ever setup — benign) from "this device previously had an
+      // established generation and the shared state has now vanished"
+      // (not benign — could be a deleted file, a reset repository, or
+      // something wrong with the backup). Deliberately does NOT attempt
+      // to repair either case; this is detection only.
       return PasswordStateResult(
-        comparison: PasswordStateComparison.noRemoteStateYet,
+        comparison: localGeneration == 0
+            ? PasswordStateComparison.noRemoteStateYet
+            : PasswordStateComparison.remoteStateMissing,
         observedRefSha: fetched.refSha,
       );
     }
@@ -345,6 +429,14 @@ class PasswordStateManager {
         localChangeId != null &&
         remoteChangeId != localChangeId) {
       comparison = PasswordStateComparison.conflict;
+    } else if (remoteGeneration < localGeneration) {
+      // Remote is BEHIND this device's own established generation.
+      // Should never happen in normal operation — the shared state has
+      // moved backwards relative to what this device already knows.
+      // Deliberately fail-closed: do not treat this as synchronized,
+      // do not overwrite the remote with the local (higher) generation,
+      // and do not lower the local generation to match. Detection only.
+      comparison = PasswordStateComparison.remoteStateBehind;
     } else {
       // remoteGeneration == localGeneration and changeId matches (or
       // this device has no local changeId recorded yet, e.g. first-ever
@@ -409,6 +501,20 @@ class PasswordStateManager {
       GithubBackupService service) async {
     if (!isPublishPending()) return ReconciliationOutcome.nothingPending;
 
+    // CRITICAL: if this device is pending specifically because
+    // device_key.json isn't ready for the new password, automatic
+    // reconciliation must not attempt to publish — doing so would let
+    // other devices observe a generation bump before the artifact they
+    // need to recover exists, which is exactly the consistency problem
+    // this whole mechanism was built to prevent. This state can ONLY be
+    // cleared by the user completing the device-key step (see
+    // settings.dart's recovery-setup-incomplete flow) — never by
+    // background retry.
+    final PendingReason? reason = getPendingReason();
+    if (reason == PendingReason.deviceKeyNotReady) {
+      return ReconciliationOutcome.blockedOnDeviceKey;
+    }
+
     final int? pendingGeneration = getPendingGeneration();
     final String? pendingChangeId = getPendingChangeId();
     if (pendingGeneration == null || pendingChangeId == null) {
@@ -422,6 +528,7 @@ class PasswordStateManager {
     }
 
     final int oldLocalGeneration = getKnownGeneration();
+    final String? oldLocalChangeId = getKnownChangeId();
 
     final ({Map<String, dynamic>? content, String? refSha}) fetched;
     try {
@@ -456,40 +563,51 @@ class PasswordStateManager {
       return ReconciliationOutcome.confirmedLostToNewerDevice;
     }
 
-    // Case: same generation as our old local value, but a changeId that
-    // is neither ours (old) nor our pending one — a genuine conflict.
+    // Case: remote still shows EXACTLY the old state this device
+    // started from before its own pending rotation. This is the
+    // completely normal "our write hasn't landed yet" case — NOT a
+    // conflict. It's easy to misclassify this: remoteChangeId here is
+    // guaranteed to differ from pendingChangeId (pendingChangeId is a
+    // freshly-generated value nobody has published yet), so a check
+    // that only compares against pendingChangeId would wrongly treat
+    // this ordinary, expected state as a conflict — which is exactly
+    // the bug this comparison is written to avoid. Falls through to
+    // the retry logic below using a FRESH parent SHA (never reuse the
+    // original observedRefSha; time has passed and it may be stale).
     if (remoteGeneration == oldLocalGeneration &&
-        remoteChangeId != pendingChangeId) {
-      await LocalRotationOrphanStatus.setOrphaned(true);
-      await clearPublishPending();
-      return ReconciliationOutcome.confirmedConflict;
+        remoteChangeId == oldLocalChangeId) {
+      try {
+        final String deviceId = getOrCreateDeviceId();
+        await publishNewState(
+          service: service,
+          newGeneration: pendingGeneration,
+          newChangeId: pendingChangeId,
+          deviceId: deviceId,
+          expectedParentSha: fetched.refSha,
+        );
+        await recordKnownState(
+            generation: pendingGeneration, changeId: pendingChangeId);
+        await clearPublishPending();
+        return ReconciliationOutcome.retriedPublishSucceeded;
+      } catch (_) {
+        // Retry failed again (could be another race, could be another
+        // network failure). Remains pending for the next opportunity —
+        // deliberately NOT marked orphaned here, since we still don't
+        // have confirmation anyone else has actually won; we've only
+        // failed to confirm our own write, which is the same ambiguous
+        // state as before this reconciliation attempt.
+        return ReconciliationOutcome.retriedPublishFailed;
+      }
     }
 
-    // Case: remote still shows the old state — our write genuinely
-    // never landed. Retry using a FRESH parent SHA (never reuse the
-    // original observedRefSha; time has passed and it may be stale).
-    try {
-      final String deviceId = getOrCreateDeviceId();
-      await publishNewState(
-        service: service,
-        newGeneration: pendingGeneration,
-        newChangeId: pendingChangeId,
-        deviceId: deviceId,
-        expectedParentSha: fetched.refSha,
-      );
-      await recordKnownState(
-          generation: pendingGeneration, changeId: pendingChangeId);
-      await clearPublishPending();
-      return ReconciliationOutcome.retriedPublishSucceeded;
-    } catch (_) {
-      // Retry failed again (could be another race, could be another
-      // network failure). Remains pending for the next opportunity —
-      // deliberately NOT marked orphaned here, since we still don't
-      // have confirmation anyone else has actually won; we've only
-      // failed to confirm our own write, which is the same ambiguous
-      // state as before this reconciliation attempt.
-      return ReconciliationOutcome.retriedPublishFailed;
-    }
+    // Case: same generation as our old local value, but the remote
+    // changeId is neither our OLD changeId (handled above, that's the
+    // normal retry case) nor our PENDING changeId (handled at the top,
+    // that's our own success) — a genuine third-party conflict:
+    // another device rotated from the same base generation we did.
+    await LocalRotationOrphanStatus.setOrphaned(true);
+    await clearPublishPending();
+    return ReconciliationOutcome.confirmedConflict;
   }
 
   /// The three-condition push gate: a note push may proceed ONLY if
@@ -499,6 +617,24 @@ class PasswordStateManager {
   /// All three must be checked — clearing `passwordStatePublishPending`
   /// does not by itself mean push is safe again if the device was
   /// marked orphaned in the process (see reconcilePendingPublish above).
+  /// The three-condition push gate: a note push may proceed ONLY if
+  /// none of these hold: a publish is still pending confirmation, this
+  /// device's local rotation has been orphaned, or a fresh state check
+  /// shows this device's generation/changeId no longer matches remote.
+  /// All three must be checked — clearing `passwordStatePublishPending`
+  /// does not by itself mean push is safe again if the device was
+  /// marked orphaned in the process (see reconcilePendingPublish above).
+  ///
+  /// The allow-list below is intentionally an ALLOW-list, not a
+  /// block-list: only [PasswordStateComparison.synchronized] and
+  /// [PasswordStateComparison.noRemoteStateYet] permit a push.
+  /// [PasswordStateComparison.remoteStateBehind] and
+  /// [PasswordStateComparison.remoteStateMissing] are therefore
+  /// EXCLUDED BY DESIGN, not by accidental omission — a push must never
+  /// proceed while either of those fail-closed states is active, and
+  /// using an allow-list here (rather than enumerating everything to
+  /// block) means a future comparison state added to the enum is
+  /// blocked by default unless someone deliberately adds it here.
   static Future<bool> isPushAllowed(GithubBackupService service) async {
     if (isPublishPending()) return false;
     if (LocalRotationOrphanStatus.isOrphaned()) return false;

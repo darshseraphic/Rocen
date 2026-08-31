@@ -1424,6 +1424,46 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
 
+                                  // Block a NEW rotation from starting while
+                                  // this device already has an unresolved
+                                  // password-state issue from a PREVIOUS
+                                  // rotation. Checked first, locally, before
+                                  // any network call — there is no reason to
+                                  // even ask GitHub anything if this device
+                                  // already knows it's in a state that a
+                                  // second rotation would only compound
+                                  // (e.g. publishing yet another generation
+                                  // on top of an orphaned one, or losing
+                                  // track of which pending write is which).
+                                  if (LocalRotationOrphanStatus.isOrphaned()) {
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    if (!screenContext.mounted) return;
+                                    _showStatusDialog(
+                                      screenContext,
+                                      'PASSWORD CHANGE UNAVAILABLE',
+                                      'THIS DEVICE HAS AN UNRESOLVED PASSWORD-STATE CONFLICT FROM A PREVIOUS CHANGE. RESOLVE THAT BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.',
+                                    );
+                                    return;
+                                  }
+                                  if (PasswordStateManager.isPublishPending()) {
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    if (!screenContext.mounted) return;
+                                    final bool isDeviceKeyIssue =
+                                        PasswordStateManager
+                                                .getPendingReason() ==
+                                            PendingReason.deviceKeyNotReady;
+                                    _showStatusDialog(
+                                      screenContext,
+                                      'PASSWORD CHANGE UNAVAILABLE',
+                                      isDeviceKeyIssue
+                                          ? 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE IS STILL WAITING ON RECOVERY SETUP TO COMPLETE. FINISH THAT BEFORE CHANGING YOUR PASSWORD AGAIN.'
+                                          : 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE HASN\'T BEEN CONFIRMED WITH GITHUB YET. TRY AGAIN ONCE THAT COMPLETES, OR CHECK YOUR CONNECTION.',
+                                    );
+                                    return;
+                                  }
+
                                   final bool githubConfigured = settingsBox
                                           .get('github_access_encrypted') !=
                                       null;
@@ -1458,17 +1498,73 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                                     if (!checkOk) {
                                       if (!context.mounted) return;
-                                      final String message = stateResult ==
-                                                  null ||
-                                              stateResult.comparison ==
-                                                  PasswordStateComparison
-                                                      .checkFailed
-                                          ? 'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.'
-                                          : stateResult.comparison ==
-                                                  PasswordStateComparison
-                                                      .behindRemote
-                                              ? 'YOUR PASSWORD WAS ALREADY CHANGED ON ANOTHER DEVICE${stateResult.remoteChangedByDeviceId != null ? " (${stateResult.remoteChangedByDeviceId})" : ""}. ENTER THE CURRENT PASSWORD AND YOUR RECOVERY PHRASE TO UPDATE THIS DEVICE BEFORE CHANGING IT AGAIN.'
-                                          : 'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. RESOLVE THIS BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.';
+                                      final String message;
+                                      if (stateResult == null) {
+                                        message =
+                                            'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.';
+                                      } else {
+                                        switch (stateResult.comparison) {
+                                          case PasswordStateComparison
+                                              .checkFailed:
+                                            message =
+                                                'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.';
+                                            break;
+                                          case PasswordStateComparison
+                                              .behindRemote:
+                                            message =
+                                                'YOUR PASSWORD WAS ALREADY CHANGED ON ANOTHER DEVICE${stateResult.remoteChangedByDeviceId != null ? " (${stateResult.remoteChangedByDeviceId})" : ""}. ENTER THE CURRENT PASSWORD AND YOUR RECOVERY PHRASE TO UPDATE THIS DEVICE BEFORE CHANGING IT AGAIN.';
+                                            break;
+                                          case PasswordStateComparison
+                                              .conflict:
+                                            message =
+                                                'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. RESOLVE THIS BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.';
+                                            break;
+                                          case PasswordStateComparison
+                                              .remoteStateBehind:
+                                            // Deliberately distinct from
+                                            // "conflict" — this is not two
+                                            // devices racing, it's the
+                                            // shared state having moved
+                                            // BACKWARDS relative to what
+                                            // this device already knows,
+                                            // which points at external
+                                            // interference (a reverted
+                                            // file, a restored old
+                                            // backup) rather than an
+                                            // ordinary multi-device fork.
+                                            message =
+                                                'THE PASSWORD STATE ON GITHUB APPEARS OLDER THAN WHAT THIS DEVICE ALREADY KNOWS. THIS USUALLY MEANS THE SHARED FILE WAS REVERTED OR RESTORED FROM AN OLD BACKUP. THIS IS NOT SOMETHING THE APP WILL FIX AUTOMATICALLY — PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD.';
+                                            break;
+                                          case PasswordStateComparison
+                                              .remoteStateMissing:
+                                            // Also distinct from
+                                            // noRemoteStateYet — this
+                                            // device already has an
+                                            // established generation, so
+                                            // a missing file here means
+                                            // something disappeared, not
+                                            // that this is a fresh setup.
+                                            message =
+                                                'THIS DEVICE HAS A PASSWORD GENERATION ON RECORD, BUT THE SHARED PASSWORD STATE FILE IS MISSING FROM GITHUB. THIS IS NOT TREATED AS A FRESH SETUP. PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD — THE APP WILL NOT RECREATE THIS FILE AUTOMATICALLY.';
+                                            break;
+                                          case PasswordStateComparison
+                                              .synchronized:
+                                          case PasswordStateComparison
+                                              .noRemoteStateYet:
+                                            // Unreachable here — checkOk
+                                            // is only false when neither
+                                            // of these two hold. Kept as
+                                            // an explicit case (rather
+                                            // than a default:) so this
+                                            // switch stays exhaustive and
+                                            // a future new enum value is
+                                            // a compile error here, not a
+                                            // silent fallthrough.
+                                            message =
+                                                'PASSWORD CHANGE UNAVAILABLE.';
+                                            break;
+                                        }
+                                      }
                                       _showStatusDialog(context,
                                           'PASSWORD CHANGE UNAVAILABLE', message);
                                       return;
@@ -2405,10 +2501,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await PasswordStateManager.setPublishPending(
         pendingGeneration: newGeneration,
         pendingChangeId: newChangeId,
+        reason: PendingReason.deviceKeyNotReady,
       );
       passwordStatePublished = false;
       secureDebugLog(
-          '[settings] password-state publish held back - device_key.json is not yet ready for cross-device recovery. Marked pending.');
+          '[settings] password-state publish held back - device_key.json is not yet ready for cross-device recovery. Marked pending (deviceKeyNotReady) - will NOT auto-retry.');
     } else if (preconditionState != null) {
       // device_key.json IS ready (or GitHub credentials weren't
       // configured at all in a way that required it) — safe to attempt
@@ -2429,6 +2526,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await PasswordStateManager.setPublishPending(
           pendingGeneration: newGeneration,
           pendingChangeId: newChangeId,
+          reason: PendingReason.publishUnconfirmed,
         );
         passwordStatePublished = false;
         secureDebugLog(
@@ -2437,13 +2535,64 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final String deviceId = PasswordStateManager.getOrCreateDeviceId();
         bool wroteSuccessfully = false;
 
+        // IMPORTANT: do NOT reuse preconditionState.observedRefSha here.
+        // device_key.json (uploaded just above, if the recovery-phrase
+        // step ran) is written via amendSync's force-push model, which
+        // ALWAYS replaces the branch with a new parentless commit — it
+        // moves the branch by construction, every single time, whether
+        // or not any other device touched anything. Comparing against
+        // the precondition-time SHA at this point would misclassify our
+        // OWN device_key.json write as if another device had raced us,
+        // failing this "normal" rotation every time it includes a
+        // device-key update. The correct baseline for THIS write is
+        // "whatever the branch actually is right now" — read fresh,
+        // immediately before this specific write, which still correctly
+        // catches a genuine concurrent write from another device (their
+        // change would still show up in this fresh read) while no
+        // longer tripping on our own already-known branch movement.
+        final ({Map<String, dynamic>? content, String? refSha}) freshRead;
         try {
+          freshRead = await service.fetchNoteFileWithRefSha(
+              PasswordStateManager.fileName);
+        } catch (e) {
+          // Couldn't even re-read before attempting the write — treat
+          // exactly like any other unconfirmed-publish failure below.
+          secureDebugLog(
+              '[settings] could not re-fetch password_state.json immediately before publish: $e');
+          freshRead = (content: null, refSha: null);
+        }
+
+        // If the fresh read shows a generation/changeId that ISN'T what
+        // this device already knew before this rotation started, a
+        // genuine concurrent change happened during this rotation's own
+        // GitHub steps (device-key upload, credential re-encryption)
+        // and we should treat this the same as any other conflict
+        // signal — not attempt to blindly overwrite it.
+        final int? freshRemoteGeneration =
+            freshRead.content?['passwordGeneration'] as int?;
+        final String? freshRemoteChangeId =
+            freshRead.content?['passwordChangeId'] as String?;
+        final bool remoteChangedUnderUs = freshRemoteGeneration != null &&
+            preconditionState.remoteGeneration != null &&
+            (freshRemoteGeneration != preconditionState.remoteGeneration ||
+                freshRemoteChangeId != preconditionState.remoteChangeId);
+
+        try {
+          if (remoteChangedUnderUs) {
+            // Don't even attempt the write — we already know, from the
+            // fresh read itself, that the state changed during this
+            // rotation's own GitHub steps. Fall through to the same
+            // classification path as a rejected write, using the
+            // ALREADY-fresh read we just did instead of doing another.
+            throw GithubConditionalWriteConflict(
+                'password_state.json changed during this rotation\'s own GitHub steps (before the write was even attempted)');
+          }
           await PasswordStateManager.publishNewState(
             service: service,
             newGeneration: newGeneration,
             newChangeId: newChangeId,
             deviceId: deviceId,
-            expectedParentSha: preconditionState.observedRefSha,
+            expectedParentSha: freshRead.refSha,
           );
           wroteSuccessfully = true;
         } catch (e) {
@@ -2468,6 +2617,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           await PasswordStateManager.setPublishPending(
             pendingGeneration: newGeneration,
             pendingChangeId: newChangeId,
+            reason: PendingReason.publishUnconfirmed,
           );
 
           await PasswordStateManager.reconcilePendingPublish(service);
@@ -2501,6 +2651,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     onProgress?.call('DONE');
     final bool isOrphaned = LocalRotationOrphanStatus.isOrphaned();
+    final PendingReason? pendingReason =
+        PasswordStateManager.getPendingReason();
     final bool fullyOk = githubRotationOk && passwordStatePublished;
     if (onComplete != null) {
       onComplete(true, fullyOk);
@@ -2513,6 +2665,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           context,
           'PASSWORD CHANGE CONFLICT',
           'YOUR PASSWORD WAS CHANGED ON THIS DEVICE, BUT ANOTHER DEVICE CHANGED IT AT THE SAME TIME AND ITS CHANGE WAS ACCEPTED FIRST. THIS DEVICE\'S NOTES ARE NOW ENCRYPTED WITH A PASSWORD THAT OTHER DEVICES DO NOT KNOW. THIS DEVICE CANNOT SYNC UNTIL YOU RESOLVE THIS — SEE RECOVERY.',
+        );
+      } else if (pendingReason == PendingReason.deviceKeyNotReady) {
+        // Deliberately does NOT say "will retry automatically" — it
+        // will not, and saying so would be misleading. This state is
+        // only resolved by the user completing the device-key step.
+        _showStatusDialog(
+          context,
+          'RECOVERY SETUP INCOMPLETE',
+          'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT THE RECOVERY INFORMATION OTHER DEVICES NEED (YOUR DEVICE KEY) WAS NOT UPDATED — EITHER THE RECOVERY-PHRASE STEP WAS SKIPPED OR THE UPLOAD FAILED. CLOUD SYNC IS PAUSED UNTIL THIS IS COMPLETED. GO TO SETTINGS TO FINISH RECOVERY SETUP.',
         );
       } else if (!passwordStatePublished) {
         _showStatusDialog(
