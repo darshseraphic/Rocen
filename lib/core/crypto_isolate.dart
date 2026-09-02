@@ -5,11 +5,6 @@ import 'package:cryptography/cryptography.dart';
 import 'secure_bytes.dart';
 
 class CryptoIsolate {
-  /// Loan pattern: derives a key, base64-encodes it, and zeros the raw
-  /// key bytes in `finally` — entirely inside this isolate — before
-  /// returning. Only the encoded String ever crosses back out; the raw
-  /// derived key never does, under any exit path (normal return,
-  /// exception, or early return).
   static Future<String> deriveKeyAsBase64({
     required String password,
     required Uint8List salt,
@@ -35,13 +30,6 @@ class CryptoIsolate {
     });
   }
 
-  /// Loan pattern: derives a key and constant-time-compares it against
-  /// `expected` — entirely inside this isolate — zeroing both buffers in
-  /// `finally` before returning. Only the bool result ever crosses back
-  /// out; neither the derived key nor `expected` do, under any exit path.
-  /// `expected` is copied into a locked buffer inside the isolate before
-  /// the original (now-transferred) copy is zeroed, so both sides of the
-  /// comparison get the same handling as the derived key itself.
   static Future<bool> deriveKeyAndCompare({
     required String password,
     required Uint8List salt,

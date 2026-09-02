@@ -150,7 +150,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         color: theme.textMain,
                         fontSize: 12,
                         height: 1.5,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.normal,
                         letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
@@ -225,7 +225,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         color: theme.textMain,
                         fontSize: 11,
                         height: 1.5,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.normal,
                         letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
@@ -257,11 +257,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pushFullBackupSync() async {
-    // Delegates to the single, fully up-to-date push implementation in
-    // quicknote.dart (opaque remoteFileId filenames, encrypted title
-    // embedding, timestamps, legacy migration, zero-decrypt guard for
-    // notes pending review) rather than maintaining a second copy of this
-    // logic here that can silently drift out of sync with it.
     await pushAllBackupEnabledNotes(ref);
   }
 
@@ -779,7 +774,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         color: theme.textMain,
                         fontSize: 11.5,
                         height: 1.5,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.normal,
                         letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
@@ -1089,7 +1084,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         color: theme.textMain,
                         fontSize: 12,
                         height: 1.5,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.normal,
                         letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
@@ -1221,7 +1216,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           color: theme.textMain,
                           fontSize: 12,
                           height: 1.5,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: FontWeight.normal,
                           letterSpacing: 0.02),
                     ),
                     const SizedBox(height: 24),
@@ -1423,18 +1418,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       'secure_failed_attempts', 0);
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
-
-                                  // Block a NEW rotation from starting while
-                                  // this device already has an unresolved
-                                  // password-state issue from a PREVIOUS
-                                  // rotation. Checked first, locally, before
-                                  // any network call — there is no reason to
-                                  // even ask GitHub anything if this device
-                                  // already knows it's in a state that a
-                                  // second rotation would only compound
-                                  // (e.g. publishing yet another generation
-                                  // on top of an orphaned one, or losing
-                                  // track of which pending write is which).
                                   if (LocalRotationOrphanStatus.isOrphaned()) {
                                     if (!context.mounted) return;
                                     Navigator.pop(context);
@@ -1479,8 +1462,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                             globalPin);
 
                                     if (preconditionService != null) {
-                                      stateResult = await PasswordStateManager
-                                          .checkState(preconditionService);
+                                      stateResult =
+                                          await PasswordStateManager.checkState(
+                                              preconditionService);
                                     }
 
                                     if (context.mounted) {
@@ -1505,68 +1489,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       } else {
                                         switch (stateResult.comparison) {
                                           case PasswordStateComparison
-                                              .checkFailed:
+                                                .checkFailed:
                                             message =
                                                 'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.';
                                             break;
                                           case PasswordStateComparison
-                                              .behindRemote:
+                                                .behindRemote:
                                             message =
                                                 'YOUR PASSWORD WAS ALREADY CHANGED ON ANOTHER DEVICE${stateResult.remoteChangedByDeviceId != null ? " (${stateResult.remoteChangedByDeviceId})" : ""}. ENTER THE CURRENT PASSWORD AND YOUR RECOVERY PHRASE TO UPDATE THIS DEVICE BEFORE CHANGING IT AGAIN.';
                                             break;
-                                          case PasswordStateComparison
-                                              .conflict:
+                                          case PasswordStateComparison.conflict:
                                             message =
                                                 'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. RESOLVE THIS BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.';
                                             break;
                                           case PasswordStateComparison
-                                              .remoteStateBehind:
-                                            // Deliberately distinct from
-                                            // "conflict" — this is not two
-                                            // devices racing, it's the
-                                            // shared state having moved
-                                            // BACKWARDS relative to what
-                                            // this device already knows,
-                                            // which points at external
-                                            // interference (a reverted
-                                            // file, a restored old
-                                            // backup) rather than an
-                                            // ordinary multi-device fork.
+                                                .remoteStateBehind:
                                             message =
                                                 'THE PASSWORD STATE ON GITHUB APPEARS OLDER THAN WHAT THIS DEVICE ALREADY KNOWS. THIS USUALLY MEANS THE SHARED FILE WAS REVERTED OR RESTORED FROM AN OLD BACKUP. THIS IS NOT SOMETHING THE APP WILL FIX AUTOMATICALLY — PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD.';
                                             break;
                                           case PasswordStateComparison
-                                              .remoteStateMissing:
-                                            // Also distinct from
-                                            // noRemoteStateYet — this
-                                            // device already has an
-                                            // established generation, so
-                                            // a missing file here means
-                                            // something disappeared, not
-                                            // that this is a fresh setup.
+                                                .remoteStateMissing:
                                             message =
                                                 'THIS DEVICE HAS A PASSWORD GENERATION ON RECORD, BUT THE SHARED PASSWORD STATE FILE IS MISSING FROM GITHUB. THIS IS NOT TREATED AS A FRESH SETUP. PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD — THE APP WILL NOT RECREATE THIS FILE AUTOMATICALLY.';
                                             break;
                                           case PasswordStateComparison
-                                              .synchronized:
+                                                .synchronized:
                                           case PasswordStateComparison
-                                              .noRemoteStateYet:
-                                            // Unreachable here — checkOk
-                                            // is only false when neither
-                                            // of these two hold. Kept as
-                                            // an explicit case (rather
-                                            // than a default:) so this
-                                            // switch stays exhaustive and
-                                            // a future new enum value is
-                                            // a compile error here, not a
-                                            // silent fallthrough.
+                                                .noRemoteStateYet:
                                             message =
                                                 'PASSWORD CHANGE UNAVAILABLE.';
                                             break;
                                         }
                                       }
-                                      _showStatusDialog(context,
-                                          'PASSWORD CHANGE UNAVAILABLE', message);
+                                      _showStatusDialog(
+                                          context,
+                                          'PASSWORD CHANGE UNAVAILABLE',
+                                          message);
                                       return;
                                     }
                                   }
@@ -1824,32 +1782,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  /// Runs the actual password-rotation sequence. The crypto/KDF/note
-  /// migration/device-key/GitHub logic and its ordering are UNCHANGED
-  /// from before this UX pass — every step below runs in exactly the
-  /// same order, with exactly the same conditions, as before. The only
-  /// additions are:
-  ///   - `onProgress(status)` calls immediately before each real,
-  ///     already-existing async operation, so a caller can show what's
-  ///     actually happening rather than a silent gap. These calls report
-  ///     on real state transitions already present in this function —
-  ///     they do not add, remove, delay, or reorder any operation.
-  ///   - `onRequestMnemonic` replaces the direct call to
-  ///     `_promptMnemonicRecovery(context)` with an injectable function
-  ///     of the same signature, so the caller can render the recovery
-  ///     phrase entry as a state of its own modal instead of this
-  ///     function opening a second, separate dialog. The condition under
-  ///     which it's invoked, and what happens with its result, are
-  ///     unchanged.
-  /// Single non-dismissible modal that drives the entire password-change
-  /// UX: progress spinner states, the embedded recovery-phrase entry
-  /// state (when reached), and the terminal success/failure state — all
-  /// as content changes within ONE dialog, rather than separate dialogs
-  /// popping in sequence. This function owns no crypto/rotation logic of
-  /// its own; it only renders whatever `_executePasswordChange` reports
-  /// via its `onProgress`/`onRequestMnemonic`/`onComplete` callbacks. The
-  /// rotation's own logic and ordering are exactly what they were before
-  /// this modal existed — see the comments on `_executePasswordChange`.
   Future<void> _runPasswordChangeWithProgressModal(
     BuildContext screenContext,
     String oldPinHash,
@@ -1860,9 +1792,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }) async {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
-
-    // Modal-local state, mutated only via setModalState from inside the
-    // dialog's own StatefulBuilder.
     String status = 'ENCRYPTING NOTES...';
     bool isEntryStep = false;
     bool isTerminal = false;
@@ -1870,10 +1799,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     bool terminalGithubOk = true;
     String terminalTitle = '';
     String terminalMessage = '';
-
-    // Recovery-phrase entry state, mirroring _promptMnemonicRecovery's
-    // own fields exactly, since this reuses the same _mnemonicFieldRow
-    // widget and the same validation/lockout logic.
     final settingsBox = Hive.box(_boxName);
     final List<TextEditingController> mnemonicControllers =
         List.generate(12, (_) => TextEditingController());
@@ -1908,12 +1833,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return StatefulBuilder(
           builder: (dialogContext, setState) {
             setModalState = setState;
-
-            // Kick off the actual rotation exactly once, on first build,
-            // wired to update this same modal's state as it progresses.
-            // This mirrors exactly what the old code did (call
-            // _executePasswordChange, await it) — the only difference is
-            // WHERE the progress is shown, not what runs or in what order.
             if (!passwordChangeStarted) {
               passwordChangeStarted = true;
               Future.microtask(() async {
@@ -1925,7 +1844,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   preconditionState: preconditionState,
                   preconditionService: preconditionService,
                   onProgress: (newStatus) {
-                    if (newStatus == 'DONE') return; // terminal handled below
+                    if (newStatus == 'DONE') return;
                     setState(() {
                       status = newStatus;
                     });
@@ -1966,9 +1885,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             }
 
             return PopScope(
-              // Non-dismissible and navigation-blocked until a terminal
-              // state is reached, per the requirement that the user
-              // cannot navigate away mid-operation.
               canPop: isTerminal,
               child: Theme(
                 data: Theme.of(dialogContext).copyWith(
@@ -2099,7 +2015,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               color: theme.textMain,
               fontSize: 12,
               height: 1.5,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.normal,
               letterSpacing: 0.02),
         ),
         const SizedBox(height: 24),
@@ -2256,78 +2172,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     String oldPinHash,
     String rawOldPassword,
     String newPassword, {
-    /// The result of the mandatory online precondition check performed
-    /// before this function was ever called (see the old-password-verify
-    /// success handler). Null only when GitHub backup isn't configured
-    /// at all, in which case there's no shared state to publish to.
-    /// When non-null, `observedRefSha` is reused as the conditional
-    /// write's expected parent, so the publish is conditioned on the
-    /// exact state the user's rotation was approved against — not a
-    /// fresh re-read that could itself have gone stale in the interim.
     PasswordStateResult? preconditionState,
-    /// The [GithubBackupService] instance already authenticated during
-    /// the precondition check — MUST be reused for the password-state
-    /// publish step, not rebuilt. At the point where this function
-    /// publishes the new shared state, `github_access_encrypted` is
-    /// still encrypted under the OLD password (the code that
-    /// re-encrypts it to the new password runs LATER, further down this
-    /// same function). Building a fresh service by trying to decrypt
-    /// that still-old-encrypted blob with `newPinHash` would always
-    /// fail, making `service == null` guaranteed on every rotation, not
-    /// just an edge case — this was a real, confirmed bug in an earlier
-    /// version of this function. Reusing the already-authenticated
-    /// instance sidesteps the ordering problem entirely, since it
-    /// doesn't need to decrypt anything a second time.
     GithubBackupService? preconditionService,
     void Function(String status)? onProgress,
     Future<List<String>?> Function(BuildContext context)? onRequestMnemonic,
     void Function(bool success, bool githubOk)? onComplete,
   }) async {
     final settingsBox = Hive.box(_boxName);
-
-    // Step 1: capture the OLD KDF parameter tier before anything else
-    // changes. This is a snapshot, not a live reference — it cannot be
-    // affected by anything this function does later, including writing
-    // kdf_hardened in Step 4.
     final KdfParams oldParams = CryptoEngine.currentAuthParams();
     final KdfParams oldEncryptionParams =
         CryptoEngine.currentEncryptionParams();
-
-    // Step 2: evaluate the device's CURRENT rooted status and compute
-    // the NEW parameter tier that will become active once this rotation
-    // completes — explicitly, from `rooted`, WITHOUT writing
-    // kdf_hardened yet and without reading it back. This is exactly the
-    // ({auth, encryption}) pair that Steps 3 onward will use.
     final bool rooted = await CryptoEngine.isDeviceRooted();
     final newTier = CryptoEngine.paramsForHardenedState(rooted);
     final KdfParams newAuthParams = newTier.auth;
     final KdfParams newEncryptionParams = newTier.encryption;
-
-    // Step 3: derive the new password hash using the NEW auth params
-    // explicitly — this is what verifyPin will need to match against
-    // once kdf_hardened actually flips to `rooted` in Step 5. Deriving
-    // this with the OLD params (what the previous version of this
-    // function did, implicitly, via the live global) would silently
-    // produce a hash that stops verifying the moment kdf_hardened changes.
     final Uint8List authSalt = CryptoEngine.extractAuthSalt(oldPinHash);
     final String newPinHash = await CryptoEngine.hashPinWithSaltUsingParams(
         newPassword, authSalt, newAuthParams);
-
-    // Step 4: migrate every encrypted_note, decrypting each under the
-    // OLD encryption params (matching how they were actually encrypted
-    // before this rotation) and re-encrypting under the NEW encryption
-    // params explicitly (matching what decryptProcess will expect once
-    // kdf_hardened flips). Builds a complete replacement collection in
-    // memory and commits it in a single Hive write, or changes nothing
-    // at all if any note fails to decrypt. Only proceed to change the
-    // active password if this succeeds.
     onProgress?.call('ENCRYPTING NOTES...');
-    final bool notesMigrated = await ref.read(localDatabaseProvider.notifier).migrateEncryptedNotes(
-          oldPinHash,
-          newPinHash,
-          oldParams: oldEncryptionParams,
-          newParams: newEncryptionParams,
-        );
+    final bool notesMigrated =
+        await ref.read(localDatabaseProvider.notifier).migrateEncryptedNotes(
+              oldPinHash,
+              newPinHash,
+              oldParams: oldEncryptionParams,
+              newParams: newEncryptionParams,
+            );
 
     if (!notesMigrated) {
       if (onComplete != null) {
@@ -2341,13 +2210,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       return;
     }
-
-    // Step 5: notes are confirmed migrated (already re-encrypted under
-    // newEncryptionParams) and newPinHash (already derived under
-    // newAuthParams) are both consistent with the tier we're about to
-    // make live. Only now is it safe to flip kdf_hardened and commit the
-    // new password — every value being written from this point on
-    // already matches the tier kdf_hardened is about to declare active.
     onProgress?.call('UPDATING SECURITY...');
     await settingsBox.put('kdf_hardened', rooted);
 
@@ -2361,24 +2223,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } else {
       await settingsBox.delete('hw_wrapped_pin');
     }
-
-    // Step 4 (moved earlier, before password-state publish — see below
-    // for why): existing GitHub token / device-key rotation. Unchanged
-    // in what it actually does; only its POSITION relative to the
-    // password-state publish has moved, and its failures are tracked
-    // instead of silently swallowed.
-    //
-    // WHY THIS RUNS BEFORE THE PASSWORD-STATE PUBLISH NOW: another
-    // device only learns "the password changed" by observing a bumped
-    // passwordGeneration in password_state.json. If that publish
-    // happened BEFORE device_key.json was rewrapped for the new
-    // password, a small but real window would exist where another
-    // device could correctly detect staleness, correctly enter
-    // recovery, correctly enter the new password + phrase, and still
-    // fail — because the actual artifact recovery depends on
-    // (device_key.json) wouldn't exist yet. Running this block first
-    // means that by the time any other device could possibly observe
-    // the new generation, device_key.json already reflects it.
     bool githubRotationOk = true;
     bool deviceKeyReadyForPublish = true;
     final String? accessBlob = settingsBox.get('github_access_encrypted');
@@ -2422,7 +2266,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             );
 
             try {
-              final service = GithubBackupService(
+              final service = _buildGithubService(
                   token: access['token'], repoPath: access['repo']);
               await service.amendSync(
                   upsertFiles: {'device_key.json': jsonEncode(rewrapped)},
@@ -2435,14 +2279,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   '[settings] device_key.json re-upload failed during password rotation: $e');
             }
           } else {
-            // User declined the recovery-phrase step. This is not
-            // treated as a githubRotationOk=false failure (the user
-            // made a deliberate choice, not an error occurred) — but
-            // device_key.json genuinely was NOT updated, so the
-            // password-state publish below must still be held back:
-            // publishing a new generation without a matching
-            // device_key.json would leave any OTHER device unable to
-            // complete recovery even with the correct new password.
             deviceKeyReadyForPublish = false;
             secureDebugLog(
                 '[settings] user declined recovery-phrase re-entry during password rotation - device_key.json not updated, password-state publish will be held pending');
@@ -2460,40 +2296,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             '[settings] unexpected error re-encrypting GitHub credentials during password rotation: $e');
       }
     }
-
-    // Publish the new shared password-generation state, if GitHub backup
-    // is configured. Uses the REAL conditional write (fast-forward
-    // check), not the force-push path used for notes.
-    //
-    // Only reached AFTER the block above, and only actually attempted
-    // if deviceKeyReadyForPublish is true — see the comment on that
-    // block for why publish must not run ahead of device_key.json.
-    //
-    // IMPORTANT: a rejected conditional write only proves the branch
-    // moved since we read it — it does NOT by itself prove another
-    // device changed the password. A completely unrelated commit (e.g.
-    // this same device's own note sync, or another artifact entirely)
-    // moving the branch would look identical from here. So a rejection
-    // is treated the same as any other unconfirmed-write failure: mark
-    // pending, then immediately re-fetch and classify what's actually
-    // there — using the exact same logic as reconcilePendingPublish —
-    // rather than assuming the worst (orphaned) from the rejection alone.
-    //
-    // In every outcome below, system_crypto_pin and the local notes have
-    // ALREADY been committed above — this block only ever affects
-    // whether the ACCOUNT-WIDE shared state and this device's own
-    // bookkeeping reflect that change, never the local password itself.
     bool passwordStatePublished = true;
     if (preconditionState != null && !deviceKeyReadyForPublish) {
-      // device_key.json isn't ready yet (user declined recovery-phrase
-      // entry, or the upload itself failed) — hold back the generation
-      // bump entirely rather than publish something other devices can't
-      // actually use to recover. Marked pending so a LATER opportunity
-      // (once the user completes recovery-phrase entry, or the upload
-      // succeeds on a retry) can still publish correctly. This does NOT
-      // attempt reconciliation immediately, unlike the failure path
-      // below, since there is nothing to reconcile yet — this device
-      // never even attempted a write.
       final int newGeneration = (preconditionState.remoteGeneration ??
               PasswordStateManager.getKnownGeneration()) +
           1;
@@ -2507,9 +2311,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       secureDebugLog(
           '[settings] password-state publish held back - device_key.json is not yet ready for cross-device recovery. Marked pending (deviceKeyNotReady) - will NOT auto-retry.');
     } else if (preconditionState != null) {
-      // device_key.json IS ready (or GitHub credentials weren't
-      // configured at all in a way that required it) — safe to attempt
-      // the actual publish now.
       final GithubBackupService? service = preconditionService;
 
       final int newGeneration = (preconditionState.remoteGeneration ??
@@ -2518,11 +2319,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final String newChangeId = PasswordStateManager.generateChangeId();
 
       if (service == null) {
-        // Could not even build a service to attempt the publish
-        // (credentials missing, or failed to decrypt). This is NOT
-        // success — no write was ever attempted, so this device's known
-        // generation must not be silently advanced. Treated as an
-        // ambiguous/pending failure, same as a network error.
         await PasswordStateManager.setPublishPending(
           pendingGeneration: newGeneration,
           pendingChangeId: newChangeId,
@@ -2534,40 +2330,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       } else {
         final String deviceId = PasswordStateManager.getOrCreateDeviceId();
         bool wroteSuccessfully = false;
-
-        // IMPORTANT: do NOT reuse preconditionState.observedRefSha here.
-        // device_key.json (uploaded just above, if the recovery-phrase
-        // step ran) is written via amendSync's force-push model, which
-        // ALWAYS replaces the branch with a new parentless commit — it
-        // moves the branch by construction, every single time, whether
-        // or not any other device touched anything. Comparing against
-        // the precondition-time SHA at this point would misclassify our
-        // OWN device_key.json write as if another device had raced us,
-        // failing this "normal" rotation every time it includes a
-        // device-key update. The correct baseline for THIS write is
-        // "whatever the branch actually is right now" — read fresh,
-        // immediately before this specific write, which still correctly
-        // catches a genuine concurrent write from another device (their
-        // change would still show up in this fresh read) while no
-        // longer tripping on our own already-known branch movement.
-        final ({Map<String, dynamic>? content, String? refSha}) freshRead;
+        ({Map<String, dynamic>? content, String? refSha}) freshRead;
         try {
-          freshRead = await service.fetchNoteFileWithRefSha(
-              PasswordStateManager.fileName);
+          freshRead = await service
+              .fetchNoteFileWithRefSha(PasswordStateManager.fileName);
         } catch (e) {
-          // Couldn't even re-read before attempting the write — treat
-          // exactly like any other unconfirmed-publish failure below.
           secureDebugLog(
               '[settings] could not re-fetch password_state.json immediately before publish: $e');
           freshRead = (content: null, refSha: null);
         }
-
-        // If the fresh read shows a generation/changeId that ISN'T what
-        // this device already knew before this rotation started, a
-        // genuine concurrent change happened during this rotation's own
-        // GitHub steps (device-key upload, credential re-encryption)
-        // and we should treat this the same as any other conflict
-        // signal — not attempt to blindly overwrite it.
         final int? freshRemoteGeneration =
             freshRead.content?['passwordGeneration'] as int?;
         final String? freshRemoteChangeId =
@@ -2579,11 +2350,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
         try {
           if (remoteChangedUnderUs) {
-            // Don't even attempt the write — we already know, from the
-            // fresh read itself, that the state changed during this
-            // rotation's own GitHub steps. Fall through to the same
-            // classification path as a rejected write, using the
-            // ALREADY-fresh read we just did instead of doing another.
             throw GithubConditionalWriteConflict(
                 'password_state.json changed during this rotation\'s own GitHub steps (before the write was even attempted)');
           }
@@ -2596,11 +2362,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           );
           wroteSuccessfully = true;
         } catch (e) {
-          // Covers BOTH GithubConditionalWriteConflict (branch moved —
-          // for ANY reason, not necessarily another password change)
-          // and ordinary network/timeout failures. Neither case lets us
-          // conclude anything on its own; both require the classification
-          // step below to find out what actually happened.
           secureDebugLog(
               '[settings] password-state publish did not confirm during rotation - will classify via immediate reconciliation: $e');
         }
@@ -2611,9 +2372,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             changeId: newChangeId,
           );
         } else {
-          // Mark pending, then immediately attempt reconciliation using
-          // the SAME live connection — no need to wait for the next
-          // app launch when we're already online right now.
           await PasswordStateManager.setPublishPending(
             pendingGeneration: newGeneration,
             pendingChangeId: newChangeId,
@@ -2621,12 +2379,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           );
 
           await PasswordStateManager.reconcilePendingPublish(service);
-
-          // Read the resulting fields directly rather than trust a
-          // single enum value — reconcilePendingPublish's own outcome
-          // enum is for logging/diagnostics; the fields it left behind
-          // are the actual source of truth for what settings.dart does
-          // next.
           final bool stillPending = PasswordStateManager.isPublishPending();
           final bool nowOrphaned = LocalRotationOrphanStatus.isOrphaned();
           final bool matchesWhatWeWanted = !stillPending &&
@@ -2667,9 +2419,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           'YOUR PASSWORD WAS CHANGED ON THIS DEVICE, BUT ANOTHER DEVICE CHANGED IT AT THE SAME TIME AND ITS CHANGE WAS ACCEPTED FIRST. THIS DEVICE\'S NOTES ARE NOW ENCRYPTED WITH A PASSWORD THAT OTHER DEVICES DO NOT KNOW. THIS DEVICE CANNOT SYNC UNTIL YOU RESOLVE THIS — SEE RECOVERY.',
         );
       } else if (pendingReason == PendingReason.deviceKeyNotReady) {
-        // Deliberately does NOT say "will retry automatically" — it
-        // will not, and saying so would be misleading. This state is
-        // only resolved by the user completing the device-key step.
         _showStatusDialog(
           context,
           'RECOVERY SETUP INCOMPLETE',
@@ -2730,7 +2479,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         color: theme.textMain,
                         fontSize: 12,
                         height: 1.5,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.normal,
                         letterSpacing: 0.02),
                   ),
                   const SizedBox(height: 24),
@@ -3068,12 +2817,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ).then((_) => countdownTimer?.cancel());
   }
 
-  /// Decrypts the stored GitHub credentials (if any) using the given
-  /// current password hash, and returns a ready-to-use
-  /// [GithubBackupService]. Returns null if no credentials are stored,
-  /// or if they fail to decrypt with the given hash — callers should
-  /// treat a null result the same as "GitHub isn't usably configured
-  /// right now," not attempt to distinguish why.
   Future<GithubBackupService?> _buildGithubServiceFromStoredCredentials(
       String pinHash) async {
     final settingsBox = Hive.box(_boxName);
@@ -3093,9 +2836,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (token == null || repo == null || token.isEmpty || repo.isEmpty) {
         return null;
       }
-      return GithubBackupService(token: token, repoPath: repo);
+      return _buildGithubService(token: token, repoPath: repo);
     } catch (_) {
       return null;
+    }
+  }
+
+  GithubBackupService _buildGithubService({
+    required String token,
+    required String repoPath,
+  }) {
+    try {
+      return GithubBackupService(token: token, repoPath: repoPath);
+    } on StateError catch (e) {
+      throw GithubSyncException(
+          'GITHUB SECURITY CONFIGURATION IS INCOMPLETE: ${e.message}');
     }
   }
 
@@ -3247,14 +3002,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                             Navigator.pop(context);
                             if (!screenContext.mounted) return;
-
-                            // A tiny delay here matters: pushing a new
-                            // dialog route in the same synchronous tick as
-                            // popping the previous one can get the new
-                            // route lost while the pop is still settling -
-                            // this was why SAVING never appeared at all on
-                            // some devices. Letting one frame pass first
-                            // avoids the race.
                             await Future.delayed(Duration.zero);
                             if (!screenContext.mounted) return;
 
@@ -3270,21 +3017,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                             _showSavingIndicatorDialog(screenContext, isDark);
 
-                            final String payload =
-                                jsonEncode({'token': token, 'repo': repo});
-                            final String encrypted =
-                                await CryptoEngine.encryptProcess(
-                                    payload, pinHash);
-                            final String? hwWrapped =
-                                await CryptoEngine.hardwareWrap(encrypted,
-                                    keyAlias: CryptoEngine.githubTokenKeyAlias);
-                            if (hwWrapped == null) {
-                              secureDebugLog(
-                                  '[settings] hardwareWrap failed for githubTokenKeyAlias during token save - falling back to software-encrypted storage only');
-                            }
-                            await settingsBox.put('github_access_encrypted',
-                                hwWrapped ?? encrypted);
-
                             if (!screenContext.mounted) return;
                             await _handlePostSaveGithubSync(
                               screenContext,
@@ -3293,6 +3025,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               rawPassword,
                               pinHash,
                               pullAfterKeySetup: false,
+                              persistCredentialsOnSuccess: true,
                               onBeforeUserPrompt: closeSavingDialogIfOpen,
                             );
                             closeSavingDialogIfOpen();
@@ -3320,7 +3053,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<void> _handlePostSaveGithubSync(
+  Future<void> _storeGithubCredentials({
+    required Box settingsBox,
+    required String token,
+    required String repo,
+    required String pinHash,
+  }) async {
+    final String payload = jsonEncode({'token': token, 'repo': repo});
+    final String encrypted =
+        await CryptoEngine.encryptProcess(payload, pinHash);
+    final String? hwWrapped = await CryptoEngine.hardwareWrap(
+      encrypted,
+      keyAlias: CryptoEngine.githubTokenKeyAlias,
+    );
+    if (hwWrapped == null) {
+      secureDebugLog(
+        '[settings] hardwareWrap failed for githubTokenKeyAlias while saving '
+        'validated GitHub credentials - using software-encrypted storage only',
+      );
+    }
+    await settingsBox.put(
+      'github_access_encrypted',
+      hwWrapped ?? encrypted,
+    );
+  }
+
+  Future<bool> _handlePostSaveGithubSync(
     BuildContext context,
     String token,
     String repo,
@@ -3328,9 +3086,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     String currentPinHash, {
     bool isExplicitRestore = false,
     bool pullAfterKeySetup = true,
+    bool persistCredentialsOnSuccess = false,
     VoidCallback? onBeforeUserPrompt,
   }) async {
-    final service = GithubBackupService(token: token, repoPath: repo);
+    final GithubBackupService service;
+    try {
+      service = _buildGithubService(token: token, repoPath: repo);
+    } catch (e) {
+      onBeforeUserPrompt?.call();
+      secureDebugLog('GITHUB SERVICE CONSTRUCTION FAILED: $e');
+      if (context.mounted) {
+        _showStatusDialog(
+          context,
+          'GITHUB SYNC UNAVAILABLE',
+          'GITHUB SECURITY CONFIGURATION FOR THIS APP BUILD IS INCOMPLETE, SO SECURE SYNC COULD NOT START. YOUR LOCAL DATA IS UNCHANGED. CONTACT THE APP DEVELOPER IF THIS PERSISTS.',
+        );
+      }
+      return false;
+    }
     final settingsBox = Hive.box(_boxName);
 
     final List<String> syncLog = [];
@@ -3347,51 +3120,207 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     try {
-      Map<String, dynamic>? existingDeviceKey;
+      // Diagnostic only: verify repository metadata when possible, but never
+      // block backup setup on this separate endpoint. Metadata permission and
+      // Contents permission are independent GitHub API permissions.
       try {
-        existingDeviceKey = await service.fetchNoteFile('device_key.json');
-        log('device_key.json fetch: ${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}');
+        await service.validateRepositoryAccess();
+        log('repository metadata preflight: OK');
       } catch (e) {
-        log('device_key.json fetch THREW: $e');
-        existingDeviceKey = null;
+        log('repository metadata preflight: $e (non-blocking)');
       }
 
       String effectivePinHash = currentPinHash;
       final String? ownedRepo = settingsBox.get('device_key_owned_repo');
-      final bool ownsThisRepoKey = ownedRepo == repo;
+      bool ownsThisRepoKey = ownedRepo == repo;
       log('ownedRepo locally = "$ownedRepo", this repo = "$repo", ownsThisRepoKey = $ownsThisRepoKey');
 
-      if (existingDeviceKey == null) {
+      Map<String, dynamic>? existingDeviceKey;
+      bool initializedDeviceKeyDuringThisRun = false;
+
+      if (!ownsThisRepoKey) {
+        try {
+          existingDeviceKey = await service.fetchNoteFile('device_key.json');
+          log(
+            'device_key.json fetch: '
+            '${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}',
+          );
+        } on GithubSyncException catch (readError, stackTrace) {
+          final String readErrorText = readError.toString();
+          final bool isContentsReadDenied =
+              readErrorText.contains('HTTP 403') &&
+                  readErrorText.toLowerCase().contains('permission denied');
+
+          if (!isContentsReadDenied) {
+            log('device_key.json fetch FAILED: $readError');
+            secureDebugLog('$stackTrace');
+            onBeforeUserPrompt?.call();
+            if (context.mounted) {
+              _showStatusDialog(
+                context,
+                'GITHUB BACKUP CHECK FAILED',
+                'Rocen could not securely check the GitHub backup repository. '
+                    'Your local data is unchanged.\n\nERROR: $readError',
+              );
+            }
+            return false;
+          }
+
+          // On a fresh local setup, reading device_key.json is not enough to
+          // determine whether the file exists. Try the real operation Rocen
+          // ultimately needs: create the recovery file without an update SHA.
+          // GitHub will reject this with 422 when device_key.json already
+          // exists, so this cannot overwrite an existing recovery key.
+          log('device_key.json read was denied; attempting safe create-if-absent bootstrap');
+
+          try {
+            final Uint8List authSalt =
+                CryptoEngine.extractAuthSalt(currentPinHash);
+            final List<String> mnemonicWords =
+                await CryptoEngine.generateMnemonic();
+            final Map<String, String> wrapped =
+                await CryptoEngine.wrapDeviceKey(
+              authSaltBytes: authSalt,
+              password: rawPassword,
+              mnemonicWords: mnemonicWords,
+            );
+
+            await service.createFileIfAbsent(
+              path: 'device_key.json',
+              content: jsonEncode(wrapped),
+              message: 'initialize device recovery key',
+            );
+
+            // The file now exists because the create-only operation succeeded.
+            // Store ownership only after GitHub accepted the write.
+            await settingsBox.put('device_key_owned_repo', repo);
+            ownsThisRepoKey = true;
+            initializedDeviceKeyDuringThisRun = true;
+            existingDeviceKey = Map<String, dynamic>.from(wrapped);
+            log('create-if-absent bootstrap succeeded; device_key.json created');
+
+            if (!context.mounted) return false;
+            await _showMnemonicDisplayDialog(context, mnemonicWords);
+            if (!context.mounted) return false;
+          } on GithubFileAlreadyExists {
+            // The safe create-only request proved that the remote file already
+            // exists. Read it now so the normal recovery flow can proceed.
+            log('create-if-absent reported an existing device_key.json; attempting recovery read');
+            existingDeviceKey = await service.fetchNoteFile('device_key.json');
+            log('device_key.json recovery read: ${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}');
+          } catch (bootstrapError, bootstrapStackTrace) {
+            log('create-if-absent bootstrap FAILED: $bootstrapError');
+            secureDebugLog('$bootstrapStackTrace');
+            onBeforeUserPrompt?.call();
+            if (context.mounted) {
+              _showStatusDialog(
+                context,
+                'GITHUB BACKUP SETUP FAILED',
+                'Rocen could not create the recovery file in the selected GitHub repository. '
+                    'Your local data is unchanged.\n\nERROR: $bootstrapError',
+              );
+            }
+            return false;
+          }
+        }
+      } else {
+        try {
+          existingDeviceKey = await service.fetchNoteFile('device_key.json');
+          log(
+            'device_key.json fetch for locally owned repo: '
+            '${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}',
+          );
+        } catch (e, stackTrace) {
+          log('device_key.json fetch for locally owned repo FAILED: $e');
+          secureDebugLog('$stackTrace');
+          onBeforeUserPrompt?.call();
+          if (context.mounted) {
+            _showStatusDialog(
+              context,
+              'GITHUB BACKUP CHECK FAILED',
+              'Rocen could not verify the recovery file for this already-owned repository. '
+                  'Your local data is unchanged.\n\nERROR: $e',
+            );
+          }
+          return false;
+        }
+      }
+
+      if (initializedDeviceKeyDuringThisRun) {
+        // First-time bootstrap is already complete. The generated recovery
+        // phrase was displayed and device_key ownership was recorded.
+      } else if (existingDeviceKey == null) {
         log('taking first-time-setup branch');
+
         final Uint8List authSalt = CryptoEngine.extractAuthSalt(currentPinHash);
         final List<String> mnemonicWords =
             await CryptoEngine.generateMnemonic();
+
         final Map<String, String> wrapped = await CryptoEngine.wrapDeviceKey(
           authSaltBytes: authSalt,
           password: rawPassword,
           mnemonicWords: mnemonicWords,
         );
 
+        bool deviceKeyPublished = false;
+        String? deviceKeyPublishError;
+
         try {
+          if (!context.mounted) return false;
+          await _showMnemonicDisplayDialog(context, mnemonicWords);
+          if (!context.mounted) return false;
+
           await service.amendSync(
             upsertFiles: {'device_key.json': jsonEncode(wrapped)},
-            message: 'device key setup',
+            message: 'initialize device recovery key',
           );
+          log('device_key.json upload completed');
+
+          final Map<String, dynamic>? publishedDeviceKey =
+              await service.fetchNoteFile('device_key.json');
+          final bool hasRequiredFields = publishedDeviceKey != null &&
+              (publishedDeviceKey['wrapSalt'] ?? '').toString().isNotEmpty &&
+              (publishedDeviceKey['wrapNonce'] ?? '').toString().isNotEmpty &&
+              (publishedDeviceKey['wrappedAuthSalt'] ?? '')
+                  .toString()
+                  .isNotEmpty;
+
+          if (!hasRequiredFields) {
+            throw GithubSyncException(
+              'device_key.json was uploaded but could not be verified after upload.',
+            );
+          }
+
           await settingsBox.put('device_key_owned_repo', repo);
-          log('device_key.json push succeeded');
-        } catch (e) {
-          log('device_key.json push FAILED: $e');
+          ownsThisRepoKey = true;
+          deviceKeyPublished = true;
+          log('device_key.json verified successfully; local repo ownership recorded');
+        } catch (e, stackTrace) {
+          deviceKeyPublishError = e.toString();
+          log('device_key.json publish/verification FAILED: $e');
+          secureDebugLog('[settings] first-time device_key publish failed: $e');
+          secureDebugLog('$stackTrace');
         }
 
-        if (context.mounted) {
+        if (!deviceKeyPublished) {
           onBeforeUserPrompt?.call();
-          await _showMnemonicDisplayDialog(context, mnemonicWords);
+
+          if (context.mounted) {
+            _showStatusDialog(
+              context,
+              'BACKUP SETUP FAILED',
+              'Rocen could not securely save and verify the recovery information '
+                  'on GitHub. Your local data is unchanged.\n\nERROR: ${deviceKeyPublishError ?? "unknown error"}',
+            );
+          }
+
+          return false;
         }
       } else if (!ownsThisRepoKey) {
         log('taking recovery branch - prompting for 12 words');
         if (!context.mounted) {
           log('context unmounted before mnemonic prompt, aborting');
-          return;
+          return false;
         }
         onBeforeUserPrompt?.call();
         final List<String>? recoveredWords =
@@ -3399,7 +3328,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         if (recoveredWords == null) {
           log('mnemonic dialog closed without submitting (cancelled or dismissed)');
           await finish('RECOVERY CANCELLED');
-          return;
+          return false;
         }
         log('12 words submitted, attempting unwrap');
 
@@ -3415,7 +3344,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         if (unwrapped == null) {
           log('unwrapDeviceKey returned null - password or mnemonic did not match this backup');
           await finish('RECOVERY FAILED');
-          return;
+          return false;
         }
 
         effectivePinHash =
@@ -3446,9 +3375,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
 
       if (!pullAfterKeySetup) {
-        log('pullAfterKeySetup is false, stopping after key setup/recovery');
+        log(
+          'pullAfterKeySetup is false, stopping after completed key/state setup',
+        );
+
+        if (persistCredentialsOnSuccess) {
+          try {
+            await _storeGithubCredentials(
+              settingsBox: settingsBox,
+              token: token,
+              repo: repo,
+              pinHash: effectivePinHash,
+            );
+            log('validated GitHub credentials persisted locally');
+          } catch (e, stackTrace) {
+            log('validated GitHub credentials persistence FAILED: $e');
+            secureDebugLog(
+              '[settings] validated GitHub credentials could not be persisted: $e',
+            );
+            secureDebugLog('$stackTrace');
+            onBeforeUserPrompt?.call();
+            if (context.mounted) {
+              _showStatusDialog(
+                context,
+                'GITHUB CREDENTIAL SAVE FAILED',
+                'GitHub backup setup succeeded, but Rocen could not safely save the validated credentials locally. Your previous stored credentials remain unchanged.\n\nERROR: $e',
+              );
+            }
+            return false;
+          }
+        }
+
         onBeforeUserPrompt?.call();
-        return;
+        return true;
       }
 
       List<String> filesToImport = [];
@@ -3470,7 +3429,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               '0 NOTES FOUND IN THIS BACKUP.');
         }
         await finish('RESTORE RESULT');
-        return;
+        return true;
       }
 
       final notifier = ref.read(localDatabaseProvider.notifier);
@@ -3533,6 +3492,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             'IMPORTED $importedCount NOTE(S) FROM BACKUP.');
       }
       await finish('RESTORE RESULT');
+      return true;
     } catch (e, stackTrace) {
       syncLog.add('UNCAUGHT EXCEPTION: $e');
       syncLog.add('STACK TRACE: $stackTrace');
@@ -3542,13 +3502,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (isExplicitRestore && context.mounted) {
         _showDiagnosticLogDialog(context, 'SYNC ERROR', syncLog);
       }
+      return false;
     }
   }
 
-  // Non-dismissible loading indicator shown while token/repo/recovery data
-  // is actually being written to local storage and pushed to GitHub - the
-  // whole point is that background tapping does nothing here, matching the
-  // same protection as the rest of this setup flow.
   void _showSavingIndicatorDialog(BuildContext context, bool isDark) {
     final theme = SettingsUiTheme(isDark);
 
@@ -4226,12 +4183,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // Same strikethrough-grows-in animation as the to-do list's task
-  // completion (Stack + TweenAnimationBuilder + ClipRect/widthFactor):
-  // the red "unmet" label sits underneath permanently, and a green
-  // strikethrough copy grows left-to-right over it as the rule becomes
-  // satisfied, and shrinks back if the password changes and no longer
-  // meets it.
   Widget _buildPasswordRequirementRow(String label, bool satisfied) {
     const unmetColor = Color(0xFFEF4444);
     const metColor = Color(0xFF22C55E);

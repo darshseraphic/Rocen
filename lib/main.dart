@@ -22,13 +22,14 @@ final themeProvider = NotifierProvider<ThemeNotifier, bool>(ThemeNotifier.new);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await Hive.initFlutter();
   await Hive.openBox('rocen_settings_box');
-  CertPinning.debugFetchCurrentCertificate().then((cert) {
-    print('[cert_pinning] CERT: $cert');
-  }).catchError((e) {
-    print('[cert_pinning] fetch failed: $e');
-  });
+
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,

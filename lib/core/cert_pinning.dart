@@ -1,85 +1,288 @@
 import 'dart:convert';
-import 'dart:developer' as developer;
-import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/io_client.dart';
+import 'package:smart_dev_pinning_plugin/smart_dev_pinning_plugin.dart';
 
-class CertPinning {
-  // Primary pin: leaf certificate (*.github.com), rotates roughly every
-  // ~90 days per Sectigo's short-lived cert cycle — expect to update this
-  // periodically. Backup pin: the issuing intermediate CA
-  // (Sectigo Public Server Authentication CA DV E36, valid until
-  // 2036-03-21), which survives routine leaf rotation without needing an
-  // app update. Deliberately NOT pinning the root — the intermediate is
-  // specific enough to meaningfully restrict trust while still being
-  // durable; the root is unnecessarily broad and would validate far more
-  // than just this one issuing chain if ever misused.
-  static const List<String> _pinnedCertificatesDerBase64 = [
-    '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',
-  ];
-  // NOTE: this must be kept in sync with the actual notAfter date of the
-  // leaf certificate above (currently 2026-09-29 23:59:59 UTC). Set a few
-  // days *before* that real expiry, not after it and not exactly on it —
-  // if this date is later than the certificate's real expiry, pinning
-  // continues to enforce a dead certificate and blocks all GitHub
-  // connectivity until this constant is updated and shipped.
-  static final DateTime _pinValidUntil = DateTime.utc(2026, 9, 25);
+final class CertPinning {
+  CertPinning._();
 
-  static bool get _pinningActive =>
-      DateTime.now().toUtc().isBefore(_pinValidUntil) &&
-      _pinnedCertificatesDerBase64
-          .any((cert) => !cert.startsWith('PLACEHOLDER'));
-  static http.Client createPinnedClient(
-      {String pinnedHost = 'api.github.com'}) {
-    if (!_pinningActive) {
-      return http.Client();
+  static const String githubApiHost = 'api.github.com';
+  static const int githubApiPort = 443;
+  static const String _primarySpkiPin = String.fromEnvironment(
+    'GITHUB_PRIMARY_SPKI_PIN',
+    defaultValue: 'S2LUIbq4yUg5w+MYbj5LZOWAZAzaeNGJ9rTTc4GjvBQ=',
+  );
+  static const String _backupSpkiPin = String.fromEnvironment(
+    'GITHUB_BACKUP_SPKI_PIN',
+    defaultValue: '',
+  );
+
+  static http.Client? _cachedClient;
+  static http.Client get client {
+    return _cachedClient ??= _createClient();
+  }
+
+  static http.Client _createClient() {
+    _validatePinConfiguration();
+
+    final SecureClient nativeClient = SecureClient();
+
+    return _PinnedGithubClient(nativeClient);
+  }
+
+  static List<String> get _pins {
+    _validatePinConfiguration();
+
+    return <String>[
+      _primarySpkiPin,
+      if (_backupSpkiPin.isNotEmpty) _backupSpkiPin,
+    ];
+  }
+
+  static void _validatePinConfiguration() {
+    if (_primarySpkiPin.isEmpty) {
+      throw StateError(
+        'GitHub primary SPKI pin is not configured.',
+      );
     }
 
-    try {
-      final context = SecurityContext(withTrustedRoots: false);
-      int loadedCount = 0;
-      for (final certBase64 in _pinnedCertificatesDerBase64) {
-        if (certBase64.startsWith('PLACEHOLDER')) continue;
-        try {
-          context.setTrustedCertificatesBytes(base64.decode(certBase64));
-          loadedCount++;
-        } catch (e) {
-          assert(() {
-            developer.log(
-              'cert_pinning: a pinned certificate failed to parse/load and was skipped — this is unexpected for a non-placeholder entry and should be investigated: $e',
-              name: 'CertPinning',
-              level: 900,
-            );
-            return true;
-          }());
-        }
-      }
-      if (loadedCount == 0) {
-        return http.Client();
-      }
+    _validateSpkiPin(
+      _primarySpkiPin,
+      name: 'primary',
+    );
+    if (_backupSpkiPin.isNotEmpty) {
+      _validateSpkiPin(
+        _backupSpkiPin,
+        name: 'backup',
+      );
 
-      final httpClient = HttpClient(context: context);
-      httpClient.badCertificateCallback =
-          (X509Certificate cert, String host, int port) => false;
-      return IOClient(httpClient);
-    } catch (_) {
-      return http.Client();
+      if (_primarySpkiPin == _backupSpkiPin) {
+        throw StateError(
+          'GitHub primary and backup SPKI pins must be different.',
+        );
+      }
     }
   }
 
-  static Future<String?> debugFetchCurrentCertificate(
-      {String host = 'api.github.com', int port = 443}) async {
-    SecureSocket? socket;
+  static void _validateSpkiPin(
+    String pin, {
+    required String name,
+  }) {
+    if (pin.trim() != pin) {
+      throw StateError(
+        'GitHub $name SPKI pin contains leading or trailing whitespace.',
+      );
+    }
+
+    if (pin.isEmpty) {
+      throw StateError(
+        'GitHub $name SPKI pin is empty.',
+      );
+    }
+
+    late final List<int> decoded;
+
     try {
-      socket = await SecureSocket.connect(host, port);
-      final cert = socket.peerCertificate;
-      if (cert == null) return null;
-      return base64.encode(cert.der);
-    } catch (_) {
-      return null;
-    } finally {
-      socket?.destroy();
+      decoded = base64.decode(pin);
+    } on FormatException {
+      throw StateError(
+        'GitHub $name SPKI pin is not valid Base64.',
+      );
+    }
+
+    if (decoded.length != 32) {
+      throw StateError(
+        'GitHub $name SPKI pin must decode to exactly 32 bytes.',
+      );
     }
   }
+
+  static void resetClient() {
+    _cachedClient = null;
+  }
+}
+
+final class _PinnedGithubClient extends http.BaseClient {
+  _PinnedGithubClient(this._nativeClient);
+
+  final SecureClient _nativeClient;
+
+  static const Duration _requestTimeout = Duration(seconds: 30);
+
+  @override
+  Future<http.StreamedResponse> send(
+    http.BaseRequest request,
+  ) async {
+    _validateUri(request.url);
+
+    _validateHeaders(request.headers);
+
+    final List<int> requestBytes = await _readRequestBody(
+      request,
+    );
+
+    String? body;
+
+    if (requestBytes.isNotEmpty) {
+      try {
+        body = utf8.decode(
+          requestBytes,
+          allowMalformed: false,
+        );
+      } on FormatException {
+        throw http.ClientException(
+          'GitHub request body must be valid UTF-8.',
+          request.url,
+        );
+      }
+    }
+
+    final SmartResponse response;
+
+    try {
+      response = await _nativeClient.httpRequest(
+        method: request.method.toUpperCase(),
+        url: request.url.toString(),
+        headers: Map<String, String>.from(
+          request.headers,
+        ),
+        body: body,
+        encoding: 'raw',
+        certificateHashes: CertPinning._pins,
+        pinningMethod: PinningMethod.publicKey,
+        timeout: _requestTimeout,
+      );
+    } on ArgumentError {
+      throw http.ClientException(
+        'Invalid secure GitHub request configuration.',
+        request.url,
+      );
+    } on UnsupportedError {
+      throw http.ClientException(
+        'Native GitHub SPKI pinning is unavailable on this platform.',
+        request.url,
+      );
+    } on Object catch (e, stackTrace) {
+      debugPrint('GITHUB PINNING EXCEPTION: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      throw http.ClientException(
+        'Secure GitHub request failed: $e',
+        request.url,
+      );
+    }
+
+    final int? statusCode = response.statusCode;
+    if (statusCode == null) {
+      const String message = 'SECURE GITHUB CONNECTION UNAVAILABLE\n'
+          'Rocen could not establish a secure connection to GitHub. '
+          'Check your internet connection and try again. '
+          'If GitHub has changed its server key, update Rocen to restore '
+          'secure backup access. '
+          'Your local data is unchanged.';
+
+      if (kDebugMode) {
+        debugPrint(
+          'GITHUB SECURE CONNECTION FAILED (debug detail, not shown in release): '
+          '${response.errorType ?? 'unknown error'}'
+          '${response.error == null ? '' : ' - ${response.error}'}',
+        );
+      }
+
+      throw http.ClientException(
+        message,
+        request.url,
+      );
+    }
+
+    final Uint8List responseBytes = _responseBytes(response);
+
+    return http.StreamedResponse(
+      Stream<List<int>>.value(responseBytes),
+      statusCode,
+      contentLength: responseBytes.length,
+      request: request,
+      headers: const <String, String>{},
+      isRedirect: statusCode >= 300 && statusCode < 400,
+    );
+  }
+
+  static void _validateUri(Uri uri) {
+    final bool validScheme = uri.scheme.toLowerCase() == 'https';
+
+    final bool validHost = uri.host.toLowerCase() == CertPinning.githubApiHost;
+
+    final bool validPort =
+        !uri.hasPort || uri.port == CertPinning.githubApiPort;
+
+    final bool noUserInfo = uri.userInfo.isEmpty;
+
+    final bool noFragment = uri.fragment.isEmpty;
+
+    if (!validScheme ||
+        !validHost ||
+        !validPort ||
+        !noUserInfo ||
+        !noFragment) {
+      throw http.ClientException(
+        'Blocked network request: only '
+        'https://${CertPinning.githubApiHost}:'
+        '${CertPinning.githubApiPort} is permitted.',
+        uri,
+      );
+    }
+  }
+
+  static void _validateHeaders(
+    Map<String, String> headers,
+  ) {
+    const Set<String> forbidden = <String>{
+      'host',
+      'content-length',
+      'transfer-encoding',
+      'connection',
+      'upgrade',
+    };
+
+    for (final String name in headers.keys) {
+      if (forbidden.contains(name.toLowerCase())) {
+        throw ArgumentError(
+          'Forbidden HTTP header: $name',
+        );
+      }
+    }
+  }
+
+  static Future<List<int>> _readRequestBody(
+    http.BaseRequest request,
+  ) async {
+    final List<int> bytes = <int>[];
+
+    await for (final List<int> chunk in request.finalize()) {
+      bytes.addAll(chunk);
+    }
+
+    return bytes;
+  }
+
+  static Uint8List _responseBytes(
+    SmartResponse response,
+  ) {
+    if (response.dataBytes != null) {
+      return response.dataBytes!;
+    }
+
+    if (response.data != null) {
+      return Uint8List.fromList(
+        utf8.encode(response.data!),
+      );
+    }
+
+    return Uint8List(0);
+  }
+
+  @override
+  void close() {}
 }

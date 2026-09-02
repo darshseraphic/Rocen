@@ -4,14 +4,11 @@ import 'package:Rocen/main.dart';
 
 void main() {
   testWidgets('Capture OS boot smoke test', (WidgetTester tester) async {
-    // Build our app under a ProviderScope and trigger a frame.
     await tester.pumpWidget(
       const ProviderScope(
         child: RocenApp(),
       ),
     );
-
-    // Verify that the application boots directly into the default module header
     expect(find.text('QUICK NOTES'), findsOneWidget);
   });
 }

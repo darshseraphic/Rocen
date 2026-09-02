@@ -8,13 +8,6 @@ import 'bip39.dart';
 import 'crypto_isolate.dart';
 import 'secure_bytes.dart';
 
-/// Thrown by [CryptoEngine.splitForBackup] and [CryptoEngine.mergeFromBackup]
-/// when the given input fails structural validation (invalid base64, wrong
-/// version byte, or wrong/insufficient length) before any byte-slicing is
-/// attempted. A caller that already wraps these calls in a broad
-/// `catch (e)` will catch this like any other exception; a caller that
-/// wants to specifically recognize "this record was malformed" can check
-/// `is BackupFormatException`.
 class BackupFormatException implements Exception {
   final String message;
   const BackupFormatException(this.message);
@@ -75,24 +68,8 @@ class CryptoEngine {
       _isHardened() ? _authParamsHardened : _authParamsStandard;
   static KdfParams get _activeEncryptionParams =>
       _isHardened() ? _encryptionParamsHardened : _encryptionParamsStandard;
-
-  /// The auth KDF parameters currently active, per the live `kdf_hardened`
-  /// value. Exposed publicly so a caller (e.g. password rotation) can
-  /// capture "whatever is active right now" as a fixed, immutable
-  /// snapshot BEFORE making any change that might affect `kdf_hardened` —
-  /// rather than that caller re-reading the live, mutable value at some
-  /// later point in its own sequence, where it might have already changed.
   static KdfParams currentAuthParams() => _activeAuthParams;
-
-  /// Same as [currentAuthParams], for the encryption KDF tier.
   static KdfParams currentEncryptionParams() => _activeEncryptionParams;
-
-  /// Returns the auth/encryption KDF parameter pair that WOULD be active
-  /// for a given hardened state, without reading or depending on the
-  /// live `kdf_hardened` value at all. Use this to compute "the
-  /// parameters that will become active after this rotation completes"
-  /// explicitly, from a `rooted` value you already have in hand, instead
-  /// of writing `kdf_hardened` first and then reading it back.
   static ({KdfParams auth, KdfParams encryption}) paramsForHardenedState(
       bool hardened) {
     return (
@@ -106,13 +83,6 @@ class CryptoEngine {
     return encryptProcessWithParams(input, pin, _activeEncryptionParams);
   }
 
-  /// Same as [encryptProcess], but takes the KDF parameters explicitly
-  /// instead of reading the live, mutable `_activeEncryptionParams`
-  /// global. Exists specifically so callers that must not be affected by
-  /// a concurrent `kdf_hardened` change mid-operation (e.g. password
-  /// rotation, which may itself be changing `kdf_hardened`) can pin down
-  /// exactly which parameters apply, rather than getting whatever
-  /// `_isHardened()` happens to return at the moment this runs.
   static Future<String> encryptProcessWithParams(
       String input, String pin, KdfParams params) async {
     final Uint8List inputBytes = Uint8List.fromList(utf8.encode(input));
@@ -147,12 +117,6 @@ class CryptoEngine {
     return decryptProcessWithParams(input, pin, _activeEncryptionParams);
   }
 
-  /// Same as [decryptProcess], but takes the KDF parameters explicitly.
-  /// See [encryptProcessWithParams] for why this exists — a caller
-  /// decrypting data that was encrypted under a specific, known KDF tier
-  /// (e.g. "whatever kdf_hardened was before this rotation started")
-  /// must not silently pick up a DIFFERENT tier just because the live
-  /// `kdf_hardened` value changed in the meantime.
   static Future<String> decryptProcessWithParams(
       String input, String pin, KdfParams params) async {
     try {
@@ -198,11 +162,6 @@ class CryptoEngine {
     }
   }
 
-  /// Minimum plausible length, in bytes, for the combined MAC+ciphertext
-  /// portion of a package: at least the MAC itself. A real ciphertext
-  /// will always add more than zero bytes on top of this for any
-  /// non-empty plaintext, but this floor is what's structurally
-  /// guaranteed regardless of plaintext length.
   static const int _minCipherAndMacLength = _macLength;
 
   static Map<String, String> splitForBackup(String fullPackageBase64) {
@@ -387,12 +346,6 @@ class CryptoEngine {
     return hashPinWithSaltUsingParams(pin, saltBytes, _activeAuthParams);
   }
 
-  /// Same as [hashPinWithSalt], but takes the auth KDF parameters
-  /// explicitly instead of reading the live `_activeAuthParams` global.
-  /// Needed by password rotation, which derives the new password's hash
-  /// under the parameters that will become active AFTER rotation
-  /// completes — not whatever `kdf_hardened` happens to be at the moment
-  /// this line executes, which may be mid-transition.
   static Future<String> hashPinWithSaltUsingParams(
       String pin, Uint8List saltBytes, KdfParams params) async {
     final hashBase64 = await CryptoIsolate.deriveKeyAsBase64(
@@ -529,15 +482,6 @@ class CryptoEngine {
     );
   }
 
-  /// Same as [wrapDeviceKey], but takes the encryption KDF parameters
-  /// explicitly. Prefer this at any call site where the caller has
-  /// already computed a specific tier explicitly (e.g. password
-  /// rotation's `newEncryptionParams`) rather than relying on this
-  /// function reading the live `_activeEncryptionParams` global at
-  /// whatever point in a larger sequence it happens to be called —
-  /// correct only if `kdf_hardened` has already been set to match by
-  /// that point, which is easy to get right today and easy to silently
-  /// break with a future reordering of that caller's logic.
   static Future<Map<String, String>> wrapDeviceKeyWithParams({
     required Uint8List authSaltBytes,
     required String password,

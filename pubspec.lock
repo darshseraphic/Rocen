@@ -517,6 +517,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  smart_dev_pinning_plugin:
+    dependency: "direct main"
+    description:
+      name: smart_dev_pinning_plugin
+      sha256: "6bcdb762ebe967f6b3858c66a4c815461392d0b2d348092462f2198078f5aa6a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.1.1"
   source_span:
     dependency: transitive
     description:
