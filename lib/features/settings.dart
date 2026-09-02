@@ -3120,9 +3120,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     try {
-      // Diagnostic only: verify repository metadata when possible, but never
-      // block backup setup on this separate endpoint. Metadata permission and
-      // Contents permission are independent GitHub API permissions.
       try {
         await service.validateRepositoryAccess();
         log('repository metadata preflight: OK');
@@ -3165,12 +3162,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             }
             return false;
           }
-
-          // On a fresh local setup, reading device_key.json is not enough to
-          // determine whether the file exists. Try the real operation Rocen
-          // ultimately needs: create the recovery file without an update SHA.
-          // GitHub will reject this with 422 when device_key.json already
-          // exists, so this cannot overwrite an existing recovery key.
           log('device_key.json read was denied; attempting safe create-if-absent bootstrap');
 
           try {
@@ -3190,9 +3181,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               content: jsonEncode(wrapped),
               message: 'initialize device recovery key',
             );
-
-            // The file now exists because the create-only operation succeeded.
-            // Store ownership only after GitHub accepted the write.
             await settingsBox.put('device_key_owned_repo', repo);
             ownsThisRepoKey = true;
             initializedDeviceKeyDuringThisRun = true;
@@ -3203,8 +3191,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             await _showMnemonicDisplayDialog(context, mnemonicWords);
             if (!context.mounted) return false;
           } on GithubFileAlreadyExists {
-            // The safe create-only request proved that the remote file already
-            // exists. Read it now so the normal recovery flow can proceed.
             log('create-if-absent reported an existing device_key.json; attempting recovery read');
             existingDeviceKey = await service.fetchNoteFile('device_key.json');
             log('device_key.json recovery read: ${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}');
@@ -3247,8 +3233,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
 
       if (initializedDeviceKeyDuringThisRun) {
-        // First-time bootstrap is already complete. The generated recovery
-        // phrase was displayed and device_key ownership was recorded.
       } else if (existingDeviceKey == null) {
         log('taking first-time-setup branch');
 

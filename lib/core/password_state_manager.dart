@@ -157,9 +157,6 @@ class PasswordStateManager {
     return box.get(_keyPublishPending, defaultValue: false);
   }
 
-  /// The reason the current pending publish (if any) is pending. Null
-  /// if nothing is pending. Callers MUST check this before assuming a
-  /// pending publish is safe for automatic retry — see [PendingReason].
   static PendingReason? getPendingReason() {
     final box = Hive.box(_boxName);
     final String? raw = box.get(_keyPendingReason);
@@ -170,12 +167,6 @@ class PasswordStateManager {
     );
   }
 
-  /// Records that a rotation's shared-state publish is pending, and WHY
-  /// — this is not optional bookkeeping, it is what determines whether
-  /// [reconcilePendingPublish] is allowed to automatically retry.
-  /// Persisted — this must survive an app restart, since reconciliation
-  /// on next launch/sync depends on knowing exactly which (generation,
-  /// changeId, reason) triple was pending.
   static Future<void> setPublishPending({
     required int pendingGeneration,
     required String pendingChangeId,
@@ -206,13 +197,6 @@ class PasswordStateManager {
     return box.get(_keyPendingChangeId);
   }
 
-  /// Fetches the current shared state from GitHub and compares it
-  /// against this device's locally-known generation/changeId. Does not
-  /// write anything, locally or remotely — pure read + compare.
-  ///
-  /// This is the function both the push-time and pull-time checks call
-  /// before doing anything else with note content, and the function the
-  /// rotation flow calls as its mandatory online precondition.
   static Future<PasswordStateResult> checkState(
       GithubBackupService service) async {
     final int localGeneration = getKnownGeneration();
@@ -227,12 +211,6 @@ class PasswordStateManager {
     }
 
     if (fetched.content == null) {
-      // Distinguish "this device has never had a generation" (genuine
-      // first-ever setup — benign) from "this device previously had an
-      // established generation and the shared state has now vanished"
-      // (not benign — could be a deleted file, a reset repository, or
-      // something wrong with the backup). Deliberately does NOT attempt
-      // to repair either case; this is detection only.
       return PasswordStateResult(
         comparison: localGeneration == 0
             ? PasswordStateComparison.noRemoteStateYet
@@ -249,11 +227,6 @@ class PasswordStateManager {
         remote['changedByDeviceId'] as String?;
 
     if (remoteGeneration == null || remoteChangeId == null) {
-      // Malformed file — treat the same as unreadable, since we cannot
-      // safely compare against fields that aren't present in the shape
-      // we expect. This is deliberately conservative: a device should
-      // never proceed with rotation or a push on the strength of a file
-      // it couldn't fully parse.
       return const PasswordStateResult(
           comparison: PasswordStateComparison.checkFailed);
     }
@@ -270,20 +243,8 @@ class PasswordStateManager {
         remoteChangeId != localChangeId) {
       comparison = PasswordStateComparison.conflict;
     } else if (remoteGeneration < localGeneration) {
-      // Remote is BEHIND this device's own established generation.
-      // Should never happen in normal operation — the shared state has
-      // moved backwards relative to what this device already knows.
-      // Deliberately fail-closed: do not treat this as synchronized,
-      // do not overwrite the remote with the local (higher) generation,
-      // and do not lower the local generation to match. Detection only.
       comparison = PasswordStateComparison.remoteStateBehind;
     } else {
-      // remoteGeneration == localGeneration and changeId matches (or
-      // this device has no local changeId recorded yet, e.g. first-ever
-      // check on a device that already knows the right generation via
-      // some other path) — treated as synchronized. Note: generation is
-      // authoritative per the approved design; a missing local changeId
-      // does not by itself trigger a conflict.
       comparison = PasswordStateComparison.synchronized;
     }
 
@@ -297,41 +258,12 @@ class PasswordStateManager {
     );
   }
 
-  /// Writes a new shared state reflecting a rotation this device just
-  /// performed, using the real fast-forward conditional write — NOT the
-  /// force-push path used for notes. `expectedParentSha` must be the
-  /// `observedRefSha` from the [PasswordStateResult] this rotation's
-  /// precondition check already obtained; if the branch moved since
-  /// then, this throws [GithubConditionalWriteConflict] and the caller
-  /// must treat the rotation as unable to safely publish its result
-  /// (the local password change should not be presented to the user as
-  /// complete/synced in that case — see settings.dart integration).
-  /// Establishes the initial shared password state for a brand-new backup
-  /// repository/account.
-  ///
-  /// Establishes the initial shared password state for a brand-new backup
-  /// repository/account.
-  ///
-  /// This is intentionally different from a password rotation:
-  /// - there is no previously-established generation to advance from;
-  /// - the first shared state is generation 1;
-  /// - an existing remote password_state.json is never overwritten;
-  /// - the initial write is conditional on the branch SHA observed immediately
-  ///   before the write, so a concurrent writer cannot be silently overwritten;
-  /// - the caller records local state only after the remote write succeeds;
-  /// - this method does not modify any password or encryption material.
   static Future<void> initializeInitialState({
     required GithubBackupService service,
   }) async {
     final int initialGeneration = 1;
     final String initialChangeId = generateChangeId();
     final String deviceId = getOrCreateDeviceId();
-
-    // Read the current password-state file together with the branch SHA.
-    // This serves two purposes:
-    //
-    // 1. Never overwrite an already-established shared password state.
-    // 2. Capture the exact branch tip that the conditional write must protect.
     final ({
       Map<String, dynamic>? content,
       String? refSha,
@@ -343,10 +275,6 @@ class PasswordStateManager {
         'REFUSING TO OVERWRITE EXISTING SHARED STATE.',
       );
     }
-
-    // device_key.json must already have created/initialized the repository
-    // branch before this method is called. Therefore a missing ref here means
-    // the repository is not in the state expected by first-time setup.
     if (observed.refSha == null) {
       throw GithubSyncException(
         'INITIAL PASSWORD STATE FAILED: '
@@ -362,20 +290,12 @@ class PasswordStateManager {
     };
 
     final String json = jsonEncode(initialState);
-
-    // Use the same conditional fast-forward path used by password rotation.
-    //
-    // If another device changes the branch after the observation above,
-    // updateFileWithFastForwardCheck() rejects the write instead of allowing
-    // this first-time setup to overwrite the other device's state.
     await service.updateFileWithFastForwardCheck(
       path: fileName,
       content: json,
       message: 'initial password state',
       expectedParentSha: observed.refSha,
     );
-
-    // Only record the local generation after GitHub confirmed the write.
     await recordKnownState(
       generation: initialGeneration,
       changeId: initialChangeId,
