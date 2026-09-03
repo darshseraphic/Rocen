@@ -92,7 +92,7 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
           child: Theme(
             data: Theme.of(context).copyWith(
               textSelectionTheme: TextSelectionThemeData(
-                selectionColor: textMain.withOpacity(0.2),
+                selectionColor: textMain.withValues(alpha: 0.2),
                 selectionHandleColor: textMain,
                 cursorColor:
                     isDark ? const Color(0xFFFFFFFF) : const Color(0xFF000000),

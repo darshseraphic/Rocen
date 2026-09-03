@@ -1,6 +1,6 @@
 import 'dart:ffi';
-import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 
 typedef _MlockNative = Int32 Function(Pointer<Void> addr, IntPtr len);
 typedef _MlockDart = int Function(Pointer<Void> addr, int len);
@@ -35,12 +35,12 @@ class RamLockedBytes {
       final int result = _Libc.mlock(_pointer.cast<Void>(), length);
       _locked = result == 0;
       if (!_locked) {
-        print(
+        debugPrint(
             '[ram_lock] mlock unavailable on this device - continuing without RAM pinning');
       }
     } catch (e) {
       _locked = false;
-      print(
+      debugPrint(
           '[ram_lock] mlock call failed - continuing without RAM pinning: $e');
     }
   }

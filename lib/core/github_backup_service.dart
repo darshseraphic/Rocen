@@ -1,8 +1,6 @@
 import 'dart:convert';
-
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show debugPrint;
-
 import 'cert_pinning.dart';
 
 class GithubSyncException implements Exception {
@@ -727,7 +725,7 @@ class GithubBackupService {
 
     await _forcePushRef(
       newCommitSha,
-      refExists: currentRefSha != null,
+      refExists: true,
     );
   }
 

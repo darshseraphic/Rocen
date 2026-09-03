@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -219,8 +218,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   void _loadSingleThumbnail(AssetEntity asset) {
-    if (_thumbnailCache.containsKey(asset.id) || _loadingIds.contains(asset.id))
+    if (_thumbnailCache.containsKey(asset.id) ||
+        _loadingIds.contains(asset.id)) {
       return;
+    }
     _loadingIds.add(asset.id);
 
     asset
@@ -263,9 +264,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('ERROR: ${e.toString().toUpperCase()}')));
+      }
     }
   }
 
@@ -563,8 +565,10 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                                 size: 20),
                                             onPressed: () async {
                                               if (filePath.isNotEmpty) {
-                                                await Share.shareXFiles(
-                                                    [XFile(filePath)]);
+                                                await SharePlus.instance.share(
+                                                    ShareParams(files: [
+                                                  XFile(filePath)
+                                                ]));
                                               }
                                             },
                                           ),
@@ -875,8 +879,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                                 : Colors.black,
                                             size: 20),
                                         onPressed: () async {
-                                          await Share.shareXFiles(
-                                              [XFile(filePath)]);
+                                          await SharePlus.instance.share(
+                                              ShareParams(
+                                                  files: [XFile(filePath)]));
                                         },
                                       ),
                                       IconButton(
@@ -1357,7 +1362,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
                                   : borderColor,
                               width: 0.8),
                           color: _isSelectMode
-                              ? Colors.red.withOpacity(0.1)
+                              ? Colors.red.withValues(alpha: 0.1)
                               : (isDark ? Colors.white : Colors.black)),
                       child: Text(
                         _isSelectMode

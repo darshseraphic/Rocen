@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'navbar.dart';
 import 'features/splashscreen.dart';
-import 'core/cert_pinning.dart';
 
 class ThemeNotifier extends Notifier<bool> {
   @override

@@ -304,8 +304,9 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
     final bool resolvedPendingReview =
         pendingReviewAfterSync ?? previous.pendingReviewAfterSync;
     if (resolvedBackup && resolvedTitle.trim().isEmpty) return false;
-    if (resolvedBackup && titleExists(resolvedTitle, excludingId: id))
+    if (resolvedBackup && titleExists(resolvedTitle, excludingId: id)) {
       return false;
+    }
     final String? resolvedRemoteFileId = resolvedBackup
         ? (remoteFileId ?? previous.remoteFileId ?? generateRemoteFileId())
         : previous.remoteFileId;
@@ -352,8 +353,9 @@ class DatabaseNotifier extends Notifier<List<CaptureItem>> {
         break;
       }
     }
-    if (index == -1 || isOpaqueRemoteFileId(state[index].remoteFileId))
+    if (index == -1 || isOpaqueRemoteFileId(state[index].remoteFileId)) {
       return null;
+    }
 
     final CaptureItem target = state[index];
     final String legacyName =

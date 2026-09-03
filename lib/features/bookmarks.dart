@@ -127,7 +127,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: textMain.withOpacity(0.2),
+          selectionColor: textMain.withValues(alpha: 0.2),
           selectionHandleColor: textMain,
         ),
       ),

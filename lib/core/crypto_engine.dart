@@ -169,10 +169,11 @@ class CryptoEngine {
     try {
       bytes = base64.decode(fullPackageBase64);
     } on FormatException {
-      throw BackupFormatException('splitForBackup: input is not valid base64');
+      throw const BackupFormatException(
+          'splitForBackup: input is not valid base64');
     }
 
-    final int minLength =
+    const int minLength =
         1 + _saltLength + _nonceLength + _minCipherAndMacLength;
     if (bytes.length < minLength) {
       throw BackupFormatException(
@@ -211,7 +212,8 @@ class CryptoEngine {
       nonceBytes = base64.decode(nonceBase64);
       cypherBytes = base64.decode(cyphertextBase64);
     } on FormatException {
-      throw BackupFormatException('mergeFromBackup: input is not valid base64');
+      throw const BackupFormatException(
+          'mergeFromBackup: input is not valid base64');
     }
 
     if (saltBytes.length != _saltLength) {

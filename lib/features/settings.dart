@@ -441,14 +441,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Timer? countdownTimer;
 
     void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) return;
+      if (lockStringStatus == null) {
+        return;
+      }
       if (countdownTimer != null && countdownTimer!.isActive) return;
       countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         final String? current = _checkLockoutViolation(settingsBox);
         setState_(() {
           lockStringStatus = current;
         });
-        if (current == null) timer.cancel();
+        if (current == null) {
+          timer.cancel();
+        }
       });
     }
 
@@ -471,7 +475,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionColor: theme.textMain.withValues(alpha: 0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
@@ -702,8 +706,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     pinVerifyController.clear();
                                     lockStringStatus =
                                         _checkLockoutViolation(settingsBox);
-                                    if (lockStringStatus == null)
+                                    if (lockStringStatus == null) {
                                       hasPinFailed = true;
+                                    }
                                   });
                                 }
                               },
@@ -870,7 +875,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionColor: theme.textMain.withValues(alpha: 0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
@@ -1018,7 +1023,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   color: CryptoEngine.isPasswordComplexityValid(
                                           pinController.text)
                                       ? theme.textMain
-                                      : theme.textMain.withOpacity(0.2),
+                                      : theme.textMain.withValues(alpha: 0.2),
                                 ),
                                 child: Text(
                                   'CONFIRM',
@@ -1263,14 +1268,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Timer? countdownTimer;
 
     void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) return;
+      if (lockStringStatus == null) {
+        return;
+      }
       if (countdownTimer != null && countdownTimer!.isActive) return;
       countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         final String? current = _checkLockoutViolation(settingsBox);
         setState_(() {
           lockStringStatus = current;
         });
-        if (current == null) timer.cancel();
+        if (current == null) {
+          timer.cancel();
+        }
       });
     }
 
@@ -1293,7 +1302,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionColor: theme.textMain.withValues(alpha: 0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
@@ -1610,8 +1619,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     pinVerifyController.clear();
                                     lockStringStatus =
                                         _checkLockoutViolation(settingsBox);
-                                    if (lockStringStatus == null)
+                                    if (lockStringStatus == null) {
                                       hasPinFailed = true;
+                                    }
                                   });
                                 }
                               },
@@ -1665,7 +1675,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionColor: theme.textMain.withValues(alpha: 0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
@@ -1783,7 +1793,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   color: CryptoEngine.isPasswordComplexityValid(
                                           pinController.text)
                                       ? theme.textMain
-                                      : theme.textMain.withOpacity(0.2),
+                                      : theme.textMain.withValues(alpha: 0.2),
                                 ),
                                 child: Text('CONFIRM',
                                     style: TextStyle(
@@ -1821,8 +1831,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     String status = 'ENCRYPTING NOTES...';
     bool isEntryStep = false;
     bool isTerminal = false;
-    bool terminalSuccess = false;
-    bool terminalGithubOk = true;
     String terminalTitle = '';
     String terminalMessage = '';
     List<int> devicesNeedingPasswordUpdate = <int>[];
@@ -1840,14 +1848,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     bool passwordChangeStarted = false;
 
     void ensureCountdownRunning() {
-      if (lockStringStatus == null) return;
+      if (lockStringStatus == null) {
+        return;
+      }
       if (countdownTimer != null && countdownTimer!.isActive) return;
       countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         final String? current = _checkMnemonicLockout(settingsBox);
         setModalState(() {
           lockStringStatus = current;
         });
-        if (current == null) timer.cancel();
+        if (current == null) {
+          timer.cancel();
+        }
       });
     }
 
@@ -1863,6 +1875,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             if (!passwordChangeStarted) {
               passwordChangeStarted = true;
               Future.microtask(() async {
+                if (!screenContext.mounted) return;
                 await _executePasswordChange(
                   screenContext,
                   oldPinHash,
@@ -1890,8 +1903,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     setState(() {
                       isEntryStep = false;
                       isTerminal = true;
-                      terminalSuccess = success;
-                      terminalGithubOk = githubOk;
                       if (!success) {
                         terminalTitle = 'PASSWORD CHANGE FAILED';
                         terminalMessage =
@@ -1917,7 +1928,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Theme(
                 data: Theme.of(dialogContext).copyWith(
                   textSelectionTheme: TextSelectionThemeData(
-                    selectionColor: theme.textMain.withOpacity(0.2),
+                    selectionColor: theme.textMain.withValues(alpha: 0.2),
                     selectionHandleColor: theme.textMain,
                     cursorColor: theme.textMain,
                   ),
@@ -2219,7 +2230,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         onComplete,
   }) async {
     final settingsBox = Hive.box(_boxName);
-    final KdfParams oldParams = CryptoEngine.currentAuthParams();
     final KdfParams oldEncryptionParams =
         CryptoEngine.currentEncryptionParams();
     final bool rooted = await CryptoEngine.isDeviceRooted();
@@ -2516,120 +2526,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  void _showClearConfirmationDialog(BuildContext context) {
-    final isDark = ref.read(themeProvider);
-    final theme = SettingsUiTheme(isDark);
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 310,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.dialogBg,
-                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'SYSTEM DESTRUCTION WARNING',
-                    style: TextStyle(
-                        color: Color(0xFFEF4444),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'THIS PROCESS IS NOT REVERSIBLE. ALL ENCRYPTED FILES WILL BE PERMANENTLY REMOVED.',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        height: 1.5,
-                        fontWeight: FontWeight.normal,
-                        letterSpacing: 0.02),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      InkWell(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 6),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                                color: theme.dialogBorderColor, width: 0.8),
-                          ),
-                          child: Text(
-                            'NO',
-                            style: TextStyle(
-                              color: isDark
-                                  ? const Color(0xFF888888)
-                                  : const Color(0xFF525252),
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      InkWell(
-                        onTap: () async {
-                          Navigator.pop(context);
-
-                          final currentItems = ref.read(localDatabaseProvider);
-                          final targetsToPurge = currentItems
-                              .where((item) => item.type == 'encrypted_note')
-                              .toList();
-
-                          for (var target in targetsToPurge) {
-                            await ref
-                                .read(localDatabaseProvider.notifier)
-                                .deleteItem(target.id);
-                          }
-
-                          final settingsBox = Hive.box(_boxName);
-                          await settingsBox.delete('system_crypto_pin');
-                          await settingsBox
-                              .delete('last_active_crypto_pin_snapshot');
-                          await settingsBox.delete('github_access_encrypted');
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 6),
-                          decoration:
-                              const BoxDecoration(color: Color(0xFFEF4444)),
-                          child: const Text(
-                            'YES',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _promptGithubAccessChallenge(BuildContext context) {
     final BuildContext screenContext = context;
     final settingsBox = Hive.box(_boxName);
@@ -2650,7 +2546,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Timer? countdownTimer;
 
     void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) return;
+      if (lockStringStatus == null) {
+        return;
+      }
       if (countdownTimer != null && countdownTimer!.isActive) return;
       countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         final String? current = _checkLockoutViolation(settingsBox);
@@ -2682,7 +2580,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionColor: theme.textMain.withValues(alpha: 0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
@@ -2966,8 +2864,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final BuildContext screenContext = context;
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
-    final settingsBox = Hive.box(_boxName);
-
     final TextEditingController tokenController =
         TextEditingController(text: initialToken);
     final TextEditingController repoController =
@@ -2982,7 +2878,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             textSelectionTheme: TextSelectionThemeData(
-              selectionColor: theme.textMain.withOpacity(0.2),
+              selectionColor: theme.textMain.withValues(alpha: 0.2),
               selectionHandleColor: theme.textMain,
               cursorColor: theme.textMain,
             ),
@@ -3849,14 +3745,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Timer? countdownTimer;
 
     void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) return;
+      if (lockStringStatus == null) {
+        return;
+      }
       if (countdownTimer != null && countdownTimer!.isActive) return;
       countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         final String? current = _checkMnemonicLockout(settingsBox);
         setState_(() {
           lockStringStatus = current;
         });
-        if (current == null) timer.cancel();
+        if (current == null) {
+          timer.cancel();
+        }
       });
     }
 
@@ -3874,7 +3774,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionColor: theme.textMain.withValues(alpha: 0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
@@ -4741,7 +4641,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Text(
                 'BUILD BY DARSHSERAPHIC',
                 style: TextStyle(
-                  color: theme.textSub.withOpacity(0.5),
+                  color: theme.textSub.withValues(alpha: 0.5),
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.12,

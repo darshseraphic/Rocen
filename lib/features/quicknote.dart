@@ -11,15 +11,7 @@ import '../core/password_state_manager.dart';
 import '../core/debug_log.dart';
 import '../main.dart';
 
-// Combines a note's title and body into one string before it's encrypted
-// (or, for unlocked-but-backed-up notes, before it's pushed as-is) for
-// GitHub sync specifically - this keeps the title out of the plaintext
-// GitHub filename entirely, since the remote filename is now a random
-// opaque id (see DatabaseNotifier.generateRemoteFileId) with zero
-// relationship to the note's content. Local storage is untouched by this -
-// it keeps encrypting/storing the body alone, exactly as before.
 const String _kTitleBodySeparator = '\u0000\u0000ROCEN_TITLE_SPLIT\u0000\u0000';
-
 String _combineTitleAndBody(String title, String body) =>
     '$title$_kTitleBodySeparator$body';
 
@@ -191,36 +183,14 @@ void showAcknowledgeDialog(
   );
 }
 
-/// Result of [isGithubSyncCurrentlyAllowed] — carries not just whether
-/// sync is allowed, but WHY not, so callers can surface an accurate
-/// message instead of a generic one. See that function's own doc for
-/// the full list of states this distinguishes.
 class GithubSyncGateResult {
   final bool allowed;
   final String blockedReason;
   const GithubSyncGateResult._(this.allowed, this.blockedReason);
 
-  static const GithubSyncGateResult ok =
-      GithubSyncGateResult._(true, '');
+  static const GithubSyncGateResult ok = GithubSyncGateResult._(true, '');
 }
 
-/// Checks whether GitHub sync (push OR pull) is currently allowed, per
-/// the shared password-generation state — WITHOUT preparing/encrypting
-/// any note content and WITHOUT attempting to decrypt any remote note.
-/// Intended to be called before EITHER direction of sync work begins,
-/// so a stale-generation device never spends effort encrypting a
-/// payload it isn't allowed to upload, and never attempts to decrypt
-/// remote content against a password generation that may not match it.
-///
-/// Returns a result whose `allowed` is true if GitHub isn't configured
-/// at all (there is nothing to gate) or if the state check passes, and
-/// false for every blocked state — with `blockedReason` describing
-/// SPECIFICALLY which of: pending-publish, orphaned rotation, behind,
-/// missing, conflict, or an unreachable check caused the block. Callers
-/// that only need the boolean can check `.allowed` and ignore the
-/// reason; callers surfacing a message to the user should use
-/// `.blockedReason` rather than writing their own generic text, so the
-/// message always reflects what was actually detected.
 Future<GithubSyncGateResult> isGithubSyncCurrentlyAllowed() async {
   try {
     final settingsBox = Hive.box('rocen_settings_box');
@@ -228,17 +198,8 @@ Future<GithubSyncGateResult> isGithubSyncCurrentlyAllowed() async {
     final String? accessBlob = settingsBox.get('github_access_encrypted');
 
     if (globalPin == null || accessBlob == null) {
-      // GitHub isn't configured for this device at all - nothing to
-      // gate. Matches how attemptGithubSync/pushAllBackupEnabledNotes
-      // already treat this case (they simply don't have anything to
-      // push to).
       return GithubSyncGateResult.ok;
     }
-
-    // Check the local, no-network state first — these two are checked
-    // directly rather than via PasswordStateManager.isPushAllowed so
-    // this function can report WHICH of the two applies, since
-    // isPushAllowed itself only returns a bool.
     if (LocalRotationOrphanStatus.isOrphaned()) {
       return const GithubSyncGateResult._(
         false,
@@ -246,9 +207,8 @@ Future<GithubSyncGateResult> isGithubSyncCurrentlyAllowed() async {
       );
     }
     if (PasswordStateManager.isPublishPending()) {
-      final bool isDeviceKeyIssue =
-          PasswordStateManager.getPendingReason() ==
-              PendingReason.deviceKeyNotReady;
+      final bool isDeviceKeyIssue = PasswordStateManager.getPendingReason() ==
+          PendingReason.deviceKeyNotReady;
       return GithubSyncGateResult._(
         false,
         isDeviceKeyIssue
@@ -263,8 +223,6 @@ Future<GithubSyncGateResult> isGithubSyncCurrentlyAllowed() async {
     final String accessJson = await CryptoEngine.decryptProcess(
         unwrappedAccessBlob ?? accessBlob, globalPin);
     if (accessJson == 'DECRYPTION FAULT') {
-      // Can't even read the stored credentials - fail closed for the
-      // cloud operation, exactly like a state-check failure would.
       return const GithubSyncGateResult._(
         false,
         'STORED GITHUB CREDENTIALS COULD NOT BE READ WITH THE CURRENT PASSWORD. YOUR LOCAL NOTES ARE UNTOUCHED. RE-ENTER YOUR GITHUB TOKEN IN SETTINGS.',
@@ -330,11 +288,8 @@ Future<bool> attemptGithubSync(
 }) async {
   try {
     final settingsBox = Hive.box('rocen_settings_box');
-
     final String? globalPin = settingsBox.get('system_crypto_pin');
-
     final String? accessBlob = settingsBox.get('github_access_encrypted');
-
     if (globalPin == null || globalPin.isEmpty || accessBlob == null) {
       secureDebugLog(
         'GITHUB SYNC ABORTED: missing PIN or stored access blob',
@@ -355,13 +310,9 @@ Future<bool> attemptGithubSync(
     if (accessJson == 'DECRYPTION FAULT') {
       return false;
     }
-
     final Map<String, dynamic> access = jsonDecode(accessJson);
-
     final String? token = access['token'] as String?;
-
     final String? repo = access['repo'] as String?;
-
     if (token == null || token.isEmpty || repo == null || repo.isEmpty) {
       return false;
     }
@@ -370,15 +321,6 @@ Future<bool> attemptGithubSync(
       token: token,
       repoPath: repo,
     );
-
-    // Password-state gate: refuse to push if this device's known
-    // password generation doesn't match the shared account state, or if
-    // a previous rotation is still pending/orphaned. isPushAllowed()
-    // covers all of: pending publish, orphaned rotation, behindRemote,
-    // remoteStateBehind, remoteStateMissing, conflict, and check
-    // failure — only synchronized/noRemoteStateYet pass. This is an
-    // ALLOW-list by design (see isPushAllowed's own doc), so a future
-    // new PasswordStateComparison value is blocked by default.
     final bool pushAllowed = await PasswordStateManager.isPushAllowed(service);
     if (!pushAllowed) {
       secureDebugLog(
@@ -387,9 +329,7 @@ Future<bool> attemptGithubSync(
     }
 
     final notifier = ref.read(localDatabaseProvider.notifier);
-
     final queue = await notifier.getSyncQueue();
-
     await service.amendSync(
       upsertFiles: upsert ?? const {},
       deleteFiles: List<String>.from(queue['deleted']),
@@ -433,23 +373,6 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
     }
 
     final service = GithubBackupService(token: token, repoPath: repo);
-
-    // Password-state gate: this is the SECOND, INDEPENDENT authorization
-    // checkpoint for this push — the first already ran in the caller
-    // (e.g. runSync's upfront gate) before pull/reconciliation, and it
-    // answers a DIFFERENT question than this one does. That earlier
-    // check answered "was I allowed to even start preparing an
-    // encrypted package a moment ago." This check answers "am I STILL
-    // allowed to actually send it, right now, after preparation
-    // finished" — the encryption loop below (and everything upstream of
-    // it) takes real time, during which the shared account state could
-    // change. Reusing the earlier boolean here would silently collapse
-    // two distinct security boundaries into one stale answer. This is a
-    // deliberate, INDEPENDENT network round-trip on every call — do not
-    // skip or cache it, even though it means checking twice per normal
-    // save/sync cycle. That extra request is an accepted latency
-    // tradeoff for having two real checkpoints instead of one reused
-    // answer.
     final bool pushAllowed = await PasswordStateManager.isPushAllowed(service);
     if (!pushAllowed) {
       secureDebugLog(
@@ -462,7 +385,6 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
         .where((item) => item.backupEnabled)
         .toList();
     final notifier = ref.read(localDatabaseProvider.notifier);
-
     final Map<String, String> upsertFiles = {};
     final List<String> legacyFilesToDelete = [];
     final List<({String id, DateTime timestamp})> pushedItems = [];
@@ -471,11 +393,6 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
       try {
         String? remoteId = item.remoteFileId;
         if (!DatabaseNotifier.isOpaqueRemoteFileId(remoteId)) {
-          // Either this note was synced before remoteFileId existed, or it
-          // was restored via pull and ended up with a legacy title-based
-          // name - either way, it's still sitting on GitHub under a
-          // title-exposing filename. Assign it a fresh opaque id now and
-          // queue the old file for deletion once re-pushed under the new one.
           final String? legacyName =
               await notifier.migrateLegacyRemoteFileId(item.id);
           if (legacyName != null) legacyFilesToDelete.add(legacyName);
@@ -489,10 +406,6 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
         final Map<String, String> fields;
         if (item.type == 'encrypted_note') {
           if (item.pendingReviewAfterSync) {
-            // Content is already the exact combined-encrypted package from a
-            // zero-decrypt swap and hasn't been reopened since - push it
-            // through unchanged. Decrypting and re-combining here would
-            // double-embed the title inside content that already has one.
             fields = {
               ...CryptoEngine.splitForBackup(item.content),
               'timestamp': item.timestamp.toIso8601String()
@@ -536,42 +449,12 @@ Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
       ...List<String>.from(queue['deleted']),
       ...legacyFilesToDelete
     ];
-
-    // RESIDUAL RACE, ACCEPTED DELIBERATELY: the password-state gate
-    // above ran before the encryption loop, not immediately before this
-    // amendSync call — so the shared password state could theoretically
-    // change in the gap between them (another device rotating while
-    // this loop was running). This is NOT re-checked here, on purpose:
-    //
-    // Unlike password_state.json (which got a real fast-forward
-    // conditional write specifically because a stale write there could
-    // let ANOTHER device wrongly believe recovery is possible when it
-    // isn't), a note pushed here under a since-superseded generation is
-    // self-limiting in its damage: it simply becomes one orphaned file
-    // that fails to decrypt cleanly for any device already on the new
-    // generation (the same clean "DECRYPTION FAULT, skip this file"
-    // path already built into mergeFromBackup's validation and the pull
-    // loop's per-note error isolation) — not corruption, not data loss,
-    // not a false cross-device signal. It resolves itself the next time
-    // THIS device catches up and re-pushes correctly.
-    //
-    // Re-checking here would add another network round-trip to every
-    // single push for a race whose worst case is "one harmless orphaned
-    // file" — judged not worth the cost to the normal-path speed this
-    // integration was asked to preserve. If this judgment changes, the
-    // least-invasive fix is a second `PasswordStateManager.checkState`
-    // call right here, immediately before amendSync — no change to
-    // amendSync's own force-push architecture would be needed.
     await service.amendSync(
       upsertFiles: upsertFiles,
       deleteFiles: deleteList,
       renameFiles: Map<String, String>.from(queue['renamed']),
       message: 'refresh sync',
     );
-
-    // Mark every successfully-pushed note as caught up as of its own current
-    // timestamp - this becomes the new "last known common state" baseline
-    // for zero-decrypt conflict detection on the next pull.
     for (final pushed in pushedItems) {
       await notifier.updateItem(
         pushed.id,
@@ -601,9 +484,6 @@ class PendingRemoteNote {
   final String remoteSalt;
   final String remoteNonce;
   final String remoteCyphertext;
-
-  // true = this note does not exist locally yet, so ACCEPTANCE will ADD it.
-  // false = this note already exists locally, so ACCEPTANCE will REPLACE it.
   final bool isNewRemoteNote;
 
   PendingRemoteNote({
@@ -628,12 +508,6 @@ class PullResult {
   });
 }
 
-// Applies a remote note's raw (still-encrypted, for locked notes) payload
-// directly to local storage with zero decryption - a byte-level ciphertext
-// copy for locked notes, a plain string split (no cryptographic operation)
-// for unlocked ones. The note's local plaintext title is deliberately left
-// untouched; pendingReviewAfterSync marks that its content may no longer
-// match that title until the note is actually reopened.
 Future<void> _applyRemoteSwap(
   DatabaseNotifier notifier, {
   required String localId,
@@ -700,11 +574,6 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
       token: token,
       repoPath: repo,
     );
-
-    // ------------------------------------------------------------
-    // 1. DOWNLOAD ALL REMOTE FILES
-    // ------------------------------------------------------------
-
     final List<String> filesToImport = await service.listNoteFiles();
 
     filesToImport.remove('device_key.json');
@@ -718,51 +587,25 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
       for (final item in currentBackedUpItems)
         if (item.remoteFileId != null) item.remoteFileId!: item,
     };
-
-    // ------------------------------------------------------------
-    // 2. BUILD STAGED REMOTE NOTES
-    //
-    // IMPORTANT:
-    // There is NO insertItem()
-    // There is NO updateItem()
-    // There is NO deleteItem()
-    //
-    // during this function.
-    // ------------------------------------------------------------
-
     final List<PendingRemoteNote> pendingRemoteNotes = [];
-
     for (final fileName in filesToImport) {
       try {
         final Map<String, dynamic>? data =
             await service.fetchNoteFile(fileName);
-
         if (data == null) {
           continue;
         }
 
         final String salt = (data['salt'] ?? '').toString();
-
         final String nonce = (data['nonce'] ?? '').toString();
-
         final String cyphertext = (data['cyphertext'] ?? '').toString();
-
         final DateTime remoteTimestamp = DateTime.tryParse(
               (data['timestamp'] ?? '').toString(),
             ) ??
             DateTime.fromMillisecondsSinceEpoch(0);
 
         final String remoteType = salt.isEmpty ? 'note' : 'encrypted_note';
-
         final CaptureItem? existing = localByRemoteId[fileName];
-
-        // --------------------------------------------------------
-        // CASE A: REMOTE NOTE DOES NOT EXIST LOCALLY
-        //
-        // We decrypt only enough to obtain the title.
-        // We DO NOT insert it.
-        // --------------------------------------------------------
-
         if (existing == null) {
           String noteTitle;
 
@@ -819,19 +662,7 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
 
           continue;
         }
-
-        // --------------------------------------------------------
-        // CASE B: REMOTE NOTE EXISTS LOCALLY
-        // --------------------------------------------------------
-
         final DateTime? lastSynced = existing.lastSyncedTimestamp;
-
-        // --------------------------------------------------------
-        // No previous sync baseline.
-        //
-        // If GitHub is newer, make it a pending user choice.
-        // --------------------------------------------------------
-
         if (lastSynced == null) {
           if (remoteTimestamp.isAfter(existing.timestamp)) {
             pendingRemoteNotes.add(
@@ -852,28 +683,11 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
 
           continue;
         }
-
-        // --------------------------------------------------------
-        // COMPARE LOCAL VS REMOTE AGAINST LAST COMMON SYNC POINT
-        // --------------------------------------------------------
-
         final bool localChanged = existing.timestamp.isAfter(lastSynced);
-
         final bool remoteChanged = remoteTimestamp.isAfter(lastSynced);
-
-        // Both are unchanged.
         if (!localChanged && !remoteChanged) {
           continue;
         }
-
-        // --------------------------------------------------------
-        // REMOTE CHANGED
-        //
-        // Whether local also changed or not, put it into the
-        // selection dialog. The user decides whether the backup
-        // version should replace the current local version.
-        // --------------------------------------------------------
-
         if (remoteChanged) {
           pendingRemoteNotes.add(
             PendingRemoteNote(
@@ -893,13 +707,6 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
           continue;
         }
 
-        // --------------------------------------------------------
-        // LOCAL CHANGED ONLY
-        //
-        // Do nothing here.
-        // The later PUSH will send the local version to GitHub.
-        // --------------------------------------------------------
-
         if (localChanged && !remoteChanged) {
           continue;
         }
@@ -910,15 +717,6 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
         continue;
       }
     }
-
-    // ------------------------------------------------------------
-    // IMPORTANT:
-    //
-    // DO NOT DELETE LOCAL NOTES THAT ARE MISSING FROM GITHUB.
-    //
-    // Pull is now staging-only.
-    // No insert/update/delete occurs here.
-    // ------------------------------------------------------------
 
     return PullResult(
       pendingRemoteNotes: pendingRemoteNotes,
@@ -946,17 +744,12 @@ String _formatTimeAgo(DateTime timestamp) {
   if (diff.inMinutes < 1) return 'JUST NOW';
   if (diff.inMinutes < 60) return '${diff.inMinutes} MIN AGO';
   if (diff.inHours < 24) return '${diff.inHours} HR AGO';
-  if (diff.inDays < 30)
+  if (diff.inDays < 30) {
     return '${diff.inDays} DAY${diff.inDays == 1 ? '' : 'S'} AGO';
+  }
   return '${(diff.inDays / 30).floor()} MO AGO';
 }
 
-// Sync-conflict resolution dialog - only ever shown when pullAndReconcileNotes
-// found notes that exist on both this device and GitHub with genuinely
-// different content. No Cancel button by design: unchecked notes simply stay
-// as their local version (nothing happens to them), checked notes get
-// replaced with the GitHub version - either way every note ends up
-// consistent, so there's nothing a "cancel" would meaningfully undo.
 Future<void> showConflictResolutionDialog(
   BuildContext context,
   WidgetRef ref,
@@ -1069,7 +862,7 @@ Future<void> showConflictResolutionDialog(
                                                 : 'THIS DEVICE: ${_formatTimeAgo(c.localTimestamp)}   ·   BACKUP: ${_formatTimeAgo(c.remoteTimestamp)}',
                                             style: TextStyle(
                                               color: theme.textMain
-                                                  .withOpacity(0.6),
+                                                  .withValues(alpha: 0.6),
                                               fontSize: 9,
                                               letterSpacing: 0.02,
                                             ),
@@ -1108,19 +901,10 @@ Future<void> showConflictResolutionDialog(
 
                         for (final pending in pendingRemoteNotes) {
                           try {
-                            // ----------------------------------------------------------
-                            // UNCHECKED:
-                            // Do absolutely nothing.
-                            // ----------------------------------------------------------
                             if (!selectedRemoteIds
                                 .contains(pending.remoteFileId)) {
                               continue;
                             }
-
-                            // ----------------------------------------------------------
-                            // CHECKED + LOCAL NOTE DOES NOT EXIST
-                            // → ADD THE REMOTE NOTE
-                            // ----------------------------------------------------------
                             if (pending.isNewRemoteNote) {
                               String localReadyContent;
 
@@ -1171,10 +955,6 @@ Future<void> showConflictResolutionDialog(
                               continue;
                             }
 
-                            // ----------------------------------------------------------
-                            // CHECKED + LOCAL NOTE EXISTS
-                            // → REPLACE THE LOCAL NOTE
-                            // ----------------------------------------------------------
                             if (pending.localId == null) {
                               continue;
                             }
@@ -1190,28 +970,16 @@ Future<void> showConflictResolutionDialog(
                               remoteTimestamp: pending.remoteTimestamp,
                             );
                           } catch (e) {
-                            // A single malformed remote record (bad
-                            // base64, wrong version, wrong length — see
-                            // BackupFormatException in crypto_engine.dart)
-                            // must not abort processing of every other
-                            // pending note in this batch. Skip just this
-                            // one and continue.
                             secureDebugLog(
                                 'SKIPPING MALFORMED REMOTE NOTE "${pending.remoteFileId}" DURING CONFLICT RESOLUTION: $e');
                             continue;
                           }
                         }
-
-// Close the selection dialog after applying the user's choices.
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext);
                         }
-
-// Push the resulting local state to GitHub.
                         final String? pushError =
                             await pushAllBackupEnabledNotes(ref);
-
-// If the cloud update failed, do not report CLEAN.
                         if (pushError != null) {
                           if (context.mounted) {
                             showAcknowledgeDialog(
@@ -1225,8 +993,6 @@ Future<void> showConflictResolutionDialog(
                           onPhase?.call('REFRESH');
                           return;
                         }
-
-// Local and GitHub are now synchronized.
                         onPhase?.call('CLEAN');
                         await Future.delayed(
                           const Duration(milliseconds: 700),
@@ -1314,24 +1080,8 @@ Future<void> performRefresh(
     }
 
     Future<void> runSync() async {
-      // Password-state gate, checked BEFORE any pull/decrypt work
-      // begins — not just before push. If this device's known password
-      // generation doesn't match the shared account state, decrypting
-      // remote notes with this device's (possibly stale) password would
-      // either silently fail per-note (indistinguishable from "nothing
-      // changed") or, worse, succeed against the wrong expectations.
-      //
-      // This is an INDEPENDENT checkpoint from the later push-side
-      // check in pushAllBackupEnabledNotes — the two answer different
-      // questions at different points in time (pull-authorization here,
-      // push-authorization there, after pull/reconciliation has run).
-      // Its result is captured (not just a bool) so the failure message
-      // reflects the SPECIFIC reason detected (pending, orphaned,
-      // behind, missing, conflict, or unreachable) rather than one
-      // generic sentence covering all of them.
-      final bool githubConfigured = Hive.box('rocen_settings_box')
-              .get('github_access_encrypted') !=
-          null;
+      final bool githubConfigured =
+          Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
       if (githubConfigured) {
         final GithubSyncGateResult syncGateResult =
             await isGithubSyncCurrentlyAllowed();
@@ -1339,25 +1089,14 @@ Future<void> performRefresh(
           throw RefreshFailure(syncGateResult.blockedReason);
         }
       }
-
-      // PULL FIRST, THEN PUSH - this order matters. Pushing before pulling
-      // means every refresh would blindly overwrite GitHub with this
-      // device's current (possibly stale) copy of every note BEFORE ever
-      // checking what changed remotely - silently clobbering a newer edit
-      // from another device before pull even had a chance to see it. This
-      // was a real bug: pull second saw its own just-pushed content and
-      // reported "up to date" even when another device's change had
-      // existed on GitHub moments earlier.
       onPhase?.call('DECRYPT');
       final PullResult? result = await pullAndReconcileNotes(ref);
-      if (result == null)
+      if (result == null) {
         throw RefreshFailure('COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
+      }
 
       if (result.pendingRemoteNotes.isNotEmpty) {
         pendingRemoteNotes = result.pendingRemoteNotes;
-
-        // Tell the user that the backup contains changes
-        // requiring a decision.
         onPhase?.call('SUCCESS');
 
         await Future.delayed(
@@ -1368,40 +1107,21 @@ Future<void> performRefresh(
 
         return;
       }
-
-      // No pending remote decisions - safe to push local-only changes...(new notes, or
-      // notes edited locally where remote was untouched) now that pull has
-      // already reconciled anything that came from elsewhere first.
-      //
-      // This performs its OWN independent password-state check
-      // internally (see pushAllBackupEnabledNotes' own comment) — a
-      // deliberate second checkpoint, not a redundant repeat of the
-      // pull-side check above. The two answer different questions at
-      // different points in time, and the small extra request this
-      // costs is an accepted security tradeoff, not something to
-      // optimize away.
       final String? pushError = await pushAllBackupEnabledNotes(ref);
 
       if (pushError != null) {
         throw RefreshFailure(pushError);
       }
-
-// The refresh reached the backend successfully.
       onPhase?.call('SUCCESS');
 
       await Future.delayed(
         const Duration(milliseconds: 450),
       );
-
-// The local database is clean and matches the resulting
-// synchronized state.
       onPhase?.call('CLEAN');
 
       await Future.delayed(
         const Duration(milliseconds: 700),
       );
-
-// Return the button to its normal state.
       onPhase?.call('REFRESH');
     }
 
@@ -1432,20 +1152,6 @@ Future<void> performRefresh(
     await Future.delayed(
       const Duration(milliseconds: 900),
     );
-
-// Do NOT reset to REFRESH here.
-//
-// runSync() already does:
-//   CLEAN → REFRESH
-// for a clean sync.
-//
-// When changes exist, runSync() leaves the button at:
-//   CHANGE
-//
-// That CHANGE state must remain visible while the selection dialog
-// is open.
-
-// Pending remote notes are surfaced while the button still says CHANGE.
     if (pendingRemoteNotes != null &&
         pendingRemoteNotes!.isNotEmpty &&
         context.mounted) {
@@ -1544,16 +1250,11 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   }
 
   Future<void> _performTitleCheck(String title) async {
-    // Remote uniqueness can no longer be cheaply checked - GitHub filenames
-    // are now opaque random ids with no relationship to title, so there's
-    // no single targeted lookup to make. Local uniqueness (this device) is
-    // still enforced; duplicate titles across un-synced devices are now
-    // simply allowed, since each note is identified by its own stable
-    // remoteFileId regardless of title.
     final bool taken =
         ref.read(localDatabaseProvider.notifier).titleExists(title);
-    if (mounted)
+    if (mounted) {
       setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
+    }
   }
 
   void _enforceKeyRotationPurge() {
@@ -1608,6 +1309,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         return;
       }
       finalPayload = await CryptoEngine.encryptProcess(cleanBody, globalPin);
+      if (!mounted) return;
     }
 
     if (_isBackupEnabled) {
@@ -1638,16 +1340,10 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final String? generatedRemoteId =
         _isBackupEnabled ? DatabaseNotifier.generateRemoteFileId() : null;
     final DateTime saveTimestamp = DateTime.now();
-
-    // Save the current editor state in case the local insert fails.
     final String savedTitle = cleanTitle;
     final String savedBody = cleanBody;
     final bool savedLocked = _isNoteLocked;
     final bool savedBackupEnabled = _isBackupEnabled;
-
-// Clear the editor BEFORE inserting into the database.
-// This prevents the new list item from appearing while the
-// old title/body are still visible in the create form.
     _titleController.clear();
     _bodyController.clear();
 
@@ -1669,7 +1365,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
             );
 
     if (!inserted) {
-      // Roll back the editor if the local save failed.
       _titleController.text = savedTitle;
       _bodyController.text = savedBody;
 
@@ -1685,54 +1380,43 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       final GithubSyncGateResult syncGate =
           await isGithubSyncCurrentlyAllowed();
       if (!syncGate.allowed) {
-        // Password-state gate blocked this push BEFORE any encryption
-        // was attempted. The note is already saved locally (untouched,
-        // correct) — simply skip the cloud sync attempt for this save.
         secureDebugLog(
             'SKIPPING GITHUB SYNC FOR "$savedTitle" - ${syncGate.blockedReason}');
       } else {
-      final String combined = _combineTitleAndBody(savedTitle, savedBody);
+        final String combined = _combineTitleAndBody(savedTitle, savedBody);
 
-      Map<String, String>? backupFields;
-      try {
-        backupFields = savedLocked
-            ? {
-                ...CryptoEngine.splitForBackup(
-                  await CryptoEngine.encryptProcess(
-                    combined,
-                    globalPin!,
+        Map<String, String>? backupFields;
+        try {
+          backupFields = savedLocked
+              ? {
+                  ...CryptoEngine.splitForBackup(
+                    await CryptoEngine.encryptProcess(
+                      combined,
+                      globalPin!,
+                    ),
                   ),
-                ),
-                'timestamp': saveTimestamp.toIso8601String(),
-              }
-            : {
-                'salt': '',
-                'nonce': '',
-                'cyphertext': combined,
-                'timestamp': saveTimestamp.toIso8601String(),
-              };
-      } catch (e) {
-        // The note is already saved locally at this point (the `inserted`
-        // check above already passed) — a failure here only means the
-        // GitHub backup payload for THIS save couldn't be prepared. This
-        // is not expected in practice (splitForBackup is operating on
-        // ciphertext freshly produced by encryptProcess immediately
-        // above, not on external input), but if it ever happens, the
-        // user's local note must not be lost or rolled back over it —
-        // skip the sync attempt for this save and let a later sync retry.
-        secureDebugLog(
-            'FAILED TO PREPARE BACKUP PAYLOAD FOR "$savedTitle" - NOTE IS SAVED LOCALLY, SKIPPING THIS SYNC ATTEMPT: $e');
-        backupFields = null;
-      }
+                  'timestamp': saveTimestamp.toIso8601String(),
+                }
+              : {
+                  'salt': '',
+                  'nonce': '',
+                  'cyphertext': combined,
+                  'timestamp': saveTimestamp.toIso8601String(),
+                };
+        } catch (e) {
+          secureDebugLog(
+              'FAILED TO PREPARE BACKUP PAYLOAD FOR "$savedTitle" - NOTE IS SAVED LOCALLY, SKIPPING THIS SYNC ATTEMPT: $e');
+          backupFields = null;
+        }
 
-      if (backupFields != null) {
-        await attemptGithubSync(
-          ref,
-          upsert: {
-            generatedRemoteId: jsonEncode(backupFields),
-          },
-        );
-      }
+        if (backupFields != null) {
+          await attemptGithubSync(
+            ref,
+            upsert: {
+              generatedRemoteId: jsonEncode(backupFields),
+            },
+          );
+        }
       }
     }
 
@@ -1791,236 +1475,240 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
+                  selectionColor: theme.textMain.withValues(alpha: 0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
               ),
               child: Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: 320,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: theme.dialogBg,
-                    border: Border.all(color: theme.borderColor, width: 0.8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(displayHeaderTitle,
-                          style: TextStyle(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: theme.dialogBg,
+                      border: Border.all(color: theme.borderColor, width: 0.8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(displayHeaderTitle,
+                            style: TextStyle(
+                                color:
+                                    (hasPinFailed || lockStringStatus != null)
+                                        ? const Color(0xFFEF4444)
+                                        : theme.textMain,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.05)),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: (hasPinFailed || lockStringStatus != null)
+                                  ? const Color(0xFFEF4444)
+                                  : theme.borderColor,
+                              width: (hasPinFailed || lockStringStatus != null)
+                                  ? 1.2
+                                  : 0.8,
+                            ),
+                          ),
+                          child: TextField(
+                            controller: pinVerifyController,
+                            keyboardType: TextInputType.text,
+                            maxLength: 32,
+                            obscureText: true,
+                            obscuringCharacter: '#',
+                            cursorColor: theme.textMain,
+                            autofocus: lockStringStatus == null,
+                            enabled: lockStringStatus == null,
+                            style: TextStyle(
                               color: (hasPinFailed || lockStringStatus != null)
                                   ? const Color(0xFFEF4444)
                                   : theme.textMain,
-                              fontSize: 11,
+                              fontSize: 16,
+                              letterSpacing: 4,
                               fontWeight: FontWeight.bold,
-                              letterSpacing: 0.05)),
-                      const SizedBox(height: 20),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: (hasPinFailed || lockStringStatus != null)
-                                ? const Color(0xFFEF4444)
-                                : theme.borderColor,
-                            width: (hasPinFailed || lockStringStatus != null)
-                                ? 1.2
-                                : 0.8,
-                          ),
-                        ),
-                        child: TextField(
-                          controller: pinVerifyController,
-                          keyboardType: TextInputType.text,
-                          maxLength: 32,
-                          obscureText: true,
-                          obscuringCharacter: '#',
-                          cursorColor: theme.textMain,
-                          autofocus: lockStringStatus == null,
-                          enabled: lockStringStatus == null,
-                          style: TextStyle(
-                            color: (hasPinFailed || lockStringStatus != null)
-                                ? const Color(0xFFEF4444)
-                                : theme.textMain,
-                            fontSize: 16,
-                            letterSpacing: 4,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          onChanged: (val) {
-                            setDialogState(() {
-                              if (hasPinFailed) {
-                                hasPinFailed = false;
-                              }
-                            });
-                          },
-                          decoration: const InputDecoration(
-                            counterText: '',
-                            border: InputBorder.none,
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.borderColor, width: 0.8),
-                              ),
-                              child: Text('CANCEL',
-                                  style: TextStyle(
-                                      color: isDark
-                                          ? const Color(0xFF888888)
-                                          : const Color(0xFF525252),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                            ),
+                            onChanged: (val) {
+                              setDialogState(() {
+                                if (hasPinFailed) {
+                                  hasPinFailed = false;
+                                }
+                              });
+                            },
+                            decoration: const InputDecoration(
+                              counterText: '',
+                              border: InputBorder.none,
+                              isDense: true,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () async {
-                              final activeLockCheck =
-                                  _checkLockoutViolation(settingsBox);
-                              if (activeLockCheck != null) {
-                                setDialogState(() {
-                                  lockStringStatus = activeLockCheck;
-                                });
-                                return;
-                              }
-
-                              final bool isPinValid =
-                                  await CryptoEngine.verifyPin(
-                                      pinVerifyController.text, globalPin);
-
-                              if (isPinValid) {
-                                await settingsBox.put(
-                                    'secure_failed_attempts', 0);
-                                await settingsBox.put(
-                                    'secure_lockout_until', 0);
-
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                if (!screenContext.mounted) return;
-
-                                if (openForEditing) {
-                                  String rawContent = '';
-                                  try {
-                                    rawContent =
-                                        await CryptoEngine.decryptProcess(
-                                            item.content, globalPin);
-                                    if (rawContent != 'DECRYPTION FAULT' &&
-                                        item.pendingReviewAfterSync) {
-                                      // Content was swapped in from backup without decryption during
-                                      // conflict resolution - it may still be in the combined
-                                      // title+body format used for the GitHub payload. Strip that
-                                      // back down to just the body for display/editing, and clear
-                                      // the pending flag now that the real content has been seen.
-                                      rawContent =
-                                          _splitTitleAndBody(rawContent).body;
-                                      await ref
-                                          .read(localDatabaseProvider.notifier)
-                                          .updateItem(
-                                            item.id,
-                                            item.content,
-                                            pendingReviewAfterSync: false,
-                                          );
-                                    }
-                                  } catch (_) {
-                                    rawContent = 'DECRYPTION FAULT';
-                                  }
-                                  final unpackedItem = CaptureItem(
-                                    id: item.id,
-                                    title: item.title,
-                                    content: rawContent,
-                                    type: item.type,
-                                    timestamp: item.timestamp,
-                                    backupEnabled: item.backupEnabled,
-                                    remoteFileId: item.remoteFileId,
-                                    lastSyncedTimestamp:
-                                        item.lastSyncedTimestamp,
-                                    pendingReviewAfterSync:
-                                        item.pendingReviewAfterSync,
-                                  );
-                                  _navigateToEdit(screenContext, unpackedItem);
-                                } else {
-                                  _revealEncryptedNotePayload(
-                                      item, globalPin, isDark);
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                      color: theme.borderColor, width: 0.8),
+                                ),
+                                child: Text('CANCEL',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFF888888)
+                                            : const Color(0xFF525252),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () async {
+                                final activeLockCheck =
+                                    _checkLockoutViolation(settingsBox);
+                                if (activeLockCheck != null) {
+                                  setDialogState(() {
+                                    lockStringStatus = activeLockCheck;
+                                  });
+                                  return;
                                 }
-                              } else {
-                                int attempts = settingsBox.get(
-                                        'secure_failed_attempts',
-                                        defaultValue: 0) +
-                                    1;
-                                await settingsBox.put(
-                                    'secure_failed_attempts', attempts);
 
-                                bool flagWipeConditionTriggered = attempts > 15;
-                                int penaltyDurationSeconds =
-                                    flagWipeConditionTriggered
-                                        ? 0
-                                        : CryptoEngine.lockoutSecondsForAttempt(
-                                            attempts);
+                                final bool isPinValid =
+                                    await CryptoEngine.verifyPin(
+                                        pinVerifyController.text, globalPin);
 
-                                if (flagWipeConditionTriggered) {
-                                  _executeWipeSequence();
+                                if (isPinValid) {
                                   await settingsBox.put(
                                       'secure_failed_attempts', 0);
                                   await settingsBox.put(
                                       'secure_lockout_until', 0);
+
                                   if (!context.mounted) return;
                                   Navigator.pop(context);
-                                  showAcknowledgeDialog(
-                                      context,
-                                      isDark,
-                                      'SECURITY COMPLIANCE AUDIT',
-                                      'DATA PURGED PERMANENTLY.');
-                                  return;
-                                }
+                                  if (!screenContext.mounted) return;
 
-                                if (penaltyDurationSeconds > 0) {
-                                  final int unlockTimestampMillis =
-                                      DateTime.now().millisecondsSinceEpoch +
-                                          (penaltyDurationSeconds * 1000);
-                                  await settingsBox.put('secure_lockout_until',
-                                      unlockTimestampMillis);
-                                }
-
-                                setDialogState(() {
-                                  pinVerifyController.clear();
-                                  lockStringStatus =
-                                      _checkLockoutViolation(settingsBox);
-                                  if (lockStringStatus == null) {
-                                    hasPinFailed = true;
+                                  if (openForEditing) {
+                                    String rawContent = '';
+                                    try {
+                                      rawContent =
+                                          await CryptoEngine.decryptProcess(
+                                              item.content, globalPin);
+                                      if (rawContent != 'DECRYPTION FAULT' &&
+                                          item.pendingReviewAfterSync) {
+                                        rawContent =
+                                            _splitTitleAndBody(rawContent).body;
+                                        await ref
+                                            .read(
+                                                localDatabaseProvider.notifier)
+                                            .updateItem(
+                                              item.id,
+                                              item.content,
+                                              pendingReviewAfterSync: false,
+                                            );
+                                      }
+                                    } catch (_) {
+                                      rawContent = 'DECRYPTION FAULT';
+                                    }
+                                    if (!screenContext.mounted) return;
+                                    final unpackedItem = CaptureItem(
+                                      id: item.id,
+                                      title: item.title,
+                                      content: rawContent,
+                                      type: item.type,
+                                      timestamp: item.timestamp,
+                                      backupEnabled: item.backupEnabled,
+                                      remoteFileId: item.remoteFileId,
+                                      lastSyncedTimestamp:
+                                          item.lastSyncedTimestamp,
+                                      pendingReviewAfterSync:
+                                          item.pendingReviewAfterSync,
+                                    );
+                                    _navigateToEdit(
+                                        screenContext, unpackedItem);
+                                  } else {
+                                    _revealEncryptedNotePayload(
+                                        item, globalPin, isDark);
                                   }
-                                });
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(color: theme.textMain),
-                              child: Text('VERIFY',
-                                  style: TextStyle(
-                                      color:
-                                          isDark ? Colors.black : Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                                } else {
+                                  int attempts = settingsBox.get(
+                                          'secure_failed_attempts',
+                                          defaultValue: 0) +
+                                      1;
+                                  await settingsBox.put(
+                                      'secure_failed_attempts', attempts);
+
+                                  bool flagWipeConditionTriggered =
+                                      attempts > 15;
+                                  int penaltyDurationSeconds =
+                                      flagWipeConditionTriggered
+                                          ? 0
+                                          : CryptoEngine
+                                              .lockoutSecondsForAttempt(
+                                                  attempts);
+
+                                  if (flagWipeConditionTriggered) {
+                                    _executeWipeSequence();
+                                    await settingsBox.put(
+                                        'secure_failed_attempts', 0);
+                                    await settingsBox.put(
+                                        'secure_lockout_until', 0);
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    showAcknowledgeDialog(
+                                        context,
+                                        isDark,
+                                        'SECURITY COMPLIANCE AUDIT',
+                                        'DATA PURGED PERMANENTLY.');
+                                    return;
+                                  }
+
+                                  if (penaltyDurationSeconds > 0) {
+                                    final int unlockTimestampMillis =
+                                        DateTime.now().millisecondsSinceEpoch +
+                                            (penaltyDurationSeconds * 1000);
+                                    await settingsBox.put(
+                                        'secure_lockout_until',
+                                        unlockTimestampMillis);
+                                  }
+
+                                  setDialogState(() {
+                                    pinVerifyController.clear();
+                                    lockStringStatus =
+                                        _checkLockoutViolation(settingsBox);
+                                    if (lockStringStatus == null) {
+                                      hasPinFailed = true;
+                                    }
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration:
+                                    BoxDecoration(color: theme.textMain),
+                                child: Text('VERIFY',
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
                             ),
-                          ),
-                        ],
-                      )
-                    ],
+                          ],
+                        )
+                      ],
+                    ),
                   ),
                 ),
-              ),
               ),
             );
           },
@@ -2036,9 +1724,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
       decryptedContent = await CryptoEngine.decryptProcess(item.content, pin);
       if (decryptedContent != 'DECRYPTION FAULT' &&
           item.pendingReviewAfterSync) {
-        // Same handling as the edit-open path - strip the combined
-        // title+body format back to just the body if present, and clear
-        // the pending flag now that the real content has been seen.
         decryptedContent = _splitTitleAndBody(decryptedContent).body;
         await ref.read(localDatabaseProvider.notifier).updateItem(
               item.id,
@@ -2311,7 +1996,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: theme.textMain.withOpacity(0.2),
+          selectionColor: theme.textMain.withValues(alpha: 0.2),
           selectionHandleColor: theme.textMain,
         ),
       ),
@@ -2336,8 +2021,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             ref,
                             context,
                             onPhase: (phase) {
-                              if (mounted)
+                              if (mounted) {
                                 setState(() => _refreshLabel = phase);
+                              }
                             },
                           ),
                   child: Container(
@@ -2603,7 +2289,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                                   text: '-- UPDATED  ',
                                                   style: TextStyle(
                                                     color: theme.textMain
-                                                        .withOpacity(0.7),
+                                                        .withValues(alpha: 0.7),
                                                     fontSize: 9,
                                                     fontWeight: FontWeight.w700,
                                                     letterSpacing: 0.03,
@@ -2836,14 +2522,12 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   }
 
   Future<void> _performTitleCheck(String title) async {
-    // See note in the create-note screen's _performTitleCheck - remote
-    // uniqueness is no longer cheaply checkable now that filenames are
-    // opaque, so this is local-only.
     final bool taken = ref
         .read(localDatabaseProvider.notifier)
         .titleExists(title, excludingId: widget.item.id);
-    if (mounted)
+    if (mounted) {
       setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
+    }
   }
 
   void _onTextChanged() {
@@ -2918,7 +2602,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
 
       final bool online = await hasInternetConnection();
       if (!online) {
-        if (!context.mounted) return;
+        if (!mounted) return;
         showAcknowledgeDialog(
           context,
           isDark,
@@ -2945,7 +2629,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: theme.textMain.withOpacity(0.2),
+          selectionColor: theme.textMain.withValues(alpha: 0.2),
           selectionHandleColor: theme.textMain,
         ),
       ),
@@ -3002,6 +2686,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                         contentToPersist, globalPin);
                   }
                 }
+                if (!mounted) return;
 
                 if (_isBackupEnabled) {
                   final isDark = ref.read(themeProvider);
@@ -3035,11 +2720,6 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 }
 
                 bool success;
-
-                // Remote filename is a stable opaque id, decoupled from
-                // title - carry the existing one forward whenever possible
-                // so a lock-status change doesn't orphan the already-synced
-                // remote file under a second, abandoned filename.
                 final String? existingRemoteId = widget.item.remoteFileId;
                 final String? remoteIdForThisSave = _isBackupEnabled
                     ? (existingRemoteId ??
@@ -3078,61 +2758,52 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                   final GithubSyncGateResult syncGate =
                       await isGithubSyncCurrentlyAllowed();
                   if (!syncGate.allowed) {
-                    // Password-state gate blocked this push BEFORE any
-                    // encryption was attempted. The note is already
-                    // saved locally (untouched, correct) — simply skip
-                    // the cloud sync attempt for this save.
                     secureDebugLog(
                         'SKIPPING GITHUB SYNC FOR "$cleanTitle" - ${syncGate.blockedReason}');
                   } else {
-                  final String combined =
-                      _combineTitleAndBody(cleanTitle, rawBody);
+                    final String combined =
+                        _combineTitleAndBody(cleanTitle, rawBody);
 
-                  Map<String, String>? backupFields;
-                  try {
-                    backupFields = _isNoteLocked
-                        ? {
-                            ...CryptoEngine.splitForBackup(
-                                await CryptoEngine.encryptProcess(
-                                    combined, globalPin ?? '')),
-                            'timestamp': saveTimestamp.toIso8601String()
-                          }
-                        : {
-                            'salt': '',
-                            'nonce': '',
-                            'cyphertext': combined,
-                            'timestamp': saveTimestamp.toIso8601String()
-                          };
-                  } catch (e) {
-                    // Same reasoning as the other local save path: the
-                    // note is already durably saved locally at this
-                    // point (`success` was already confirmed true
-                    // above) — a failure here should only skip this
-                    // sync attempt, not undo or block the local save.
-                    secureDebugLog(
-                        'FAILED TO PREPARE BACKUP PAYLOAD FOR "$cleanTitle" - NOTE IS SAVED LOCALLY, SKIPPING THIS SYNC ATTEMPT: $e');
-                    backupFields = null;
-                  }
-
-                  if (backupFields != null) {
-                    final bool pushSucceeded = await attemptGithubSync(
-                      ref,
-                      upsert: {
-                        remoteIdForThisSave: jsonEncode(backupFields),
-                      },
-                    );
-
-                    if (pushSucceeded) {
-                      await ref
-                          .read(localDatabaseProvider.notifier)
-                          .updateItem(
-                            widget.item.id,
-                            contentToPersist,
-                            timestamp: saveTimestamp,
-                            lastSyncedTimestamp: saveTimestamp,
-                          );
+                    Map<String, String>? backupFields;
+                    try {
+                      backupFields = _isNoteLocked
+                          ? {
+                              ...CryptoEngine.splitForBackup(
+                                  await CryptoEngine.encryptProcess(
+                                      combined, globalPin ?? '')),
+                              'timestamp': saveTimestamp.toIso8601String()
+                            }
+                          : {
+                              'salt': '',
+                              'nonce': '',
+                              'cyphertext': combined,
+                              'timestamp': saveTimestamp.toIso8601String()
+                            };
+                    } catch (e) {
+                      secureDebugLog(
+                          'FAILED TO PREPARE BACKUP PAYLOAD FOR "$cleanTitle" - NOTE IS SAVED LOCALLY, SKIPPING THIS SYNC ATTEMPT: $e');
+                      backupFields = null;
                     }
-                  }
+
+                    if (backupFields != null) {
+                      final bool pushSucceeded = await attemptGithubSync(
+                        ref,
+                        upsert: {
+                          remoteIdForThisSave: jsonEncode(backupFields),
+                        },
+                      );
+
+                      if (pushSucceeded) {
+                        await ref
+                            .read(localDatabaseProvider.notifier)
+                            .updateItem(
+                              widget.item.id,
+                              contentToPersist,
+                              timestamp: saveTimestamp,
+                              lastSyncedTimestamp: saveTimestamp,
+                            );
+                      }
+                    }
                   }
                 } else {
                   unawaited(attemptGithubSync(ref));
