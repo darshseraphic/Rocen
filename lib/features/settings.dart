@@ -1454,8 +1454,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   PasswordStateResult? stateResult;
                                   GithubBackupService? preconditionService;
                                   if (githubConfigured) {
+                                    // Close the current password dialog FIRST.
+                                    // The GitHub verification indicator must be a
+                                    // separate dialog, not an overlay on top of it.
                                     if (!context.mounted) return;
-                                    _showSavingIndicatorDialog(context, isDark);
+                                    Navigator.pop(context);
+                                    await Future.delayed(Duration.zero);
+                                    if (!screenContext.mounted) return;
+
+                                    _showSavingIndicatorDialog(
+                                      screenContext,
+                                      isDark,
+                                      status: 'VERIFYING...',
+                                    );
+                                    // Give Flutter one frame to render the
+                                    // verification state before network work.
+                                    await Future.delayed(
+                                      const Duration(milliseconds: 120),
+                                    );
+                                    if (!screenContext.mounted) return;
 
                                     preconditionService =
                                         await _buildGithubServiceFromStoredCredentials(
@@ -1467,10 +1484,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                               preconditionService);
                                     }
 
-                                    if (context.mounted) {
-                                      Navigator.of(context, rootNavigator: true)
+                                    if (screenContext.mounted) {
+                                      Navigator.of(screenContext,
+                                              rootNavigator: true)
                                           .pop();
                                     }
+                                    await Future.delayed(Duration.zero);
+                                    if (!screenContext.mounted) return;
 
                                     final bool checkOk = stateResult != null &&
                                         (stateResult.comparison ==
@@ -1481,7 +1501,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                                     .noRemoteStateYet);
 
                                     if (!checkOk) {
-                                      if (!context.mounted) return;
                                       final String message;
                                       if (stateResult == null) {
                                         message =
@@ -1522,15 +1541,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                         }
                                       }
                                       _showStatusDialog(
-                                          context,
+                                          screenContext,
                                           'PASSWORD CHANGE UNAVAILABLE',
                                           message);
                                       return;
                                     }
+                                  } else {
+                                    // No GitHub backup is configured; close the
+                                    // verification dialog normally and continue.
+                                    if (!context.mounted) return;
+                                    Navigator.pop(context);
+                                    await Future.delayed(Duration.zero);
+                                    if (!screenContext.mounted) return;
                                   }
 
-                                  if (!context.mounted) return;
-                                  Navigator.pop(context);
+                                  if (!screenContext.mounted) return;
+                                  await Future.delayed(Duration.zero);
                                   if (!screenContext.mounted) return;
                                   _showNewPasswordDialog(
                                       screenContext,
@@ -1799,6 +1825,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     bool terminalGithubOk = true;
     String terminalTitle = '';
     String terminalMessage = '';
+    List<int> devicesNeedingPasswordUpdate = <int>[];
     final settingsBox = Hive.box(_boxName);
     final List<TextEditingController> mnemonicControllers =
         List.generate(12, (_) => TextEditingController());
@@ -1858,7 +1885,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ensureCountdownRunning();
                     return mnemonicCompleter!.future;
                   },
-                  onComplete: (success, githubOk) {
+                  onComplete: (success, githubOk, outOfDateDeviceNumbers) {
+                    devicesNeedingPasswordUpdate = outOfDateDeviceNumbers;
                     setState(() {
                       isEntryStep = false;
                       isTerminal = true;
@@ -1977,6 +2005,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     countdownTimer?.cancel();
+
+    if (devicesNeedingPasswordUpdate.isNotEmpty && screenContext.mounted) {
+      final String deviceList = devicesNeedingPasswordUpdate.join(', ');
+      _showStatusDialog(
+        screenContext,
+        'OTHER DEVICES NEED UPDATE',
+        'PASSWORD STATE WAS SUCCESSFULLY PUBLISHED TO GITHUB, BUT DEVICE(S) $deviceList ARE STILL ON AN OLDER PASSWORD GENERATION. UPDATE THOSE DEVICES TO THE SAME CURRENT PASSWORD AND RECOVERY STATE BEFORE THEY CAN SYNC AGAIN.',
+      );
+    }
+
     for (final c in mnemonicControllers) {
       c.dispose();
     }
@@ -2176,7 +2214,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     GithubBackupService? preconditionService,
     void Function(String status)? onProgress,
     Future<List<String>?> Function(BuildContext context)? onRequestMnemonic,
-    void Function(bool success, bool githubOk)? onComplete,
+    void Function(
+            bool success, bool githubOk, List<int> outOfDateDeviceNumbers)?
+        onComplete,
   }) async {
     final settingsBox = Hive.box(_boxName);
     final KdfParams oldParams = CryptoEngine.currentAuthParams();
@@ -2200,7 +2240,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     if (!notesMigrated) {
       if (onComplete != null) {
-        onComplete(false, false);
+        onComplete(false, false, const <int>[]);
       } else if (context.mounted) {
         _showStatusDialog(
           context,
@@ -2256,7 +2296,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ? await onRequestMnemonic(context)
               : await _promptMnemonicRecovery(context);
           if (mnemonicWords != null) {
-            onProgress?.call('CONFIRMING...');
+            // Make the post-recovery workflow visibly progress instead of
+            // allowing Flutter to batch the state update with the final dialog.
+            onProgress?.call('CHECKING...');
+            await Future.delayed(const Duration(milliseconds: 150));
+            if (!context.mounted) return;
+
+            onProgress?.call('APPROVING...');
+            await Future.delayed(const Duration(milliseconds: 150));
+            if (!context.mounted) return;
+
             final Map<String, String> rewrapped =
                 await CryptoEngine.wrapDeviceKeyWithParams(
               authSaltBytes: authSalt,
@@ -2359,6 +2408,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             newChangeId: newChangeId,
             deviceId: deviceId,
             expectedParentSha: freshRead.refSha,
+            baseState: freshRead.content,
           );
           wroteSuccessfully = true;
         } catch (e) {
@@ -2401,13 +2451,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     }
 
+    final List<int> devicesNeedingPasswordUpdate = <int>[];
+    if (passwordStatePublished && preconditionService != null) {
+      try {
+        final PasswordStateResult confirmedState =
+            await PasswordStateManager.checkState(preconditionService);
+        if (confirmedState.remoteGeneration != null &&
+            confirmedState.remoteGeneration ==
+                PasswordStateManager.getKnownGeneration()) {
+          final int? thisDeviceNumber = PasswordStateManager.getDeviceNumber();
+          for (final PasswordStateDevice device in confirmedState.devices) {
+            if (device.deviceNumber != thisDeviceNumber &&
+                device.passwordGeneration < confirmedState.remoteGeneration!) {
+              devicesNeedingPasswordUpdate.add(device.deviceNumber);
+            }
+          }
+        }
+      } catch (e) {
+        secureDebugLog(
+            '[settings] could not inspect registered devices after confirmed password-state publish; suppressing notification: $e');
+      }
+    }
+
     onProgress?.call('DONE');
     final bool isOrphaned = LocalRotationOrphanStatus.isOrphaned();
     final PendingReason? pendingReason =
         PasswordStateManager.getPendingReason();
     final bool fullyOk = githubRotationOk && passwordStatePublished;
     if (onComplete != null) {
-      onComplete(true, fullyOk);
+      onComplete(
+        true,
+        fullyOk,
+        devicesNeedingPasswordUpdate,
+      );
     } else if (context.mounted) {
       if (fullyOk) {
         _showAcknowledgeDialog(context, 'PASSWORD UPDATED',
@@ -3277,6 +3353,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           await settingsBox.put('device_key_owned_repo', repo);
           ownsThisRepoKey = true;
+          initializedDeviceKeyDuringThisRun = true;
           deviceKeyPublished = true;
           log('device_key.json verified successfully; local repo ownership recorded');
         } catch (e, stackTrace) {
@@ -3358,6 +3435,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         log('this device already owns this repo key, skipping recovery');
       }
 
+      // The shared password state is part of completing GitHub setup. A brand-new
+      // repository is initialized at generation 1; a joining device adopts the
+      // repository's current generation and registers itself without changing
+      // the shared password event. This runs only after device_key.json setup
+      // or recovery has completed successfully.
+      try {
+        await PasswordStateManager.initializeOrJoinState(
+          service: service,
+          allowCreateInitialState: initializedDeviceKeyDuringThisRun,
+        );
+        log(
+          'password_state.json initialize/join completed; '
+          'deviceNumber=${PasswordStateManager.getDeviceNumber()} '
+          'generation=${PasswordStateManager.getKnownGeneration()}',
+        );
+      } catch (e, stackTrace) {
+        log('password_state.json initialize/join FAILED: $e');
+        secureDebugLog('$stackTrace');
+        onBeforeUserPrompt?.call();
+        if (context.mounted) {
+          _showStatusDialog(
+            context,
+            'GITHUB BACKUP SETUP FAILED',
+            'Rocen could not establish the shared password state for this backup. '
+                'Your local data is unchanged.\n\nERROR: $e',
+          );
+        }
+        return false;
+      }
+
       if (!pullAfterKeySetup) {
         log(
           'pullAfterKeySetup is false, stopping after completed key/state setup',
@@ -3403,7 +3510,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         filesToImport = [];
       }
       filesToImport.remove('device_key.json');
-      log('filesToImport after removing device_key.json: $filesToImport');
+      filesToImport.remove(PasswordStateManager.fileName);
+      log('filesToImport after removing system backup metadata: $filesToImport');
 
       if (filesToImport.isEmpty) {
         log('nothing to import, stopping');
@@ -3490,7 +3598,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  void _showSavingIndicatorDialog(BuildContext context, bool isDark) {
+  void _showSavingIndicatorDialog(
+    BuildContext context,
+    bool isDark, {
+    String status = 'SAVING...',
+  }) {
     final theme = SettingsUiTheme(isDark);
 
     showGeneralDialog(
@@ -3523,7 +3635,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                     const SizedBox(width: 14),
                     Text(
-                      'SAVING...',
+                      status,
                       style: TextStyle(
                           color: theme.textMain,
                           fontSize: 11,
