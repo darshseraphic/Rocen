@@ -256,6 +256,247 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// Same look as _showStatusDialog, but with a second action button instead
+  /// of a single dismiss - used when the person can resolve the problem
+  /// immediately (e.g. finishing a held-back device-key retry) rather than
+  /// just being told about it.
+  void _showStatusDialogWithContinue(
+    BuildContext context,
+    String title,
+    String message, {
+    required String continueLabel,
+    required void Function() onContinue,
+  }) {
+    final isDark = ref.read(themeProvider);
+    final theme = SettingsUiTheme(isDark);
+
+    final buttonBg = isDark ? Colors.white : Colors.black;
+    final buttonText = isDark ? Colors.black : Colors.white;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.transparent,
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    title.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: theme.textMain,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.05),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    message.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: theme.textMain,
+                        fontSize: 11,
+                        height: 1.5,
+                        fontWeight: FontWeight.normal,
+                        letterSpacing: 0.02),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => Navigator.pop(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            decoration: BoxDecoration(
+                                border: Border.all(
+                                    color: theme.dialogBorderColor,
+                                    width: 0.8)),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'APPRECIATED',
+                              style: TextStyle(
+                                color: isDark
+                                    ? const Color(0xFF888888)
+                                    : const Color(0xFF525252),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.06,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.pop(context);
+                            onContinue();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            decoration: BoxDecoration(color: buttonBg),
+                            alignment: Alignment.center,
+                            child: Text(
+                              continueLabel,
+                              style: TextStyle(
+                                color: buttonText,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.06,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Resolves a password change that was left pending because device_key.json
+  /// could not be rewrapped after the person cancelled the recovery-phrase
+  /// step. Prompts for the 12 words again and, if password_state.json on
+  /// GitHub is still in a state that allows it, finishes the rewrap and
+  /// publish that the earlier change was waiting on.
+  Future<void> _retryHeldBackPasswordChange(
+    BuildContext screenContext,
+    String currentPinHash,
+    String currentPassword,
+  ) async {
+    final isDark = ref.read(themeProvider);
+
+    final List<String>? mnemonicWords =
+        await _promptMnemonicRecovery(screenContext);
+    if (mnemonicWords == null) {
+      return;
+    }
+    if (!screenContext.mounted) return;
+
+    _showSavingIndicatorDialog(screenContext, isDark, status: 'VERIFYING...');
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (!screenContext.mounted) return;
+
+    final GithubBackupService? service =
+        await _buildGithubServiceFromStoredCredentials(currentPinHash);
+
+    DeviceKeyRetryResult? retryResult;
+    if (service != null) {
+      retryResult = await PasswordStateManager.retryDeviceKeyPublish(
+        service: service,
+        currentPinHash: currentPinHash,
+        currentPassword: currentPassword,
+        mnemonicWords: mnemonicWords,
+      );
+    }
+
+    if (screenContext.mounted) {
+      Navigator.of(screenContext, rootNavigator: true).pop();
+    }
+    await Future.delayed(Duration.zero);
+    if (!screenContext.mounted) return;
+
+    if (service == null || retryResult == null) {
+      _showStatusDialog(
+        screenContext,
+        'PASSWORD CHANGE UNAVAILABLE',
+        'COULD NOT VERIFY YOUR STORED GITHUB CREDENTIALS. CHECK YOUR CONNECTION AND TRY AGAIN.',
+      );
+      return;
+    }
+
+    switch (retryResult.outcome) {
+      case DeviceKeyRetryOutcome.succeeded:
+        _showAcknowledgeDialog(
+          screenContext,
+          'PASSWORD UPDATED',
+          'YOUR PENDING PASSWORD CHANGE HAS BEEN CONFIRMED WITH GITHUB.',
+        );
+        break;
+      case DeviceKeyRetryOutcome.requiresReconciliation:
+        {
+          final PasswordStateComparison? comparison =
+              retryResult.stateResult?.comparison;
+          final String message;
+          switch (comparison) {
+            case PasswordStateComparison.behindRemote:
+              message =
+                  'YOUR PASSWORD WAS ALREADY CHANGED ON ANOTHER DEVICE${retryResult.stateResult?.remoteChangedByDeviceId != null ? " (${retryResult.stateResult!.remoteChangedByDeviceId})" : ""}. ENTER THE CURRENT PASSWORD AND YOUR RECOVERY PHRASE TO UPDATE THIS DEVICE BEFORE CHANGING IT AGAIN.';
+              break;
+            case PasswordStateComparison.conflict:
+              message =
+                  'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. RESOLVE THIS BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.';
+              break;
+            case PasswordStateComparison.remoteStateBehind:
+              message =
+                  'THE PASSWORD STATE ON GITHUB APPEARS OLDER THAN WHAT THIS DEVICE ALREADY KNOWS. THIS USUALLY MEANS THE SHARED FILE WAS REVERTED OR RESTORED FROM AN OLD BACKUP. THIS IS NOT SOMETHING THE APP WILL FIX AUTOMATICALLY — PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD.';
+              break;
+            case PasswordStateComparison.remoteStateMissing:
+              message =
+                  'THIS DEVICE HAS A PASSWORD GENERATION ON RECORD, BUT THE SHARED PASSWORD STATE FILE IS MISSING FROM GITHUB. THIS IS NOT TREATED AS A FRESH SETUP. PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD — THE APP WILL NOT RECREATE THIS FILE AUTOMATICALLY.';
+              break;
+            default:
+              message = 'PASSWORD CHANGE UNAVAILABLE.';
+              break;
+          }
+          _showStatusDialog(
+            screenContext,
+            'PASSWORD CHANGE UNAVAILABLE',
+            message,
+          );
+        }
+        break;
+      case DeviceKeyRetryOutcome.checkFailed:
+        _showStatusDialog(
+          screenContext,
+          'PASSWORD CHANGE UNAVAILABLE',
+          'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.',
+        );
+        break;
+      case DeviceKeyRetryOutcome.deviceKeyUploadFailed:
+        _showStatusDialog(
+          screenContext,
+          'PASSWORD CHANGE UNAVAILABLE',
+          'THE RECOVERY FILE COULD NOT BE UPDATED ON GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN.',
+        );
+        break;
+      case DeviceKeyRetryOutcome.publishFailed:
+        _showStatusDialog(
+          screenContext,
+          'PASSWORD CHANGE UNAVAILABLE',
+          'THE RECOVERY FILE WAS UPDATED, BUT THE PASSWORD STATE COULD NOT BE CONFIRMED WITH GITHUB. TRY AGAIN.',
+        );
+        break;
+      case DeviceKeyRetryOutcome.notApplicable:
+        _showStatusDialog(
+          screenContext,
+          'PASSWORD CHANGE UNAVAILABLE',
+          'THERE IS NOTHING PENDING TO RESUME. TRY CHANGING YOUR PASSWORD AGAIN.',
+        );
+        break;
+    }
+  }
+
   Future<void> _pushFullBackupSync() async {
     await pushAllBackupEnabledNotes(ref);
   }
@@ -1446,12 +1687,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                         PasswordStateManager
                                                 .getPendingReason() ==
                                             PendingReason.deviceKeyNotReady;
+                                    if (isDeviceKeyIssue) {
+                                      _showStatusDialogWithContinue(
+                                        screenContext,
+                                        'PASSWORD CHANGE UNAVAILABLE',
+                                        'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE IS STILL WAITING ON RECOVERY SETUP TO COMPLETE. FINISH THAT BEFORE CHANGING YOUR PASSWORD AGAIN.',
+                                        continueLabel: 'CONTINUE',
+                                        onContinue: () {
+                                          _retryHeldBackPasswordChange(
+                                            screenContext,
+                                            globalPin,
+                                            rawOldPassword,
+                                          );
+                                        },
+                                      );
+                                      return;
+                                    }
                                     _showStatusDialog(
                                       screenContext,
                                       'PASSWORD CHANGE UNAVAILABLE',
-                                      isDeviceKeyIssue
-                                          ? 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE IS STILL WAITING ON RECOVERY SETUP TO COMPLETE. FINISH THAT BEFORE CHANGING YOUR PASSWORD AGAIN.'
-                                          : 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE HASN\'T BEEN CONFIRMED WITH GITHUB YET. TRY AGAIN ONCE THAT COMPLETES, OR CHECK YOUR CONNECTION.',
+                                      'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE HASN\'T BEEN CONFIRMED WITH GITHUB YET. TRY AGAIN ONCE THAT COMPLETES, OR CHECK YOUR CONNECTION.',
                                     );
                                     return;
                                   }
@@ -2120,8 +2375,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         const SizedBox(height: 16),
         _mnemonicFieldRow(
-          controllers.sublist(0, 6),
-          focusNodes.sublist(0, 6),
+          controllers.sublist(0, 3),
+          focusNodes.sublist(0, 3),
           0,
           theme,
           setDialogState,
@@ -2130,9 +2385,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         const SizedBox(height: 8),
         _mnemonicFieldRow(
-          controllers.sublist(6, 12),
-          focusNodes.sublist(6, 12),
+          controllers.sublist(3, 6),
+          focusNodes.sublist(3, 6),
+          3,
+          theme,
+          setDialogState,
+          !locked,
+          onFieldEdited: onFieldEdited,
+        ),
+        const SizedBox(height: 8),
+        _mnemonicFieldRow(
+          controllers.sublist(6, 9),
+          focusNodes.sublist(6, 9),
           6,
+          theme,
+          setDialogState,
+          !locked,
+          onFieldEdited: onFieldEdited,
+        ),
+        const SizedBox(height: 8),
+        _mnemonicFieldRow(
+          controllers.sublist(9, 12),
+          focusNodes.sublist(9, 12),
+          9,
           theme,
           setDialogState,
           !locked,
@@ -3662,9 +3937,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           height: 1.4),
                     ),
                     const SizedBox(height: 16),
-                    _buildMnemonicWordRow(words.sublist(0, 6), theme),
+                    _buildMnemonicWordRow(words.sublist(0, 3), theme),
                     const SizedBox(height: 8),
-                    _buildMnemonicWordRow(words.sublist(6, 12), theme),
+                    _buildMnemonicWordRow(words.sublist(3, 6), theme),
+                    const SizedBox(height: 8),
+                    _buildMnemonicWordRow(words.sublist(6, 9), theme),
+                    const SizedBox(height: 8),
+                    _buildMnemonicWordRow(words.sublist(9, 12), theme),
                     const SizedBox(height: 24),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
@@ -3698,11 +3977,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildMnemonicWordRow(List<String> words, SettingsUiTheme theme) {
     return Row(
-      children: List.generate(6, (i) {
+      children: List.generate(3, (i) {
         return Expanded(
           child: Container(
-            margin: EdgeInsets.only(right: i == 5 ? 0 : 4),
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            margin: EdgeInsets.only(right: i == 2 ? 0 : 4),
+            padding: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
                 border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
             alignment: Alignment.center,
@@ -3710,7 +3989,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               words[i],
               style: TextStyle(
                   color: theme.textMain,
-                  fontSize: 9,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
@@ -3811,8 +4090,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         const SizedBox(height: 16),
                         _mnemonicFieldRow(
-                          controllers.sublist(0, 6),
-                          focusNodes.sublist(0, 6),
+                          controllers.sublist(0, 3),
+                          focusNodes.sublist(0, 3),
                           0,
                           theme,
                           setDialogState,
@@ -3821,9 +4100,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         const SizedBox(height: 8),
                         _mnemonicFieldRow(
-                          controllers.sublist(6, 12),
-                          focusNodes.sublist(6, 12),
+                          controllers.sublist(3, 6),
+                          focusNodes.sublist(3, 6),
+                          3,
+                          theme,
+                          setDialogState,
+                          !locked,
+                          onFieldEdited: () => showValidationError = false,
+                        ),
+                        const SizedBox(height: 8),
+                        _mnemonicFieldRow(
+                          controllers.sublist(6, 9),
+                          focusNodes.sublist(6, 9),
                           6,
+                          theme,
+                          setDialogState,
+                          !locked,
+                          onFieldEdited: () => showValidationError = false,
+                        ),
+                        const SizedBox(height: 8),
+                        _mnemonicFieldRow(
+                          controllers.sublist(9, 12),
+                          focusNodes.sublist(9, 12),
+                          9,
                           theme,
                           setDialogState,
                           !locked,
@@ -3952,7 +4251,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required void Function() onFieldEdited,
   }) {
     return Row(
-      children: List.generate(6, (i) {
+      children: List.generate(3, (i) {
         final TextEditingController controller = rowControllers[i];
         final FocusNode focusNode = rowFocusNodes[i];
         final String word = controller.text.trim().toLowerCase();
@@ -3962,7 +4261,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
         return Expanded(
           child: Container(
-            margin: EdgeInsets.only(right: i == 5 ? 0 : 4),
+            margin: EdgeInsets.only(right: i == 2 ? 0 : 4),
             child: TextField(
               controller: controller,
               focusNode: focusNode,
@@ -3987,7 +4286,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               decoration: InputDecoration(
                 isDense: true,
                 contentPadding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                    const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
                 hintText: '${startIndex + i + 1}',
                 hintStyle: TextStyle(color: theme.textSub, fontSize: 9),
                 enabledBorder: OutlineInputBorder(

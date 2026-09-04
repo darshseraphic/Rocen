@@ -577,6 +577,7 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
     final List<String> filesToImport = await service.listNoteFiles();
 
     filesToImport.remove('device_key.json');
+    filesToImport.remove('password_state.json');
 
     final currentBackedUpItems = ref
         .read(localDatabaseProvider)

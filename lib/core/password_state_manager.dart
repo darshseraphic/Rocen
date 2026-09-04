@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:Rocen/core/debug_log.dart' as debug_log;
 import 'package:hive_flutter/hive_flutter.dart';
+import 'crypto_engine.dart';
 import 'github_backup_service.dart';
 
 enum PasswordStateComparison {
@@ -28,6 +30,43 @@ enum ReconciliationOutcome {
   retriedPublishFailed,
   checkFailed,
   blockedOnDeviceKey,
+}
+
+/// Outcome of retrying a publish that was previously held back because
+/// device_key.json could not be rewrapped (PendingReason.deviceKeyNotReady).
+enum DeviceKeyRetryOutcome {
+  /// Nothing was pending, or it wasn't the deviceKeyNotReady case; caller
+  /// should treat this as a no-op.
+  notApplicable,
+
+  /// password_state.json is behind, ahead, or in conflict on GitHub - the
+  /// existing precondition messaging should be shown instead of retrying.
+  requiresReconciliation,
+
+  /// Could not read password_state.json from GitHub (network, auth, etc).
+  checkFailed,
+
+  /// device_key.json was rewrapped and password-state was published.
+  succeeded,
+
+  /// The rewrap or upload of device_key.json itself failed.
+  deviceKeyUploadFailed,
+
+  /// device_key.json succeeded but the password-state publish failed.
+  publishFailed,
+}
+
+class DeviceKeyRetryResult {
+  final DeviceKeyRetryOutcome outcome;
+
+  /// Populated when outcome is requiresReconciliation or checkFailed, so the
+  /// caller can reuse the standard precondition-failure messaging.
+  final PasswordStateResult? stateResult;
+
+  const DeviceKeyRetryResult({
+    required this.outcome,
+    this.stateResult,
+  });
 }
 
 class LocalRotationOrphanStatus {
@@ -787,6 +826,99 @@ class PasswordStateManager {
     await LocalRotationOrphanStatus.setOrphaned(true);
     await clearPublishPending();
     return ReconciliationOutcome.confirmedConflict;
+  }
+
+  /// Retries a publish that was previously held back because device_key.json
+  /// could not be rewrapped (PendingReason.deviceKeyNotReady).
+  ///
+  /// [currentPinHash] must be this device's CURRENT password hash (the new
+  /// one from the password change that left this pending) - it is used both
+  /// to derive the auth salt for the rewrap and, combined with
+  /// [mnemonicWords], to re-wrap device_key.json exactly as the original
+  /// password-change flow would have.
+  ///
+  /// Before touching device_key.json, this re-checks password_state.json on
+  /// GitHub. If another device has since changed the password (or the local
+  /// and remote states otherwise disagree), this returns
+  /// [DeviceKeyRetryOutcome.requiresReconciliation] with the fresh
+  /// [PasswordStateResult] instead of publishing - the caller should fall
+  /// back to the same reconciliation messaging used during a normal password
+  /// change, not silently overwrite a newer remote state.
+  static Future<DeviceKeyRetryResult> retryDeviceKeyPublish({
+    required GithubBackupService service,
+    required String currentPinHash,
+    required String currentPassword,
+    required List<String> mnemonicWords,
+  }) async {
+    if (!isPublishPending() ||
+        getPendingReason() != PendingReason.deviceKeyNotReady) {
+      return const DeviceKeyRetryResult(
+          outcome: DeviceKeyRetryOutcome.notApplicable);
+    }
+
+    final int? pendingGeneration = getPendingGeneration();
+    final String? pendingChangeId = getPendingChangeId();
+    if (pendingGeneration == null || pendingChangeId == null) {
+      await clearPublishPending();
+      return const DeviceKeyRetryResult(
+          outcome: DeviceKeyRetryOutcome.notApplicable);
+    }
+
+    final PasswordStateResult stateResult = await checkState(service);
+    if (stateResult.comparison == PasswordStateComparison.checkFailed) {
+      return DeviceKeyRetryResult(
+        outcome: DeviceKeyRetryOutcome.checkFailed,
+        stateResult: stateResult,
+      );
+    }
+    final bool checkOk =
+        stateResult.comparison == PasswordStateComparison.synchronized ||
+            stateResult.comparison == PasswordStateComparison.noRemoteStateYet;
+    if (!checkOk) {
+      return DeviceKeyRetryResult(
+        outcome: DeviceKeyRetryOutcome.requiresReconciliation,
+        stateResult: stateResult,
+      );
+    }
+
+    try {
+      final Uint8List authSalt = CryptoEngine.extractAuthSalt(currentPinHash);
+      final KdfParams params = CryptoEngine.currentEncryptionParams();
+      final Map<String, String> rewrapped =
+          await CryptoEngine.wrapDeviceKeyWithParams(
+        authSaltBytes: authSalt,
+        password: currentPassword,
+        mnemonicWords: mnemonicWords,
+        params: params,
+      );
+
+      await service.amendSync(
+        upsertFiles: {'device_key.json': jsonEncode(rewrapped)},
+        message: 'password rotation - device key retry',
+      );
+    } catch (_) {
+      return const DeviceKeyRetryResult(
+          outcome: DeviceKeyRetryOutcome.deviceKeyUploadFailed);
+    }
+
+    try {
+      final String deviceId = getOrCreateDeviceId();
+      await publishNewState(
+        service: service,
+        newGeneration: pendingGeneration,
+        newChangeId: pendingChangeId,
+        deviceId: deviceId,
+        expectedParentSha: stateResult.observedRefSha,
+      );
+      await recordKnownState(
+          generation: pendingGeneration, changeId: pendingChangeId);
+      await clearPublishPending();
+      return const DeviceKeyRetryResult(
+          outcome: DeviceKeyRetryOutcome.succeeded);
+    } catch (_) {
+      return const DeviceKeyRetryResult(
+          outcome: DeviceKeyRetryOutcome.publishFailed);
+    }
   }
 
   static Future<bool> isPushAllowed(GithubBackupService service) async {
