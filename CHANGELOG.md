@@ -1,8 +1,8 @@
 # Changelog
 
-## [0.4.0-alpha] — Code Quality, Sync Safety & Recovery UX Fixes
+## [0.4.0-alpha] — Code Quality, Sync Safety, Recovery UX & Clipboard Media Overhaul
 
-This release fixes analyzer-flagged code issues across several screens, closes a gap where syncing from GitHub could pull down and expose internal security files, and resolves a case where an interrupted password change could leave the app permanently unable to complete a new password change.
+This release fixes analyzer-flagged code issues across several screens, closes a gap where syncing from GitHub could pull down and expose internal security files, resolves a case where an interrupted password change could leave the app permanently unable to complete a new password change, and adds full video support alongside a rebuilt zoom/rotation/edit/crop workflow in Clipboard's full-screen media viewer.
 
 ### Code Quality
 
@@ -26,6 +26,52 @@ This release fixes analyzer-flagged code issues across several screens, closes a
 - Increased the height of each word box in the 12-word recovery-phrase dialogs (entry and display) from a cramped 6-words-per-row, 2-row layout to a 3-words-per-row, 4-row layout, without changing the dialog's width, so longer BIP-39 words are no longer clipped.
 - Increased the font size of the words shown in the "write these down" recovery-phrase display dialog from 9 to 12 for better readability.
 - Preserved all existing brutalist/minimal dialog styling (borders, spacing, button treatment) across these changes.
+
+### Clipboard: Image + Video Support
+
+- Clipboard's gallery and import pickers now request and accept both images and videos, not images only.
+- Gallery and imported-media grids show a small play-icon overlay on video thumbnails.
+- Added a full-screen video player (play, pause, seek via a scrubbable progress bar) using `video_player`, replacing the broken `Image.file` attempt on video files in the imported grid.
+- Fixed video playback flicker on play/pause/replay: the video controller's `Future` was being recreated on every rebuild, which repeatedly bounced `FutureBuilder` back to its loading state; the future is now cached per item so this no longer happens.
+- Fixed the video progress bar rendering mid-video instead of above the toolbar, and set its color to theme-aware black/white instead of the package's default red.
+- Added ROTATE support for video (rotates only the video content, not the fixed controls), automatically hidden while that video is actively playing so it's never tappable mid-playback.
+
+### Clipboard: Full-Screen Viewer, Zoom, Rotation & Toolbar
+
+- Added double-tap zoom that anchors at the exact tap location (previously it always zoomed from a fixed corner regardless of where the user tapped).
+- Zoom now bounces 1x → 2x → 3x → 2x → 1x on repeated double-taps, replacing an earlier wrap-around cycle.
+- Manual pinch-to-zoom and the normal action toolbar's visibility are mutually exclusive, as originally specified; single-tap now fully blocks page-swipe navigation whenever the toolbar is hidden.
+- Fixed the normal action toolbar to an exact 64px height with SHARE-EDIT-LIKE-BIN-COPY in five evenly divided slots, with safe-area inset handled as separate space outside that 64px rather than inflating it.
+- Added image rotation (0°→90°→180°→270°→0°) that rotates only the media content; fixed navigation controls and toolbars never rotate.
+- Fixed a gallery/imported-media loading performance issue: the app previously fetched every asset in the library in one call, taking 10-15+ seconds on a library of 3000+ photos and 500+ videos, and re-doing the same full fetch on every manual refresh. Loading is now windowed (90 assets per page), with more pages fetched automatically as the grid is scrolled near its end.
+- Added a fast thumbnail-first display in the full-screen image viewer: the already-cached grid thumbnail shows instantly while the full-resolution file decodes in the background and fades in.
+
+### Clipboard: Copy to Clipboard
+
+- Implemented real system-clipboard image copying via `super_clipboard`, replacing the earlier non-functional attempt.
+- Diagnosed and fixed the Android integration gap that made COPY silently do nothing while still showing a "COPIED" confirmation: the app's `minSdkVersion` was below `super_clipboard`'s required minimum of 23, and the required `super_native_extensions` content provider was missing from `AndroidManifest.xml`. Both are now correctly configured.
+- COPY shows a brief "COPIED" notice (~500ms, auto-dismissing) only after a real clipboard write succeeds; genuine failures are reported honestly rather than shown as success.
+
+### Clipboard: Crop
+
+- Added interactive image cropping: a draggable, resizable crop rectangle with a handle on all four corners (previously only the bottom-right corner was resizable, and dragging the rectangle itself only worked when grabbing its exact border pixels rather than anywhere inside it).
+- Fixed cropped images never appearing anywhere — not in the app, not in the device's file manager — despite the save reporting success. The original implementation wrote into the device-gallery asset's own plugin-managed cache directory, which is volatile, private, and not something other tools can see. Cropped images are now saved through `saver_gallery` into the device's public Pictures/Rocen album via MediaStore, exactly like a normal saved photo.
+- Fixed a crop-quality bug where repeatedly re-cropping an already-cropped image would leave a visible black gap between the photo and its frame, most noticeable on small images: the crop overlay's sizing was locked in from its very first layout pass and never recalculated; it now recalculates until the user starts actively dragging, and rotation-aware sizing is now computed explicitly rather than relying on implicit widget layout behavior.
+- Fixed a black-screen flicker when opening the crop tool: the image dimension lookup was being redone from scratch on every rebuild and briefly hid the photo behind a blank loading screen; it's now computed once, and the photo stays visible with a small spinner while it resolves.
+- Added a "DONE" confirmation notice after a successful crop, matching the existing "COPIED" notice style.
+- Repositioned the crop confirm/cancel buttons and the edit toolbar's CROP control, which the 64px toolbar change had left overlapping the crop image and, in some cases, floating mid-image instead of just above the toolbar.
+- CROP remains visibly disabled and non-interactive for video, per the original design.
+
+### Android Configuration
+
+- Added the `READ_MEDIA_VIDEO` permission so video assets are genuinely returned after permission approval, alongside the existing `READ_MEDIA_IMAGES` and `READ_MEDIA_VISUAL_USER_SELECTED` permissions.
+- Added the `super_native_extensions` content provider declaration required by `super_clipboard`, using the project's actual `applicationId`.
+- Raised `minSdkVersion` to 23 via `flutter.minSdkVersion` in `local.properties`, the required floor for `super_clipboard`.
+- Diagnosed and fixed an unrelated pre-existing build issue found during this work: a casing mismatch between `namespace` (`Rocen`) and `applicationId` (`rocen`) in `build.gradle.kts` was causing `ClassNotFoundException: MainActivity` on install; aligned both to lowercase `rocen` to match the Kotlin package folder and the app's existing channel-name convention.
+
+### Dependencies
+
+- Added `video_player`, `image`, `super_clipboard`, and `saver_gallery` — no existing dependency covered video playback, pixel-level image cropping, or binary/gallery clipboard writes.
 
 ## [0.4.0] — Security, Backup & UI/UX Overhaul
 
