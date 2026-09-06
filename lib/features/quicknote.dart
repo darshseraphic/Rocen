@@ -577,7 +577,6 @@ Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
     final List<String> filesToImport = await service.listNoteFiles();
 
     filesToImport.remove('device_key.json');
-    filesToImport.remove('password_state.json');
 
     final currentBackedUpItems = ref
         .read(localDatabaseProvider)
@@ -745,9 +744,8 @@ String _formatTimeAgo(DateTime timestamp) {
   if (diff.inMinutes < 1) return 'JUST NOW';
   if (diff.inMinutes < 60) return '${diff.inMinutes} MIN AGO';
   if (diff.inHours < 24) return '${diff.inHours} HR AGO';
-  if (diff.inDays < 30) {
+  if (diff.inDays < 30)
     return '${diff.inDays} DAY${diff.inDays == 1 ? '' : 'S'} AGO';
-  }
   return '${(diff.inDays / 30).floor()} MO AGO';
 }
 
@@ -863,7 +861,7 @@ Future<void> showConflictResolutionDialog(
                                                 : 'THIS DEVICE: ${_formatTimeAgo(c.localTimestamp)}   ·   BACKUP: ${_formatTimeAgo(c.remoteTimestamp)}',
                                             style: TextStyle(
                                               color: theme.textMain
-                                                  .withValues(alpha: 0.6),
+                                                  .withOpacity(0.6),
                                               fontSize: 9,
                                               letterSpacing: 0.02,
                                             ),
@@ -1092,9 +1090,8 @@ Future<void> performRefresh(
       }
       onPhase?.call('DECRYPT');
       final PullResult? result = await pullAndReconcileNotes(ref);
-      if (result == null) {
+      if (result == null)
         throw RefreshFailure('COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
-      }
 
       if (result.pendingRemoteNotes.isNotEmpty) {
         pendingRemoteNotes = result.pendingRemoteNotes;
@@ -1253,9 +1250,8 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   Future<void> _performTitleCheck(String title) async {
     final bool taken =
         ref.read(localDatabaseProvider.notifier).titleExists(title);
-    if (mounted) {
+    if (mounted)
       setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
-    }
   }
 
   void _enforceKeyRotationPurge() {
@@ -1310,7 +1306,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
         return;
       }
       finalPayload = await CryptoEngine.encryptProcess(cleanBody, globalPin);
-      if (!mounted) return;
     }
 
     if (_isBackupEnabled) {
@@ -1476,7 +1471,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
             return Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withValues(alpha: 0.2),
+                  selectionColor: theme.textMain.withOpacity(0.2),
                   selectionHandleColor: theme.textMain,
                   cursorColor: theme.textMain,
                 ),
@@ -1618,7 +1613,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                     } catch (_) {
                                       rawContent = 'DECRYPTION FAULT';
                                     }
-                                    if (!screenContext.mounted) return;
                                     final unpackedItem = CaptureItem(
                                       id: item.id,
                                       title: item.title,
@@ -1997,7 +1991,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: theme.textMain.withValues(alpha: 0.2),
+          selectionColor: theme.textMain.withOpacity(0.2),
           selectionHandleColor: theme.textMain,
         ),
       ),
@@ -2022,9 +2016,8 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             ref,
                             context,
                             onPhase: (phase) {
-                              if (mounted) {
+                              if (mounted)
                                 setState(() => _refreshLabel = phase);
-                              }
                             },
                           ),
                   child: Container(
@@ -2290,7 +2283,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                                   text: '-- UPDATED  ',
                                                   style: TextStyle(
                                                     color: theme.textMain
-                                                        .withValues(alpha: 0.7),
+                                                        .withOpacity(0.7),
                                                     fontSize: 9,
                                                     fontWeight: FontWeight.w700,
                                                     letterSpacing: 0.03,
@@ -2526,9 +2519,8 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     final bool taken = ref
         .read(localDatabaseProvider.notifier)
         .titleExists(title, excludingId: widget.item.id);
-    if (mounted) {
+    if (mounted)
       setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
-    }
   }
 
   void _onTextChanged() {
@@ -2603,7 +2595,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
 
       final bool online = await hasInternetConnection();
       if (!online) {
-        if (!mounted) return;
+        if (!context.mounted) return;
         showAcknowledgeDialog(
           context,
           isDark,
@@ -2630,7 +2622,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: theme.textMain.withValues(alpha: 0.2),
+          selectionColor: theme.textMain.withOpacity(0.2),
           selectionHandleColor: theme.textMain,
         ),
       ),

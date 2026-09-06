@@ -1,4 +1,4 @@
-package com.darshseraphic.Rocen
+package com.darshseraphic.rocen
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo

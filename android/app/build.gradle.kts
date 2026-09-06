@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.darshseraphic.Rocen"
+    namespace = "com.darshseraphic.rocen"
 
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
@@ -35,7 +35,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
 
             isMinifyEnabled = true
             isShrinkResources = true
