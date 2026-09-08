@@ -93,6 +93,8 @@ Every screen shares the same visual language: sharp 0.8px borders, uppercase mon
 
 This is the part that actually matters, so it gets the longest section. Every claim below reflects what the code actually does, not aspirational design goals.
 
+_The app is under-security Audit and we find some, please be ensure, that you check the security/ before proceeding to download, if still you are downloading the app, please ensure that you created the backup of your note as next update changing the security format and workflow that can courrpt your data._
+
 #### 4.1 The Password
 
 Your cryptography password is **8 to 32 ASCII characters**, with composition rules that are deliberately strict — not just "one of each type," but:
