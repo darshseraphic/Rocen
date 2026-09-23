@@ -132,6 +132,14 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                     const SizedBox(height: 8),
                     Divider(color: ruleBorder, height: 1, thickness: 0.8),
                     const SizedBox(height: 20),
+                    if (!protectedApplicationPersistenceAvailable)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          'PROTECTED EVENT PERSISTENCE IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE EXISTS.',
+                          style: TextStyle(color: textSub, fontSize: 10),
+                        ),
+                      ),
                     TextField(
                       controller: titleController,
                       style: TextStyle(color: textMain, fontSize: 14),
@@ -200,37 +208,47 @@ class _IdeaInboxScreenState extends ConsumerState<IdeaInboxScreen> {
                           shape: const RoundedRectangleBorder(
                               borderRadius: BorderRadius.zero),
                         ),
-                        onPressed: () async {
-                          final title = titleController.text.trim();
-                          final description = descController.text.trim();
+                        onPressed: protectedApplicationPersistenceAvailable
+                            ? () async {
+                                final title = titleController.text.trim();
+                                final description = descController.text.trim();
+                                bool saved = true;
 
-                          if (title.isNotEmpty || description.isNotEmpty) {
-                            if (existingItem != null) {
-                              await ref
-                                  .read(localDatabaseProvider.notifier)
-                                  .updateItem(
-                                    existingItem.id,
-                                    description,
-                                    title: title,
-                                  );
-                            } else {
-                              await ref
-                                  .read(localDatabaseProvider.notifier)
-                                  .insertItem(
-                                    description,
-                                    'matrix_event:$dateKey',
-                                    title: title,
-                                  );
-                            }
-                          } else {
-                            if (existingItem != null) {
-                              await ref
-                                  .read(localDatabaseProvider.notifier)
-                                  .deleteItem(existingItem.id);
-                            }
-                          }
-                          if (context.mounted) Navigator.pop(context);
-                        },
+                                if (title.isNotEmpty || description.isNotEmpty) {
+                                  if (existingItem != null) {
+                                    saved = await ref
+                                        .read(localDatabaseProvider.notifier)
+                                        .updateItem(
+                                          existingItem.id,
+                                          description,
+                                          title: title,
+                                        );
+                                  } else {
+                                    saved = await ref
+                                        .read(localDatabaseProvider.notifier)
+                                        .insertItem(
+                                          description,
+                                          'matrix_event:$dateKey',
+                                          title: title,
+                                        );
+                                  }
+                                } else if (existingItem != null) {
+                                  saved = await ref
+                                      .read(localDatabaseProvider.notifier)
+                                      .deleteItem(existingItem.id);
+                                }
+
+                                if (!saved) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('NOT SAVED: PROTECTED PERSISTENCE IS UNAVAILABLE.')),
+                                    );
+                                  }
+                                  return;
+                                }
+                                if (context.mounted) Navigator.pop(context);
+                              }
+                            : null,
                         child: Text(
                           'COMMIT',
                           style: TextStyle(

@@ -509,7 +509,7 @@ class _ClipMediaViewerState extends ConsumerState<_ClipMediaViewer>
       if (!mounted) return;
 
       if (saveResult.savedUri == null) {
-        debugPrint('Crop save reported no saved URI: $saveResult');
+        debugPrint('Crop save reported no saved URI.');
         _showFailureNotice(
             'CROP SAVE FAILED. THE ORIGINAL FILE WAS NOT CHANGED.');
         return;
@@ -520,7 +520,7 @@ class _ClipMediaViewerState extends ConsumerState<_ClipMediaViewer>
       _exitEditMode();
       _showBriefNotice('DONE');
     } catch (e) {
-      debugPrint('Crop save exception: $e');
+      debugPrint('Crop save exception: protected gallery operation failed.');
       if (mounted) {
         _showFailureNotice(
             'CROP SAVE FAILED. THE ORIGINAL FILE WAS NOT CHANGED.');
@@ -929,10 +929,12 @@ class _ClipMediaViewerState extends ConsumerState<_ClipMediaViewer>
                       label: 'LIKE',
                       icon: isLiked ? Icons.favorite : Icons.favorite_border,
                       color: iconColor,
-                      onTap: () async {
-                        await widget.actions.toggleLike(media);
-                        if (mounted) setState(() {});
-                      },
+                      onTap: protectedApplicationPersistenceAvailable
+                          ? () async {
+                              await widget.actions.toggleLike(media);
+                              if (mounted) setState(() {});
+                            }
+                          : null,
                     ),
                     _toolbarAction(
                       label: 'BIN',
@@ -961,7 +963,7 @@ class _ClipMediaViewerState extends ConsumerState<_ClipMediaViewer>
     required String label,
     required IconData icon,
     required Color color,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     return Expanded(
       child: InkWell(
@@ -1750,7 +1752,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         _preloadTopThumbnails(firstWindow);
       }
     } catch (e) {
-      debugPrint('Media registry processing exception: $e');
+      debugPrint('Media registry processing exception: gallery read failed.');
     } finally {
       if (mounted) setState(() => _isLoadingGallery = false);
     }
@@ -1779,7 +1781,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
       });
       _preloadTopThumbnails(nextWindow);
     } catch (e) {
-      debugPrint('Media registry pagination exception: $e');
+      debugPrint('Media registry pagination exception: gallery read failed.');
     } finally {
       if (mounted) setState(() => _isLoadingMoreGallery = false);
     }
@@ -1826,6 +1828,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   Future<void> _importSelectedMedia() async {
+    if (!protectedApplicationPersistenceAvailable) {
+      _showAcknowledgeDialog(
+        'IMPORT BLOCKED',
+        'PROTECTED MEDIA-REFERENCE PERSISTENCE IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE EXISTS.',
+      );
+      return;
+    }
     try {
       final FilePickerResult? result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
@@ -1850,15 +1859,21 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         final List<String> chosenPaths =
             result.paths.whereType<String>().toList();
         if (chosenPaths.isNotEmpty) {
-          await ref
+          final bool saved = await ref
               .read(localDatabaseProvider.notifier)
               .insertMultipleItems(chosenPaths, 'imported_clip');
+          if (!saved && mounted) {
+            _showAcknowledgeDialog(
+              'IMPORT NOT SAVED',
+              'PROTECTED MEDIA-REFERENCE PERSISTENCE IS UNAVAILABLE. NO PATHS WERE STORED.',
+            );
+          }
         }
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('ERROR: ${e.toString().toUpperCase()}')));
+            const SnackBar(content: Text('IMPORT FAILED. NO PROTECTED DATA WAS SAVED.')));
       }
     }
   }
@@ -1885,9 +1900,16 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
           _refreshGallery();
         }
       } catch (e) {
-        debugPrint('Bulk gallery clear processing crash: $e');
+        debugPrint('Bulk gallery clear failed.');
       }
     } else {
+      if (!protectedApplicationPersistenceAvailable) {
+        _showAcknowledgeDialog(
+          'DELETE BLOCKED',
+          'PROTECTED MEDIA-REFERENCE PERSISTENCE IS UNAVAILABLE. NO IMPORTED FILE WAS DELETED.',
+        );
+        return;
+      }
       if (_selectedImportedIds.isEmpty) return;
       try {
         final allItems = ref.read(localDatabaseProvider);
@@ -1904,12 +1926,19 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
           _isSelectMode = false;
         });
       } catch (e) {
-        debugPrint('Bulk isolated target clear processing crash: $e');
+        debugPrint('Bulk protected-reference clear failed.');
       }
     }
   }
 
   Future<void> _handleBulkLike() async {
+    if (!protectedApplicationPersistenceAvailable) {
+      _showAcknowledgeDialog(
+        'MEDIA ACTION BLOCKED',
+        'PROTECTED MEDIA-REFERENCE PERSISTENCE IS UNAVAILABLE. NO WORKSPACE REFERENCE WAS SAVED.',
+      );
+      return;
+    }
     final bool hasSelection = _activePageIndex == 0
         ? _selectedGalleryIds.isNotEmpty
         : _selectedImportedIds.isNotEmpty;
@@ -1928,9 +1957,18 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         if (file != null) pathsToInsert.add(file.path);
       }
       if (pathsToInsert.isNotEmpty) {
-        await ref
+        final bool saved = await ref
             .read(localDatabaseProvider.notifier)
             .insertMultipleItems(pathsToInsert, 'imported_clip');
+        if (!saved) {
+          if (mounted) {
+            _showAcknowledgeDialog(
+              'MEDIA NOT SAVED',
+              'PROTECTED MEDIA-REFERENCE PERSISTENCE IS UNAVAILABLE. NO PATHS WERE STORED.',
+            );
+          }
+          return;
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content:
@@ -1951,6 +1989,13 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
   }
 
   Future<void> _handleBulkDislike() async {
+    if (!protectedApplicationPersistenceAvailable) {
+      _showAcknowledgeDialog(
+        'MEDIA ACTION BLOCKED',
+        'PROTECTED MEDIA-REFERENCE PERSISTENCE IS UNAVAILABLE. NO WORKSPACE REFERENCE WAS CHANGED.',
+      );
+      return;
+    }
     final bool hasSelection = _activePageIndex == 0
         ? _selectedGalleryIds.isNotEmpty
         : _selectedImportedIds.isNotEmpty;
@@ -2046,7 +2091,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
             _refreshGallery();
           }
         } catch (e) {
-          debugPrint('Native deletion exception: $e');
+          debugPrint('Native gallery deletion failed.');
         }
       },
       deleteConfirmTitle: 'DELETE IMAGE',
@@ -2113,6 +2158,9 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
         }
       },
       delete: (media) async {
+        if (!protectedApplicationPersistenceAvailable) {
+          return;
+        }
         final currentItem = items.firstWhere((i) => i.id == media.id);
         try {
           final file = File(currentItem.content);
@@ -2123,7 +2171,7 @@ class _ClipboardScreenState extends ConsumerState<ClipboardScreen> {
               .read(localDatabaseProvider.notifier)
               .deleteItem(currentItem.id);
         } catch (e) {
-          debugPrint('Local file deletion error: $e');
+          debugPrint('Local protected-reference deletion failed.');
         }
       },
       deleteConfirmTitle: 'DELETE IMAGE',

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import '../core/database.dart';
 import '../main.dart';
 
 class TodoItem {
@@ -14,18 +14,6 @@ class TodoItem {
     this.isCompleted = false,
   });
 
-  Map<String, dynamic> toMap() => {
-        'id': id,
-        'text': text,
-        'isCompleted': isCompleted,
-      };
-
-  factory TodoItem.fromMap(Map<String, dynamic> map) => TodoItem(
-        id: map['id'] ?? '',
-        text: map['text'] ?? '',
-        isCompleted: map['isCompleted'] ?? false,
-      );
-
   TodoItem copyWith({String? id, String? text, bool? isCompleted}) {
     return TodoItem(
       id: id ?? this.id,
@@ -36,55 +24,25 @@ class TodoItem {
 }
 
 class TodoNotifier extends Notifier<List<TodoItem>> {
-  static const String _boxName = 'rocen_todos_box';
+  static const String protectedDataUnavailableMessage =
+      'PROTECTED TODO PERSISTENCE IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE EXISTS.';
 
   @override
-  List<TodoItem> build() {
-    _initAndLoad();
-    return [];
-  }
+  List<TodoItem> build() => <TodoItem>[];
 
-  Future<void> _initAndLoad() async {
-    final box = await Hive.openBox(_boxName);
-    final List<dynamic>? storedRaw = box.get('tasks');
-
-    if (storedRaw != null && storedRaw.isNotEmpty) {
-      state = storedRaw
-          .map((item) => TodoItem.fromMap(Map<String, dynamic>.from(item)))
-          .toList();
+  Future<bool> addTask(String text) async {
+    if (!protectedApplicationPersistenceAvailable || text.trim().isEmpty) {
+      return false;
     }
+    return false;
   }
 
-  Future<void> addTask(String text) async {
-    if (text.trim().isEmpty) return;
-
-    final newItem = TodoItem(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      text: text.trim(),
-    );
-
-    state = [...state, newItem];
-    await _saveToDisk();
+  Future<bool> toggleTask(String id) async {
+    return false;
   }
 
-  Future<void> toggleTask(String id) async {
-    state = state.map((item) {
-      if (item.id == id) {
-        return item.copyWith(isCompleted: !item.isCompleted);
-      }
-      return item;
-    }).toList();
-    await _saveToDisk();
-  }
-
-  Future<void> deleteTask(String id) async {
-    state = state.where((item) => item.id != id).toList();
-    await _saveToDisk();
-  }
-
-  Future<void> _saveToDisk() async {
-    final box = Hive.box(_boxName);
-    await box.put('tasks', state.map((e) => e.toMap()).toList());
+  Future<bool> deleteTask(String id) async {
+    return false;
   }
 }
 
@@ -101,8 +59,11 @@ class BookmarksScreen extends ConsumerStatefulWidget {
 class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
   final TextEditingController _taskController = TextEditingController();
 
-  void _submitTask() {
-    ref.read(todoProvider.notifier).addTask(_taskController.text);
+  Future<void> _submitTask() async {
+    if (!protectedApplicationPersistenceAvailable) return;
+    final bool saved =
+        await ref.read(todoProvider.notifier).addTask(_taskController.text);
+    if (!saved || !mounted) return;
     _taskController.clear();
   }
 
@@ -156,6 +117,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                   Expanded(
                     child: TextField(
                       controller: _taskController,
+                      enabled: protectedApplicationPersistenceAvailable,
                       style: TextStyle(color: textMain, fontSize: 13),
                       cursorColor: textMain,
                       decoration: InputDecoration(
@@ -171,7 +133,7 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                     ),
                   ),
                   GestureDetector(
-                    onTap: _submitTask,
+                    onTap: protectedApplicationPersistenceAvailable ? _submitTask : null,
                     behavior: HitTestBehavior.opaque,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -190,6 +152,14 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                 ],
               ),
             ),
+            if (!protectedApplicationPersistenceAvailable)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  TodoNotifier.protectedDataUnavailableMessage,
+                  style: TextStyle(color: textSub, fontSize: 10),
+                ),
+              ),
             Divider(color: borderColor, height: 32, thickness: 0.8),
             Expanded(
               child: tasks.isEmpty
@@ -219,9 +189,11 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                               Expanded(
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
-                                  onTap: () => ref
-                                      .read(todoProvider.notifier)
-                                      .toggleTask(item.id),
+                                  onTap: protectedApplicationPersistenceAvailable
+                                      ? () => ref
+                                          .read(todoProvider.notifier)
+                                          .toggleTask(item.id)
+                                      : null,
                                   child: Row(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.center,
@@ -297,9 +269,11 @@ class _BookmarksScreenState extends ConsumerState<BookmarksScreen> {
                               ),
                               const SizedBox(width: 12),
                               GestureDetector(
-                                onTap: () => ref
-                                    .read(todoProvider.notifier)
-                                    .deleteTask(item.id),
+                                onTap: protectedApplicationPersistenceAvailable
+                                    ? () => ref
+                                        .read(todoProvider.notifier)
+                                        .deleteTask(item.id)
+                                    : null,
                                 child: Padding(
                                   padding: const EdgeInsets.all(4.0),
                                   child: Icon(Icons.close,

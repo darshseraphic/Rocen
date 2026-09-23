@@ -11,8 +11,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import '../core/database.dart';
 import '../core/crypto_engine.dart';
+import '../core/master_key_local_store.dart';
+import '../core/master_key_production_service.dart';
+import '../core/password_key_derivation.dart';
 import '../core/github_backup_service.dart';
-import '../core/password_state_manager.dart';
 import '../core/debug_log.dart';
 import 'quicknote.dart';
 import '../main.dart';
@@ -73,14 +75,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _launchWebsiteUrl() async {
     final Uri url = Uri.parse('https://rocen.lovable.app/');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      secureDebugLog('System Error: Could not execute route handshake to $url');
+      secureDebugLog('External route launch failed.');
     }
   }
 
   Future<void> _launchFeedbackUrl() async {
     final Uri url = Uri.parse('https://rocen.lovable.app/feedback');
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      secureDebugLog('System Error: Could not execute route handshake to $url');
+      secureDebugLog('External route launch failed.');
     }
   }
 
@@ -94,16 +96,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return 'SYSTEM LOCKED - WAIT $remainingTime SECONDS';
     }
     return null;
-  }
-
-  Future<void> _purgeEncryptedNotesOnBruteForce() async {
-    final currentItems = ref.read(localDatabaseProvider);
-    final targetsToPurge =
-        currentItems.where((item) => item.type == 'encrypted_note').toList();
-
-    for (var target in targetsToPurge) {
-      await ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
-    }
   }
 
   void _showAcknowledgeDialog(
@@ -374,199 +366,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  /// Resolves a password change that was left pending because device_key.json
-  /// could not be rewrapped after the person cancelled the recovery-phrase
-  /// step. Prompts for the 12 words again and, if password_state.json on
-  /// GitHub is still in a state that allows it, finishes the rewrap and
-  /// publish that the earlier change was waiting on.
-  Future<void> _retryHeldBackPasswordChange(
-    BuildContext screenContext,
-    String currentPinHash,
-    String currentPassword,
-  ) async {
-    final isDark = ref.read(themeProvider);
-
-    final List<String>? mnemonicWords =
-        await _promptMnemonicRecovery(screenContext);
-    if (mnemonicWords == null) {
-      return;
-    }
-    if (!screenContext.mounted) return;
-
-    _showSavingIndicatorDialog(screenContext, isDark, status: 'VERIFYING...');
-    await Future.delayed(const Duration(milliseconds: 120));
-    if (!screenContext.mounted) return;
-
-    final GithubBackupService? service =
-        await _buildGithubServiceFromStoredCredentials(currentPinHash);
-
-    DeviceKeyRetryResult? retryResult;
-    if (service != null) {
-      retryResult = await PasswordStateManager.retryDeviceKeyPublish(
-        service: service,
-        currentPinHash: currentPinHash,
-        currentPassword: currentPassword,
-        mnemonicWords: mnemonicWords,
-      );
-    }
-
-    if (screenContext.mounted) {
-      Navigator.of(screenContext, rootNavigator: true).pop();
-    }
-    await Future.delayed(Duration.zero);
-    if (!screenContext.mounted) return;
-
-    if (service == null || retryResult == null) {
-      _showStatusDialog(
-        screenContext,
-        'PASSWORD CHANGE UNAVAILABLE',
-        'COULD NOT VERIFY YOUR STORED GITHUB CREDENTIALS. CHECK YOUR CONNECTION AND TRY AGAIN.',
-      );
-      return;
-    }
-
-    switch (retryResult.outcome) {
-      case DeviceKeyRetryOutcome.succeeded:
-        _showAcknowledgeDialog(
-          screenContext,
-          'PASSWORD UPDATED',
-          'YOUR PENDING PASSWORD CHANGE HAS BEEN CONFIRMED WITH GITHUB.',
-        );
-        break;
-      case DeviceKeyRetryOutcome.requiresReconciliation:
-        {
-          final PasswordStateComparison? comparison =
-              retryResult.stateResult?.comparison;
-          final String message;
-          switch (comparison) {
-            case PasswordStateComparison.behindRemote:
-              message =
-                  'YOUR PASSWORD WAS ALREADY CHANGED ON ANOTHER DEVICE${retryResult.stateResult?.remoteChangedByDeviceId != null ? " (${retryResult.stateResult!.remoteChangedByDeviceId})" : ""}. ENTER THE CURRENT PASSWORD AND YOUR RECOVERY PHRASE TO UPDATE THIS DEVICE BEFORE CHANGING IT AGAIN.';
-              break;
-            case PasswordStateComparison.conflict:
-              message =
-                  'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. RESOLVE THIS BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.';
-              break;
-            case PasswordStateComparison.remoteStateBehind:
-              message =
-                  'THE PASSWORD STATE ON GITHUB APPEARS OLDER THAN WHAT THIS DEVICE ALREADY KNOWS. THIS USUALLY MEANS THE SHARED FILE WAS REVERTED OR RESTORED FROM AN OLD BACKUP. THIS IS NOT SOMETHING THE APP WILL FIX AUTOMATICALLY — PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD.';
-              break;
-            case PasswordStateComparison.remoteStateMissing:
-              message =
-                  'THIS DEVICE HAS A PASSWORD GENERATION ON RECORD, BUT THE SHARED PASSWORD STATE FILE IS MISSING FROM GITHUB. THIS IS NOT TREATED AS A FRESH SETUP. PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD — THE APP WILL NOT RECREATE THIS FILE AUTOMATICALLY.';
-              break;
-            default:
-              message = 'PASSWORD CHANGE UNAVAILABLE.';
-              break;
-          }
-          _showStatusDialog(
-            screenContext,
-            'PASSWORD CHANGE UNAVAILABLE',
-            message,
-          );
-        }
-        break;
-      case DeviceKeyRetryOutcome.checkFailed:
-        _showStatusDialog(
-          screenContext,
-          'PASSWORD CHANGE UNAVAILABLE',
-          'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.',
-        );
-        break;
-      case DeviceKeyRetryOutcome.deviceKeyUploadFailed:
-        _showStatusDialog(
-          screenContext,
-          'PASSWORD CHANGE UNAVAILABLE',
-          'THE RECOVERY FILE COULD NOT BE UPDATED ON GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN.',
-        );
-        break;
-      case DeviceKeyRetryOutcome.publishFailed:
-        _showStatusDialog(
-          screenContext,
-          'PASSWORD CHANGE UNAVAILABLE',
-          'THE RECOVERY FILE WAS UPDATED, BUT THE PASSWORD STATE COULD NOT BE CONFIRMED WITH GITHUB. TRY AGAIN.',
-        );
-        break;
-      case DeviceKeyRetryOutcome.notApplicable:
-        _showStatusDialog(
-          screenContext,
-          'PASSWORD CHANGE UNAVAILABLE',
-          'THERE IS NOTHING PENDING TO RESUME. TRY CHANGING YOUR PASSWORD AGAIN.',
-        );
-        break;
-    }
-  }
-
   Future<void> _pushFullBackupSync() async {
     await pushAllBackupEnabledNotes(ref);
   }
 
   Future<void> _handleDataExport() async {
-    unawaited(_pushFullBackupSync());
-
-    try {
-      final String serializedJson =
-          ref.read(localDatabaseProvider.notifier).exportToSchemaJson();
-      final String timestamp =
-          DateTime.now().toString().split(' ').first.replaceAll('-', '_');
-      final String fileName = 'ROCEN_WORKSPACE_BACKUP_$timestamp.json';
-
-      final String? outputPath = await FilePicker.platform.saveFile(
-        dialogTitle: 'SAVE BACKUP FILE',
-        fileName: fileName,
-        bytes: Uint8List.fromList(utf8.encode(serializedJson)),
-      );
-
-      if (outputPath != null && mounted) {
-        _showStatusDialog(
-          context,
-          'EXPORT SUCCESSFUL',
-          'YOUR LOCAL WORKSPACE SCHEMA HAS BEEN SERIALIZED AND RECORDED SAFELY TO DISK DESTINATION PATH.',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        _showStatusDialog(context, 'EXPORT FAIL',
-            'CRITICAL ERROR INITIALIZING SEQUENCE: ${e.toString()}');
-      }
-    }
+    if (!mounted) return;
+    _showStatusDialog(
+      context,
+      'EXPORT UNAVAILABLE',
+      'PROTECTED WORKSPACE EXPORT IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE IS IMPLEMENTED. ROCEN WILL NOT EXPORT PLAINTEXT OR TEMPORARY CIPHERTEXT.',
+    );
   }
 
   Future<void> _handleDataImport() async {
-    try {
-      final FilePickerResult? result =
-          await FilePicker.platform.pickFiles(type: FileType.any);
-
-      if (result == null || result.files.single.path == null) return;
-
-      final File pickedFile = File(result.files.single.path!);
-      final String fileContents = await pickedFile.readAsString();
-
-      final bool isSuccess = await ref
-          .read(localDatabaseProvider.notifier)
-          .importFromSchemaJson(fileContents);
-
-      if (mounted) {
-        if (isSuccess) {
-          _showStatusDialog(
-            context,
-            'RESTORE SUCCESSFUL',
-            'DATABASE TRANSACTION COMPLETE. ALL WORKSPACE CACHE HAS BEEN SUCCESSFULLY RESTORED AND LOADED INTO REACTIVE SYSTEM CONTEXT.',
-          );
-        } else {
-          _showStatusDialog(
-            context,
-            'RESTORE ERROR',
-            'THE SELECTION PROVIDED FAILED VALIDATION CHECKS due to corrupt encoding OR STRUCTURAL COMPOSITION MISMATCH.',
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        _showStatusDialog(context, 'IMPORT FAIL',
-            'PROCESS ABORTED DUE TO ENCODING EXCEPTIONS: ${e.toString()}');
-      }
-    }
+    if (!mounted) return;
+    _showStatusDialog(
+      context,
+      'IMPORT UNAVAILABLE',
+      'PROTECTED WORKSPACE IMPORT IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE IS IMPLEMENTED. ROCEN WILL NOT PERSIST PLAINTEXT OR TEMPORARY CIPHERTEXT.',
+    );
   }
 
   void _showRestoreChooserDialog(BuildContext context) {
@@ -662,323 +481,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _promptRestoreGithubChallenge(BuildContext context) {
-    final BuildContext screenContext = context;
-    final settingsBox = Hive.box(_boxName);
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-
-    if (globalPin == null || globalPin.isEmpty || accessBlob == null) {
-      _showStatusDialog(context, 'GITHUB NOT CONFIGURED',
-          'SET UP THE GITHUB TOKEN STORE FIRST BEFORE RESTORING FROM GITHUB.');
-      return;
-    }
-
-    final isDark = ref.read(themeProvider);
-    final theme = SettingsUiTheme(isDark);
-    final TextEditingController pinVerifyController = TextEditingController();
-
-    bool hasPinFailed = false;
-    String? lockStringStatus = _checkLockoutViolation(settingsBox);
-    Timer? countdownTimer;
-
-    void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) {
-        return;
-      }
-      if (countdownTimer != null && countdownTimer!.isActive) return;
-      countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        final String? current = _checkLockoutViolation(settingsBox);
-        setState_(() {
-          lockStringStatus = current;
-        });
-        if (current == null) {
-          timer.cancel();
-        }
-      });
-    }
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER PASSWORD';
-            if (lockStringStatus != null) {
-              displayHeaderTitle = lockStringStatus!;
-            } else if (hasPinFailed) {
-              displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
-            }
-
-            return Theme(
-              data: Theme.of(context).copyWith(
-                textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withValues(alpha: 0.2),
-                  selectionHandleColor: theme.textMain,
-                  cursorColor: theme.textMain,
-                ),
-              ),
-              child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    width: 320,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: theme.dialogBg,
-                      border: Border.all(
-                          color: theme.dialogBorderColor, width: 0.8),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayHeaderTitle,
-                          style: TextStyle(
-                            color: (hasPinFailed || lockStringStatus != null)
-                                ? const Color(0xFFEF4444)
-                                : theme.textMain,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.05,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Builder(builder: (context) {
-                          Color currentFieldBorderColor;
-                          if (hasPinFailed || lockStringStatus != null) {
-                            currentFieldBorderColor = const Color(0xFFEF4444);
-                          } else {
-                            currentFieldBorderColor = theme.dialogBorderColor;
-                          }
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: currentFieldBorderColor,
-                                width:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? 1.2
-                                        : 0.8,
-                              ),
-                            ),
-                            child: TextField(
-                              controller: pinVerifyController,
-                              keyboardType: TextInputType.text,
-                              maxLength: 32,
-                              obscureText: true,
-                              obscuringCharacter: '#',
-                              cursorColor: theme.textMain,
-                              autofocus: lockStringStatus == null,
-                              enabled: lockStringStatus == null,
-                              style: TextStyle(
-                                color:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? const Color(0xFFEF4444)
-                                        : theme.textMain,
-                                fontSize: 16,
-                                letterSpacing: 4,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              onChanged: (val) {
-                                setDialogState(() {
-                                  if (hasPinFailed) hasPinFailed = false;
-                                });
-                              },
-                              decoration: const InputDecoration(
-                                  counterText: '',
-                                  border: InputBorder.none,
-                                  isDense: true),
-                            ),
-                          );
-                        }),
-                        const SizedBox(height: 14),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            InkWell(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                    border: Border.all(
-                                        color: theme.dialogBorderColor,
-                                        width: 0.8)),
-                                child: Text('CANCEL',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFF888888)
-                                            : const Color(0xFF525252),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: () async {
-                                final activeLockCheck =
-                                    _checkLockoutViolation(settingsBox);
-                                if (activeLockCheck != null) {
-                                  setDialogState(() {
-                                    lockStringStatus = activeLockCheck;
-                                  });
-                                  return;
-                                }
-
-                                final bool isPinValid = await CryptoEngine
-                                    .verifyPinWithHardwareBinding(
-                                        pinVerifyController.text, globalPin);
-
-                                if (isPinValid) {
-                                  final String rawPassword =
-                                      pinVerifyController.text;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'secure_lockout_until', 0);
-
-                                  if (!context.mounted) return;
-                                  Navigator.pop(context);
-                                  if (!screenContext.mounted) return;
-
-                                  try {
-                                    final String? unwrappedForRestore =
-                                        await CryptoEngine.hardwareUnwrap(
-                                            accessBlob,
-                                            keyAlias: CryptoEngine
-                                                .githubTokenKeyAlias);
-                                    if (unwrappedForRestore == null) {
-                                      secureDebugLog(
-                                          '[settings] hardwareUnwrap failed for githubTokenKeyAlias during restore - treating stored blob as software-encrypted only');
-                                    }
-                                    final String accessJson =
-                                        await CryptoEngine.decryptProcess(
-                                            unwrappedForRestore ?? accessBlob,
-                                            globalPin);
-                                    if (accessJson == 'DECRYPTION FAULT') {
-                                      if (screenContext.mounted) {
-                                        _showStatusDialog(
-                                            screenContext,
-                                            'RESTORE ERROR',
-                                            'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD.');
-                                      }
-                                      return;
-                                    }
-                                    final Map<String, dynamic> access =
-                                        jsonDecode(accessJson);
-                                    final String? token =
-                                        access['token'] as String?;
-                                    final String? repo =
-                                        access['repo'] as String?;
-                                    if (token == null || repo == null) {
-                                      if (screenContext.mounted) {
-                                        _showStatusDialog(
-                                            screenContext,
-                                            'RESTORE ERROR',
-                                            'STORED TOKEN OR REPOSITORY WAS EMPTY.');
-                                      }
-                                      return;
-                                    }
-
-                                    if (!screenContext.mounted) return;
-                                    await _handlePostSaveGithubSync(
-                                        screenContext,
-                                        token,
-                                        repo,
-                                        rawPassword,
-                                        globalPin,
-                                        isExplicitRestore: true);
-                                  } catch (e) {
-                                    if (screenContext.mounted) {
-                                      _showStatusDialog(
-                                          screenContext,
-                                          'RESTORE ERROR',
-                                          'UNEXPECTED ERROR: $e');
-                                    }
-                                  }
-                                } else {
-                                  int attempts = settingsBox.get(
-                                          'secure_failed_attempts',
-                                          defaultValue: 0) +
-                                      1;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', attempts);
-
-                                  bool flagWipeConditionTriggered =
-                                      attempts > 15;
-                                  int penaltyDurationSeconds =
-                                      flagWipeConditionTriggered
-                                          ? 0
-                                          : CryptoEngine
-                                              .lockoutSecondsForAttempt(
-                                                  attempts);
-
-                                  if (flagWipeConditionTriggered) {
-                                    await _purgeEncryptedNotesOnBruteForce();
-                                    await settingsBox.put(
-                                        'secure_failed_attempts', 0);
-                                    await settingsBox.put(
-                                        'secure_lockout_until', 0);
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    if (!screenContext.mounted) return;
-                                    _showAcknowledgeDialog(
-                                        screenContext,
-                                        'SECURITY COMPLIANCE AUDIT',
-                                        'DATA PURGED PERMANENTLY.');
-                                    return;
-                                  }
-
-                                  if (penaltyDurationSeconds > 0) {
-                                    final int unlockTimestampMillis =
-                                        DateTime.now().millisecondsSinceEpoch +
-                                            (penaltyDurationSeconds * 1000);
-                                    await settingsBox.put(
-                                        'secure_lockout_until',
-                                        unlockTimestampMillis);
-                                  }
-
-                                  setDialogState(() {
-                                    pinVerifyController.clear();
-                                    lockStringStatus =
-                                        _checkLockoutViolation(settingsBox);
-                                    if (lockStringStatus == null) {
-                                      hasPinFailed = true;
-                                    }
-                                  });
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration:
-                                    BoxDecoration(color: theme.textMain),
-                                child: Text('VERIFY',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ).then((_) => countdownTimer?.cancel());
+    _promptGithubAccessChallenge(context, isRestore: true);
   }
 
   void _showImportWarningDialog(BuildContext context) {
@@ -1291,16 +794,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showAreYouSureDialog(BuildContext context, String typedPin) {
-    final BuildContext screenContext = context;
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
-
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
+      pageBuilder: (dialogContext, anim1, anim2) {
         return Center(
           child: Material(
             color: Colors.transparent,
@@ -1315,98 +816,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'SECURITY VERIFICATION',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
-                  ),
+                  Text('SECURITY VERIFICATION', style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
-                  Text(
-                    'ARE YOU SURE YOU WANT TO SET THIS PASSWORD?',
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        height: 1.5,
-                        fontWeight: FontWeight.normal,
-                        letterSpacing: 0.02),
-                  ),
+                  Text('ARE YOU SURE YOU WANT TO SET THIS PASSWORD?', style: TextStyle(color: theme.textMain, fontSize: 12, height: 1.5)),
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       InkWell(
                         onTap: () {
-                          Navigator.pop(context);
+                          Navigator.pop(dialogContext);
                           _showCreatePinDialog(context, initialValue: typedPin);
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                                color: theme.dialogBorderColor, width: 0.8),
-                          ),
-                          child: Text(
-                            'CANCEL',
-                            style: TextStyle(
-                              color: isDark
-                                  ? const Color(0xFF888888)
-                                  : const Color(0xFF525252),
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(border: Border.all(color: theme.dialogBorderColor, width: 0.8)),
+                          child: Text('CANCEL', style: TextStyle(color: isDark ? const Color(0xFF888888) : const Color(0xFF525252), fontSize: 10, fontWeight: FontWeight.bold)),
                         ),
                       ),
                       const SizedBox(width: 8),
                       InkWell(
                         onTap: () async {
-                          Navigator.pop(context);
-
-                          final settingsBox = Hive.box(_boxName);
-                          final bool rooted =
-                              await CryptoEngine.isDeviceRooted();
-                          await settingsBox.put('kdf_hardened', rooted);
-
-                          final securePinHash =
-                              await CryptoEngine.hashPin(typedPin);
-
-                          await settingsBox.put(
-                              'system_crypto_pin', securePinHash);
-                          await settingsBox.put(
-                              'last_active_crypto_pin_snapshot', securePinHash);
-
-                          final String? hwWrappedPin =
-                              await CryptoEngine.hardwareWrap(securePinHash,
-                                  keyAlias: CryptoEngine.passwordKeyAlias);
-                          if (hwWrappedPin != null) {
-                            await settingsBox.put(
-                                'hw_wrapped_pin', hwWrappedPin);
-                          }
-
-                          if (screenContext.mounted) {
-                            _showForgotWarningDialog(screenContext);
+                          Navigator.pop(dialogContext);
+                          try {
+                            final List<String> mnemonic = await CryptoEngine.generateMnemonic();
+                            await MasterKeyProductionService.instance.establishFirstDevice(
+                              password: typedPin,
+                              mnemonicWords: mnemonic,
+                            );
+                            if (!context.mounted) return;
+                            await _showMnemonicDisplayDialog(context, mnemonic);
+                            if (context.mounted) {
+                              _showAcknowledgeDialog(
+                                context,
+                                'CRYPTOGRAPHY READY',
+                                'ONE RANDOM MASTER KEY IS NOW THE LOCAL DATASET AUTHORITY. STORE YOUR 12-WORD RECOVERY PHRASE SAFELY.',
+                              );
+                            }
+                          } catch (_) {
+                            if (context.mounted) {
+                              _showStatusDialog(
+                                context,
+                                'CRYPTOGRAPHY SETUP FAILED',
+                                'Rocen could not establish the local Master Key authority. NO REPLACEMENT MASTER KEY WAS CREATED.',
+                              );
+                            }
                           }
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                           decoration: BoxDecoration(color: theme.textMain),
-                          child: Text(
-                            'CONFIRM',
-                            style: TextStyle(
-                              color: isDark ? Colors.black : Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          child: Text('CONFIRM', style: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
-                  )
+                  ),
                 ],
               ),
             ),
@@ -1497,626 +961,149 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _promptChangePasswordChallenge(BuildContext context) {
     final BuildContext screenContext = context;
     final settingsBox = Hive.box(_boxName);
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-    if (globalPin == null || globalPin.isEmpty) return;
-
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
-    final TextEditingController pinVerifyController = TextEditingController();
-
-    bool hasPinFailed = false;
-    String? lockStringStatus = _checkLockoutViolation(settingsBox);
-    Timer? countdownTimer;
-
-    void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) {
-        return;
-      }
-      if (countdownTimer != null && countdownTimer!.isActive) return;
-      countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        final String? current = _checkLockoutViolation(settingsBox);
-        setState_(() {
-          lockStringStatus = current;
-        });
-        if (current == null) {
-          timer.cancel();
-        }
-      });
-    }
+    final TextEditingController controller = TextEditingController();
 
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER CURRENT PASSWORD';
-            if (lockStringStatus != null) {
-              displayHeaderTitle = lockStringStatus!;
-            } else if (hasPinFailed) {
-              displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
-            }
-
-            return Theme(
-              data: Theme.of(context).copyWith(
-                textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withValues(alpha: 0.2),
-                  selectionHandleColor: theme.textMain,
-                  cursorColor: theme.textMain,
-                ),
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
-              child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    width: 320,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: theme.dialogBg,
-                      border: Border.all(
-                          color: theme.dialogBorderColor, width: 0.8),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayHeaderTitle,
-                          style: TextStyle(
-                            color: (hasPinFailed || lockStringStatus != null)
-                                ? const Color(0xFFEF4444)
-                                : theme.textMain,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.05,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Builder(builder: (context) {
-                          Color currentFieldBorderColor;
-                          if (hasPinFailed || lockStringStatus != null) {
-                            currentFieldBorderColor = const Color(0xFFEF4444);
-                          } else {
-                            currentFieldBorderColor = theme.dialogBorderColor;
-                          }
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: currentFieldBorderColor,
-                                width:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? 1.2
-                                        : 0.8,
-                              ),
-                            ),
-                            child: TextField(
-                              controller: pinVerifyController,
-                              keyboardType: TextInputType.text,
-                              maxLength: 32,
-                              obscureText: true,
-                              obscuringCharacter: '#',
-                              cursorColor: theme.textMain,
-                              autofocus: lockStringStatus == null,
-                              enabled: lockStringStatus == null,
-                              style: TextStyle(
-                                color:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? const Color(0xFFEF4444)
-                                        : theme.textMain,
-                                fontSize: 16,
-                                letterSpacing: 4,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              onChanged: (val) {
-                                setDialogState(() {
-                                  if (hasPinFailed) hasPinFailed = false;
-                                });
-                              },
-                              decoration: const InputDecoration(
-                                  counterText: '',
-                                  border: InputBorder.none,
-                                  isDense: true),
-                            ),
-                          );
-                        }),
-                        const SizedBox(height: 14),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            InkWell(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                    border: Border.all(
-                                        color: theme.dialogBorderColor,
-                                        width: 0.8)),
-                                child: Text('CANCEL',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFF888888)
-                                            : const Color(0xFF525252),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: () async {
-                                final activeLockCheck =
-                                    _checkLockoutViolation(settingsBox);
-                                if (activeLockCheck != null) {
-                                  setDialogState(() {
-                                    lockStringStatus = activeLockCheck;
-                                  });
-                                  return;
-                                }
-
-                                final bool isPinValid = await CryptoEngine
-                                    .verifyPinWithHardwareBinding(
-                                        pinVerifyController.text, globalPin);
-
-                                if (isPinValid) {
-                                  final String rawOldPassword =
-                                      pinVerifyController.text;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'secure_lockout_until', 0);
-                                  if (LocalRotationOrphanStatus.isOrphaned()) {
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    if (!screenContext.mounted) return;
-                                    _showStatusDialog(
-                                      screenContext,
-                                      'PASSWORD CHANGE UNAVAILABLE',
-                                      'THIS DEVICE HAS AN UNRESOLVED PASSWORD-STATE CONFLICT FROM A PREVIOUS CHANGE. RESOLVE THAT BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.',
-                                    );
-                                    return;
-                                  }
-                                  if (PasswordStateManager.isPublishPending()) {
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    if (!screenContext.mounted) return;
-                                    final bool isDeviceKeyIssue =
-                                        PasswordStateManager
-                                                .getPendingReason() ==
-                                            PendingReason.deviceKeyNotReady;
-                                    if (isDeviceKeyIssue) {
-                                      _showStatusDialogWithContinue(
-                                        screenContext,
-                                        'PASSWORD CHANGE UNAVAILABLE',
-                                        'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE IS STILL WAITING ON RECOVERY SETUP TO COMPLETE. FINISH THAT BEFORE CHANGING YOUR PASSWORD AGAIN.',
-                                        continueLabel: 'CONTINUE',
-                                        onContinue: () {
-                                          _retryHeldBackPasswordChange(
-                                            screenContext,
-                                            globalPin,
-                                            rawOldPassword,
-                                          );
-                                        },
-                                      );
-                                      return;
-                                    }
-                                    _showStatusDialog(
-                                      screenContext,
-                                      'PASSWORD CHANGE UNAVAILABLE',
-                                      'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE HASN\'T BEEN CONFIRMED WITH GITHUB YET. TRY AGAIN ONCE THAT COMPLETES, OR CHECK YOUR CONNECTION.',
-                                    );
-                                    return;
-                                  }
-
-                                  final bool githubConfigured = settingsBox
-                                          .get('github_access_encrypted') !=
-                                      null;
-
-                                  PasswordStateResult? stateResult;
-                                  GithubBackupService? preconditionService;
-                                  if (githubConfigured) {
-                                    // Close the current password dialog FIRST.
-                                    // The GitHub verification indicator must be a
-                                    // separate dialog, not an overlay on top of it.
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    await Future.delayed(Duration.zero);
-                                    if (!screenContext.mounted) return;
-
-                                    _showSavingIndicatorDialog(
-                                      screenContext,
-                                      isDark,
-                                      status: 'VERIFYING...',
-                                    );
-                                    // Give Flutter one frame to render the
-                                    // verification state before network work.
-                                    await Future.delayed(
-                                      const Duration(milliseconds: 120),
-                                    );
-                                    if (!screenContext.mounted) return;
-
-                                    preconditionService =
-                                        await _buildGithubServiceFromStoredCredentials(
-                                            globalPin);
-
-                                    if (preconditionService != null) {
-                                      stateResult =
-                                          await PasswordStateManager.checkState(
-                                              preconditionService);
-                                    }
-
-                                    if (screenContext.mounted) {
-                                      Navigator.of(screenContext,
-                                              rootNavigator: true)
-                                          .pop();
-                                    }
-                                    await Future.delayed(Duration.zero);
-                                    if (!screenContext.mounted) return;
-
-                                    final bool checkOk = stateResult != null &&
-                                        (stateResult.comparison ==
-                                                PasswordStateComparison
-                                                    .synchronized ||
-                                            stateResult.comparison ==
-                                                PasswordStateComparison
-                                                    .noRemoteStateYet);
-
-                                    if (!checkOk) {
-                                      final String message;
-                                      if (stateResult == null) {
-                                        message =
-                                            'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.';
-                                      } else {
-                                        switch (stateResult.comparison) {
-                                          case PasswordStateComparison
-                                                .checkFailed:
-                                            message =
-                                                'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN — PASSWORD CHANGES REQUIRE AN ONLINE CHECK WHEN GITHUB BACKUP IS ENABLED.';
-                                            break;
-                                          case PasswordStateComparison
-                                                .behindRemote:
-                                            message =
-                                                'YOUR PASSWORD WAS ALREADY CHANGED ON ANOTHER DEVICE${stateResult.remoteChangedByDeviceId != null ? " (${stateResult.remoteChangedByDeviceId})" : ""}. ENTER THE CURRENT PASSWORD AND YOUR RECOVERY PHRASE TO UPDATE THIS DEVICE BEFORE CHANGING IT AGAIN.';
-                                            break;
-                                          case PasswordStateComparison.conflict:
-                                            message =
-                                                'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. RESOLVE THIS BEFORE CHANGING YOUR PASSWORD AGAIN — SEE RECOVERY.';
-                                            break;
-                                          case PasswordStateComparison
-                                                .remoteStateBehind:
-                                            message =
-                                                'THE PASSWORD STATE ON GITHUB APPEARS OLDER THAN WHAT THIS DEVICE ALREADY KNOWS. THIS USUALLY MEANS THE SHARED FILE WAS REVERTED OR RESTORED FROM AN OLD BACKUP. THIS IS NOT SOMETHING THE APP WILL FIX AUTOMATICALLY — PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD.';
-                                            break;
-                                          case PasswordStateComparison
-                                                .remoteStateMissing:
-                                            message =
-                                                'THIS DEVICE HAS A PASSWORD GENERATION ON RECORD, BUT THE SHARED PASSWORD STATE FILE IS MISSING FROM GITHUB. THIS IS NOT TREATED AS A FRESH SETUP. PLEASE INVESTIGATE BEFORE CHANGING YOUR PASSWORD — THE APP WILL NOT RECREATE THIS FILE AUTOMATICALLY.';
-                                            break;
-                                          case PasswordStateComparison
-                                                .synchronized:
-                                          case PasswordStateComparison
-                                                .noRemoteStateYet:
-                                            message =
-                                                'PASSWORD CHANGE UNAVAILABLE.';
-                                            break;
-                                        }
-                                      }
-                                      _showStatusDialog(
-                                          screenContext,
-                                          'PASSWORD CHANGE UNAVAILABLE',
-                                          message);
-                                      return;
-                                    }
-                                  } else {
-                                    // No GitHub backup is configured; close the
-                                    // verification dialog normally and continue.
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    await Future.delayed(Duration.zero);
-                                    if (!screenContext.mounted) return;
-                                  }
-
-                                  if (!screenContext.mounted) return;
-                                  await Future.delayed(Duration.zero);
-                                  if (!screenContext.mounted) return;
-                                  _showNewPasswordDialog(
-                                      screenContext,
-                                      globalPin,
-                                      rawOldPassword,
-                                      stateResult,
-                                      preconditionService);
-                                } else {
-                                  int attempts = settingsBox.get(
-                                          'secure_failed_attempts',
-                                          defaultValue: 0) +
-                                      1;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', attempts);
-
-                                  bool flagWipeConditionTriggered =
-                                      attempts > 15;
-                                  int penaltyDurationSeconds =
-                                      flagWipeConditionTriggered
-                                          ? 0
-                                          : CryptoEngine
-                                              .lockoutSecondsForAttempt(
-                                                  attempts);
-
-                                  if (flagWipeConditionTriggered) {
-                                    await _purgeEncryptedNotesOnBruteForce();
-                                    await settingsBox.put(
-                                        'secure_failed_attempts', 0);
-                                    await settingsBox.put(
-                                        'secure_lockout_until', 0);
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    if (!screenContext.mounted) return;
-                                    _showAcknowledgeDialog(
-                                        screenContext,
-                                        'SECURITY COMPLIANCE AUDIT',
-                                        'DATA PURGED PERMANENTLY.');
-                                    return;
-                                  }
-
-                                  if (penaltyDurationSeconds > 0) {
-                                    final int unlockTimestampMillis =
-                                        DateTime.now().millisecondsSinceEpoch +
-                                            (penaltyDurationSeconds * 1000);
-                                    await settingsBox.put(
-                                        'secure_lockout_until',
-                                        unlockTimestampMillis);
-                                  }
-
-                                  setDialogState(() {
-                                    pinVerifyController.clear();
-                                    lockStringStatus =
-                                        _checkLockoutViolation(settingsBox);
-                                    if (lockStringStatus == null) {
-                                      hasPinFailed = true;
-                                    }
-                                  });
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration:
-                                    BoxDecoration(color: theme.textMain),
-                                child: Text('VERIFY',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('ENTER CURRENT PASSWORD', style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: controller,
+                    obscureText: true,
+                    maxLength: 32,
+                    autofocus: true,
+                    decoration: const InputDecoration(counterText: '', border: InputBorder.none),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () async {
+                          final String raw = controller.text;
+                          final MasterKeyLocalRecord? record = await MasterKeyLocalStore.read();
+                          final bool valid = record != null && await PasswordKeyDerivation.verifyPassword(raw, record.passwordVerifier);
+                          if (!valid) {
+                            await settingsBox.put('secure_failed_attempts', settingsBox.get('secure_failed_attempts', defaultValue: 0) + 1);
+                            if (screenContext.mounted) {
+                              _showStatusDialog(screenContext, 'PASSWORD VERIFICATION FAILED', 'THE PASSWORD DID NOT MATCH THE LOCAL VERIFIER. NO MASTER KEY WAS CHANGED.');
+                            }
+                            return;
+                          }
+                          await settingsBox.put('secure_failed_attempts', 0);
+                          await settingsBox.put('secure_lockout_until', 0);
+                          Navigator.pop(dialogContext);
+                          if (screenContext.mounted) {
+                            _showNewPasswordDialog(screenContext, raw);
+                          }
+                        },
+                        child: const Text('VERIFY'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
-    ).then((_) => countdownTimer?.cancel());
+    ).then((_) => controller.dispose());
   }
 
-  void _showNewPasswordDialog(
-      BuildContext context,
-      String oldPinHash,
-      String rawOldPassword,
-      PasswordStateResult? preconditionState,
-      GithubBackupService? preconditionService) {
+  void _showNewPasswordDialog(BuildContext context, String rawOldPassword) {
     final BuildContext screenContext = context;
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
-    final TextEditingController pinController = TextEditingController();
-
+    final TextEditingController controller = TextEditingController();
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withValues(alpha: 0.2),
-                  selectionHandleColor: theme.textMain,
-                  cursorColor: theme.textMain,
-                ),
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
-              child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    width: 320,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: theme.dialogBg,
-                      border: Border.all(
-                          color: theme.dialogBorderColor, width: 0.8),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('ENTER NEW PASSWORD',
-                            style: TextStyle(
-                                color: theme.textMain,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.05)),
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: theme.dialogBorderColor,
-                              width: 0.8,
-                            ),
-                          ),
-                          child: TextField(
-                            controller: pinController,
-                            keyboardType: TextInputType.text,
-                            maxLength: 32,
-                            obscureText: true,
-                            obscuringCharacter: '#',
-                            cursorColor: theme.textMain,
-                            autofocus: true,
-                            onChanged: (val) => setDialogState(() {}),
-                            style: TextStyle(
-                              color: theme.textMain,
-                              fontSize: 16,
-                              letterSpacing: 4,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            decoration: const InputDecoration(
-                              counterText: '',
-                              border: InputBorder.none,
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Builder(builder: (context) {
-                          final statuses =
-                              CryptoEngine.passwordRequirementStatus(
-                                  pinController.text);
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: statuses
-                                .map((s) =>
-                                    _buildPasswordRequirementRow(s.$1, s.$2))
-                                .toList(),
-                          );
-                        }),
-                        const SizedBox(height: 14),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            InkWell(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                    border: Border.all(
-                                        color: theme.dialogBorderColor,
-                                        width: 0.8)),
-                                child: Text('CANCEL',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFF888888)
-                                            : const Color(0xFF525252),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: !CryptoEngine.isPasswordComplexityValid(
-                                      pinController.text)
-                                  ? null
-                                  : () async {
-                                      final String newPassword =
-                                          pinController.text;
-                                      Navigator.pop(context);
-                                      if (!screenContext.mounted) return;
-                                      await _runPasswordChangeWithProgressModal(
-                                          screenContext,
-                                          oldPinHash,
-                                          rawOldPassword,
-                                          newPassword,
-                                          preconditionState: preconditionState,
-                                          preconditionService:
-                                              preconditionService);
-                                    },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: CryptoEngine.isPasswordComplexityValid(
-                                          pinController.text)
-                                      ? theme.textMain
-                                      : theme.textMain.withValues(alpha: 0.2),
-                                ),
-                                child: Text('CONFIRM',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('ENTER NEW PASSWORD', style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: controller,
+                    obscureText: true,
+                    maxLength: 32,
+                    autofocus: true,
+                    onChanged: (_) {},
+                    decoration: const InputDecoration(counterText: '', border: InputBorder.none),
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  ...CryptoEngine.passwordRequirementStatus(controller.text).map((s) => _buildPasswordRequirementRow(s.$1, s.$2)),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () async {
+                          final String next = controller.text;
+                          if (!CryptoEngine.isPasswordComplexityValid(next)) return;
+                          Navigator.pop(dialogContext);
+                          if (!screenContext.mounted) return;
+                          await _runPasswordChangeWithProgressModal(screenContext, rawOldPassword, next);
+                        },
+                        child: const Text('CONFIRM'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
-    );
+    ).then((_) => controller.dispose());
   }
 
   Future<void> _runPasswordChangeWithProgressModal(
     BuildContext screenContext,
-    String oldPinHash,
     String rawOldPassword,
-    String newPassword, {
-    PasswordStateResult? preconditionState,
-    GithubBackupService? preconditionService,
-  }) async {
+    String newPassword,
+  ) async {
     final isDark = ref.read(themeProvider);
-    final theme = SettingsUiTheme(isDark);
-    String status = 'ENCRYPTING NOTES...';
-    bool isEntryStep = false;
-    bool isTerminal = false;
-    String terminalTitle = '';
-    String terminalMessage = '';
-    List<int> devicesNeedingPasswordUpdate = <int>[];
+    final List<TextEditingController> controllers = List.generate(12, (_) => TextEditingController());
+    final List<FocusNode> focusNodes = List.generate(12, (_) => FocusNode());
     final settingsBox = Hive.box(_boxName);
-    final List<TextEditingController> mnemonicControllers =
-        List.generate(12, (_) => TextEditingController());
-    final List<FocusNode> mnemonicFocusNodes =
-        List.generate(12, (_) => FocusNode());
-    String? lockStringStatus = _checkMnemonicLockout(settingsBox);
-    bool showValidationError = false;
-    Timer? countdownTimer;
-    Completer<List<String>?>? mnemonicCompleter;
-
-    late void Function(void Function()) setModalState;
-    bool passwordChangeStarted = false;
-
-    void ensureCountdownRunning() {
-      if (lockStringStatus == null) {
-        return;
-      }
-      if (countdownTimer != null && countdownTimer!.isActive) return;
-      countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        final String? current = _checkMnemonicLockout(settingsBox);
-        setModalState(() {
-          lockStringStatus = current;
-        });
-        if (current == null) {
-          timer.cancel();
-        }
-      });
-    }
+    List<String>? mnemonic;
 
     await showGeneralDialog<void>(
       context: screenContext,
@@ -2126,141 +1113,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       pageBuilder: (dialogContext, anim1, anim2) {
         return StatefulBuilder(
           builder: (dialogContext, setState) {
-            setModalState = setState;
-            if (!passwordChangeStarted) {
-              passwordChangeStarted = true;
-              Future.microtask(() async {
-                if (!screenContext.mounted) return;
-                await _executePasswordChange(
-                  screenContext,
-                  oldPinHash,
-                  rawOldPassword,
-                  newPassword,
-                  preconditionState: preconditionState,
-                  preconditionService: preconditionService,
-                  onProgress: (newStatus) {
-                    if (newStatus == 'DONE') return;
-                    setState(() {
-                      status = newStatus;
-                    });
-                  },
-                  onRequestMnemonic: (ctx) {
-                    mnemonicCompleter = Completer<List<String>?>();
-                    setState(() {
-                      status = 'CHECKING RECOVERY...';
-                      isEntryStep = true;
-                    });
-                    ensureCountdownRunning();
-                    return mnemonicCompleter!.future;
-                  },
-                  onComplete: (success, githubOk, outOfDateDeviceNumbers) {
-                    devicesNeedingPasswordUpdate = outOfDateDeviceNumbers;
-                    setState(() {
-                      isEntryStep = false;
-                      isTerminal = true;
-                      if (!success) {
-                        terminalTitle = 'PASSWORD CHANGE FAILED';
-                        terminalMessage =
-                            'YOUR ENCRYPTED NOTES COULD NOT BE MIGRATED TO THE NEW PASSWORD. NOTHING WAS CHANGED — YOUR OLD PASSWORD IS STILL ACTIVE AND YOUR NOTES ARE UNTOUCHED.';
-                      } else if (githubOk) {
-                        terminalTitle = 'PASSWORD UPDATED';
-                        terminalMessage =
-                            'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.';
-                      } else {
-                        terminalTitle =
-                            'PASSWORD UPDATED — GITHUB SYNC NEEDS ATTENTION';
-                        terminalMessage =
-                            'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT YOUR STORED GITHUB CREDENTIALS COULD NOT BE FULLY RE-ENCRYPTED. RE-ENTER YOUR GITHUB TOKEN IN SETTINGS TO RESTORE SYNC.';
-                      }
-                    });
-                  },
-                );
-              });
-            }
-
-            return PopScope(
-              canPop: isTerminal,
-              child: Theme(
-                data: Theme.of(dialogContext).copyWith(
-                  textSelectionTheme: TextSelectionThemeData(
-                    selectionColor: theme.textMain.withValues(alpha: 0.2),
-                    selectionHandleColor: theme.textMain,
-                    cursorColor: theme.textMain,
+            return Center(
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 340,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: SettingsUiTheme(isDark).dialogBg,
+                    border: Border.all(color: SettingsUiTheme(isDark).dialogBorderColor, width: 0.8),
                   ),
-                ),
-                child: Center(
-                  child: Material(
-                    color: Colors.transparent,
-                    child: Container(
-                      width: isEntryStep ? 340 : 260,
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: theme.dialogBg,
-                        border: Border.all(
-                          color: showValidationError
-                              ? const Color(0xFF5F0E0D)
-                              : theme.dialogBorderColor,
-                          width: showValidationError ? 1.4 : 0.8,
-                        ),
-                      ),
-                      child: isTerminal
-                          ? _buildTerminalState(
-                              theme,
-                              isDark,
-                              terminalTitle,
-                              terminalMessage,
-                              onAcknowledge: () =>
-                                  Navigator.of(dialogContext).pop(),
-                            )
-                          : isEntryStep
-                              ? _buildMnemonicEntryState(
-                                  theme,
-                                  isDark,
-                                  mnemonicControllers,
-                                  mnemonicFocusNodes,
-                                  lockStringStatus,
-                                  showValidationError,
-                                  setState,
-                                  settingsBox,
-                                  onCancel: () {
-                                    mnemonicCompleter?.complete(null);
-                                  },
-                                  onSubmit: (words) {
-                                    mnemonicCompleter?.complete(words);
-                                  },
-                                  onValidationError: () {
-                                    setState(() {
-                                      showValidationError = true;
-                                      lockStringStatus =
-                                          _checkMnemonicLockout(settingsBox);
-                                    });
-                                  },
-                                  onFieldEdited: () {
-                                    showValidationError = false;
-                                  },
-                                )
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: theme.textMain),
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Text(
-                                      status,
-                                      style: TextStyle(
-                                          color: theme.textMain,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: 0.05),
-                                    ),
-                                  ],
-                                ),
-                    ),
+                  child: _mnemonicEntryBody(
+                    isDark,
+                    controllers,
+                    focusNodes,
+                    null,
+                    false,
+                    setState,
+                    settingsBox,
+                    onCancel: () => Navigator.pop(dialogContext),
+                    onSubmit: (words) async {
+                      mnemonic = words;
+                      Navigator.pop(dialogContext);
+                    },
+                    onValidationError: () => setState(() {}),
+                    onFieldEdited: () => setState(() {}),
                   ),
                 ),
               ),
@@ -2270,22 +1147,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       },
     );
 
-    countdownTimer?.cancel();
+    for (final c in controllers) c.dispose();
+    for (final f in focusNodes) f.dispose();
+    if (!screenContext.mounted || mnemonic == null) return;
 
-    if (devicesNeedingPasswordUpdate.isNotEmpty && screenContext.mounted) {
-      final String deviceList = devicesNeedingPasswordUpdate.join(', ');
-      _showStatusDialog(
+    try {
+      await _executePasswordChange(
         screenContext,
-        'OTHER DEVICES NEED UPDATE',
-        'PASSWORD STATE WAS SUCCESSFULLY PUBLISHED TO GITHUB, BUT DEVICE(S) $deviceList ARE STILL ON AN OLDER PASSWORD GENERATION. UPDATE THOSE DEVICES TO THE SAME CURRENT PASSWORD AND RECOVERY STATE BEFORE THEY CAN SYNC AGAIN.',
+        rawOldPassword,
+        newPassword,
+        mnemonicWords: mnemonic!,
       );
-    }
-
-    for (final c in mnemonicControllers) {
-      c.dispose();
-    }
-    for (final f in mnemonicFocusNodes) {
-      f.dispose();
+    } catch (_) {
+      if (screenContext.mounted) {
+        _showStatusDialog(screenContext, 'PASSWORD CHANGE FAILED', 'THE SAME MASTER KEY COULD NOT BE REWRAPPED UNDER THE NEW PASSWORD. NO REPLACEMENT MASTER KEY WAS CREATED.');
+      }
     }
   }
 
@@ -2493,602 +1369,92 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _executePasswordChange(
     BuildContext context,
-    String oldPinHash,
     String rawOldPassword,
     String newPassword, {
-    PasswordStateResult? preconditionState,
-    GithubBackupService? preconditionService,
-    void Function(String status)? onProgress,
-    Future<List<String>?> Function(BuildContext context)? onRequestMnemonic,
-    void Function(
-            bool success, bool githubOk, List<int> outOfDateDeviceNumbers)?
-        onComplete,
+    required List<String> mnemonicWords,
   }) async {
-    final settingsBox = Hive.box(_boxName);
-    final KdfParams oldEncryptionParams =
-        CryptoEngine.currentEncryptionParams();
-    final bool rooted = await CryptoEngine.isDeviceRooted();
-    final newTier = CryptoEngine.paramsForHardenedState(rooted);
-    final KdfParams newAuthParams = newTier.auth;
-    final KdfParams newEncryptionParams = newTier.encryption;
-    final Uint8List authSalt = CryptoEngine.extractAuthSalt(oldPinHash);
-    final String newPinHash = await CryptoEngine.hashPinWithSaltUsingParams(
-        newPassword, authSalt, newAuthParams);
-    onProgress?.call('ENCRYPTING NOTES...');
-    final bool notesMigrated =
-        await ref.read(localDatabaseProvider.notifier).migrateEncryptedNotes(
-              oldPinHash,
-              newPinHash,
-              oldParams: oldEncryptionParams,
-              newParams: newEncryptionParams,
-            );
-
-    if (!notesMigrated) {
-      if (onComplete != null) {
-        onComplete(false, false, const <int>[]);
-      } else if (context.mounted) {
-        _showStatusDialog(
-          context,
-          'PASSWORD CHANGE FAILED',
-          'YOUR ENCRYPTED NOTES COULD NOT BE MIGRATED TO THE NEW PASSWORD. NOTHING WAS CHANGED — YOUR OLD PASSWORD IS STILL ACTIVE AND YOUR NOTES ARE UNTOUCHED.',
-        );
-      }
-      return;
+    await MasterKeyProductionService.instance.changePassword(
+      oldPassword: rawOldPassword,
+      newPassword: newPassword,
+      mnemonicWords: mnemonicWords,
+    );
+    final MasterKeyLocalRecord? record = await MasterKeyLocalStore.read();
+    if (record == null) {
+      throw StateError('local Master Key record disappeared after password change');
     }
-    onProgress?.call('UPDATING SECURITY...');
-    await settingsBox.put('kdf_hardened', rooted);
 
-    await settingsBox.put('system_crypto_pin', newPinHash);
-    await settingsBox.put('last_active_crypto_pin_snapshot', newPinHash);
-
-    final String? hwWrappedNewPin = await CryptoEngine.hardwareWrap(newPinHash,
-        keyAlias: CryptoEngine.passwordKeyAlias);
-    if (hwWrappedNewPin != null) {
-      await settingsBox.put('hw_wrapped_pin', hwWrappedNewPin);
-    } else {
-      await settingsBox.delete('hw_wrapped_pin');
-    }
-    bool githubRotationOk = true;
-    bool deviceKeyReadyForPublish = true;
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-    if (accessBlob != null) {
-      try {
-        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(
-            accessBlob,
-            keyAlias: CryptoEngine.githubTokenKeyAlias);
-        if (unwrappedForRead == null) {
-          secureDebugLog(
-              '[settings] hardwareUnwrap failed for githubTokenKeyAlias during password rotation - treating stored blob as software-encrypted only');
-        }
-        final String accessJson = await CryptoEngine.decryptProcessWithParams(
-            unwrappedForRead ?? accessBlob, oldPinHash, oldEncryptionParams);
-        if (accessJson != 'DECRYPTION FAULT') {
-          final Map<String, dynamic> access = jsonDecode(accessJson);
-          final String reEncrypted =
-              await CryptoEngine.encryptProcessWithParams(
-                  accessJson, newPinHash, newEncryptionParams);
-          final String? hwWrapped = await CryptoEngine.hardwareWrap(reEncrypted,
-              keyAlias: CryptoEngine.githubTokenKeyAlias);
-          if (hwWrapped == null) {
-            secureDebugLog(
-                '[settings] hardwareWrap failed for githubTokenKeyAlias during password rotation re-save - falling back to software-encrypted storage only');
-          }
-          await settingsBox.put(
-              'github_access_encrypted', hwWrapped ?? reEncrypted);
-
-          if (!context.mounted) return;
-          final List<String>? mnemonicWords = onRequestMnemonic != null
-              ? await onRequestMnemonic(context)
-              : await _promptMnemonicRecovery(context);
-          if (mnemonicWords != null) {
-            // Make the post-recovery workflow visibly progress instead of
-            // allowing Flutter to batch the state update with the final dialog.
-            onProgress?.call('CHECKING...');
-            await Future.delayed(const Duration(milliseconds: 150));
-            if (!context.mounted) return;
-
-            onProgress?.call('APPROVING...');
-            await Future.delayed(const Duration(milliseconds: 150));
-            if (!context.mounted) return;
-
-            final Map<String, String> rewrapped =
-                await CryptoEngine.wrapDeviceKeyWithParams(
-              authSaltBytes: authSalt,
-              password: newPassword,
-              mnemonicWords: mnemonicWords,
-              params: newEncryptionParams,
-            );
-
-            try {
-              final service = _buildGithubService(
-                  token: access['token'], repoPath: access['repo']);
-              await service.amendSync(
-                  upsertFiles: {'device_key.json': jsonEncode(rewrapped)},
-                  message: 'password rotation');
-              await settingsBox.put('device_key_owned_repo', access['repo']);
-            } catch (e) {
-              githubRotationOk = false;
-              deviceKeyReadyForPublish = false;
-              secureDebugLog(
-                  '[settings] device_key.json re-upload failed during password rotation: $e');
-            }
-          } else {
-            deviceKeyReadyForPublish = false;
-            secureDebugLog(
-                '[settings] user declined recovery-phrase re-entry during password rotation - device_key.json not updated, password-state publish will be held pending');
-          }
-        } else {
-          githubRotationOk = false;
-          deviceKeyReadyForPublish = false;
-          secureDebugLog(
-              '[settings] stored GitHub credentials failed to decrypt with the old password during rotation — GitHub token was not re-encrypted');
-        }
-      } catch (e) {
-        githubRotationOk = false;
-        deviceKeyReadyForPublish = false;
-        secureDebugLog(
-            '[settings] unexpected error re-encrypting GitHub credentials during password rotation: $e');
-      }
-    }
-    bool passwordStatePublished = true;
-    if (preconditionState != null && !deviceKeyReadyForPublish) {
-      final int newGeneration = (preconditionState.remoteGeneration ??
-              PasswordStateManager.getKnownGeneration()) +
-          1;
-      final String newChangeId = PasswordStateManager.generateChangeId();
-      await PasswordStateManager.setPublishPending(
-        pendingGeneration: newGeneration,
-        pendingChangeId: newChangeId,
-        reason: PendingReason.deviceKeyNotReady,
+    // The new Recovery wrapper is durable locally immediately. Remote
+    // publication is deliberately not hidden behind a plaintext token store;
+    // the next GitHub setup/association supplies the token explicitly.
+    if (context.mounted) {
+      _showAcknowledgeDialog(
+        context,
+        'PASSWORD UPDATED',
+        record.remoteRecoveryStatus == RemoteRecoveryStatus.unpublished
+            ? 'THE PASSWORD CHANGED WITHOUT RE-ENCRYPTING NOTES. YOUR SAME MASTER KEY, NEK, AND TEK REMAIN THE DATASET KEYS. RE-OPEN GITHUB SETTINGS TO PUBLISH THE NEW RECOVERY WRAPPER.'
+            : 'THE PASSWORD CHANGED WITHOUT RE-ENCRYPTING APPLICATION DATA.',
       );
-      passwordStatePublished = false;
-      secureDebugLog(
-          '[settings] password-state publish held back - device_key.json is not yet ready for cross-device recovery. Marked pending (deviceKeyNotReady) - will NOT auto-retry.');
-    } else if (preconditionState != null) {
-      final GithubBackupService? service = preconditionService;
-
-      final int newGeneration = (preconditionState.remoteGeneration ??
-              PasswordStateManager.getKnownGeneration()) +
-          1;
-      final String newChangeId = PasswordStateManager.generateChangeId();
-
-      if (service == null) {
-        await PasswordStateManager.setPublishPending(
-          pendingGeneration: newGeneration,
-          pendingChangeId: newChangeId,
-          reason: PendingReason.publishUnconfirmed,
-        );
-        passwordStatePublished = false;
-        secureDebugLog(
-            '[settings] could not build GitHub service to publish password-state during rotation (credentials missing or undecryptable) - marked pending for reconciliation');
-      } else {
-        final String deviceId = PasswordStateManager.getOrCreateDeviceId();
-        bool wroteSuccessfully = false;
-        ({Map<String, dynamic>? content, String? refSha}) freshRead;
-        try {
-          freshRead = await service
-              .fetchNoteFileWithRefSha(PasswordStateManager.fileName);
-        } catch (e) {
-          secureDebugLog(
-              '[settings] could not re-fetch password_state.json immediately before publish: $e');
-          freshRead = (content: null, refSha: null);
-        }
-        final int? freshRemoteGeneration =
-            freshRead.content?['passwordGeneration'] as int?;
-        final String? freshRemoteChangeId =
-            freshRead.content?['passwordChangeId'] as String?;
-        final bool remoteChangedUnderUs = freshRemoteGeneration != null &&
-            preconditionState.remoteGeneration != null &&
-            (freshRemoteGeneration != preconditionState.remoteGeneration ||
-                freshRemoteChangeId != preconditionState.remoteChangeId);
-
-        try {
-          if (remoteChangedUnderUs) {
-            throw GithubConditionalWriteConflict(
-                'password_state.json changed during this rotation\'s own GitHub steps (before the write was even attempted)');
-          }
-          await PasswordStateManager.publishNewState(
-            service: service,
-            newGeneration: newGeneration,
-            newChangeId: newChangeId,
-            deviceId: deviceId,
-            expectedParentSha: freshRead.refSha,
-            baseState: freshRead.content,
-          );
-          wroteSuccessfully = true;
-        } catch (e) {
-          secureDebugLog(
-              '[settings] password-state publish did not confirm during rotation - will classify via immediate reconciliation: $e');
-        }
-
-        if (wroteSuccessfully) {
-          await PasswordStateManager.recordKnownState(
-            generation: newGeneration,
-            changeId: newChangeId,
-          );
-        } else {
-          await PasswordStateManager.setPublishPending(
-            pendingGeneration: newGeneration,
-            pendingChangeId: newChangeId,
-            reason: PendingReason.publishUnconfirmed,
-          );
-
-          await PasswordStateManager.reconcilePendingPublish(service);
-          final bool stillPending = PasswordStateManager.isPublishPending();
-          final bool nowOrphaned = LocalRotationOrphanStatus.isOrphaned();
-          final bool matchesWhatWeWanted = !stillPending &&
-              !nowOrphaned &&
-              PasswordStateManager.getKnownGeneration() == newGeneration;
-
-          passwordStatePublished = matchesWhatWeWanted;
-
-          if (nowOrphaned) {
-            secureDebugLog(
-                '[settings] immediate reconciliation after rejected/failed publish confirmed another device won - local rotation is now orphaned');
-          } else if (stillPending) {
-            secureDebugLog(
-                '[settings] immediate reconciliation after rejected/failed publish could not resolve the state yet - remains pending for a later attempt');
-          } else if (matchesWhatWeWanted) {
-            secureDebugLog(
-                '[settings] immediate reconciliation confirmed this device\'s own write actually succeeded (or a retry landed it) - not orphaned, not pending');
-          }
-        }
-      }
-    }
-
-    final List<int> devicesNeedingPasswordUpdate = <int>[];
-    if (passwordStatePublished && preconditionService != null) {
-      try {
-        final PasswordStateResult confirmedState =
-            await PasswordStateManager.checkState(preconditionService);
-        if (confirmedState.remoteGeneration != null &&
-            confirmedState.remoteGeneration ==
-                PasswordStateManager.getKnownGeneration()) {
-          final int? thisDeviceNumber = PasswordStateManager.getDeviceNumber();
-          for (final PasswordStateDevice device in confirmedState.devices) {
-            if (device.deviceNumber != thisDeviceNumber &&
-                device.passwordGeneration < confirmedState.remoteGeneration!) {
-              devicesNeedingPasswordUpdate.add(device.deviceNumber);
-            }
-          }
-        }
-      } catch (e) {
-        secureDebugLog(
-            '[settings] could not inspect registered devices after confirmed password-state publish; suppressing notification: $e');
-      }
-    }
-
-    onProgress?.call('DONE');
-    final bool isOrphaned = LocalRotationOrphanStatus.isOrphaned();
-    final PendingReason? pendingReason =
-        PasswordStateManager.getPendingReason();
-    final bool fullyOk = githubRotationOk && passwordStatePublished;
-    if (onComplete != null) {
-      onComplete(
-        true,
-        fullyOk,
-        devicesNeedingPasswordUpdate,
-      );
-    } else if (context.mounted) {
-      if (fullyOk) {
-        _showAcknowledgeDialog(context, 'PASSWORD UPDATED',
-            'YOUR PASSWORD HAS BEEN CHANGED SUCCESSFULLY.');
-      } else if (isOrphaned) {
-        _showStatusDialog(
-          context,
-          'PASSWORD CHANGE CONFLICT',
-          'YOUR PASSWORD WAS CHANGED ON THIS DEVICE, BUT ANOTHER DEVICE CHANGED IT AT THE SAME TIME AND ITS CHANGE WAS ACCEPTED FIRST. THIS DEVICE\'S NOTES ARE NOW ENCRYPTED WITH A PASSWORD THAT OTHER DEVICES DO NOT KNOW. THIS DEVICE CANNOT SYNC UNTIL YOU RESOLVE THIS — SEE RECOVERY.',
-        );
-      } else if (pendingReason == PendingReason.deviceKeyNotReady) {
-        _showStatusDialog(
-          context,
-          'RECOVERY SETUP INCOMPLETE',
-          'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT THE RECOVERY INFORMATION OTHER DEVICES NEED (YOUR DEVICE KEY) WAS NOT UPDATED — EITHER THE RECOVERY-PHRASE STEP WAS SKIPPED OR THE UPLOAD FAILED. CLOUD SYNC IS PAUSED UNTIL THIS IS COMPLETED. GO TO SETTINGS TO FINISH RECOVERY SETUP.',
-        );
-      } else if (!passwordStatePublished) {
-        _showStatusDialog(
-          context,
-          'PASSWORD UPDATED — SYNC STATE PENDING',
-          'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT THE SHARED PASSWORD-STATE COULD NOT BE CONFIRMED WITH GITHUB (LIKELY A CONNECTION ISSUE). THIS WILL BE RETRIED AUTOMATICALLY. OTHER DEVICES MAY NOT DETECT THIS CHANGE UNTIL THAT COMPLETES.',
-        );
-      } else {
-        _showStatusDialog(
-          context,
-          'PASSWORD UPDATED — GITHUB SYNC NEEDS ATTENTION',
-          'YOUR PASSWORD WAS CHANGED AND YOUR NOTES ARE SAFE, BUT YOUR STORED GITHUB CREDENTIALS COULD NOT BE FULLY RE-ENCRYPTED. RE-ENTER YOUR GITHUB TOKEN IN SETTINGS TO RESTORE SYNC.',
-        );
-      }
     }
   }
 
-  void _promptGithubAccessChallenge(BuildContext context) {
-    final BuildContext screenContext = context;
-    final settingsBox = Hive.box(_boxName);
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-
-    if (globalPin == null || globalPin.isEmpty) {
-      _showStatusDialog(context, 'PASSWORD REQUIRED',
-          'SET THE CRYPTOGRAPHY ACCESS PASSWORD FIRST BEFORE STORING A GITHUB TOKEN.');
-      return;
-    }
-
+  void _promptGithubAccessChallenge(
+    BuildContext context, {
+    bool isRestore = false,
+  }) {
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
-    final TextEditingController pinVerifyController = TextEditingController();
-
-    bool hasPinFailed = false;
-    String? lockStringStatus = _checkLockoutViolation(settingsBox);
-    Timer? countdownTimer;
-
-    void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) {
-        return;
-      }
-      if (countdownTimer != null && countdownTimer!.isActive) return;
-      countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        final String? current = _checkLockoutViolation(settingsBox);
-        setState_(() {
-          lockStringStatus = current;
-        });
-        if (current == null) {
-          timer.cancel();
-        }
-      });
-    }
-
+    final controller = TextEditingController();
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER PASSWORD';
-            if (lockStringStatus != null) {
-              displayHeaderTitle = lockStringStatus!;
-            } else if (hasPinFailed) {
-              displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
-            }
-
-            return Theme(
-              data: Theme.of(context).copyWith(
-                textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withValues(alpha: 0.2),
-                  selectionHandleColor: theme.textMain,
-                  cursorColor: theme.textMain,
-                ),
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
               ),
-              child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    width: 320,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: theme.dialogBg,
-                      border: Border.all(
-                          color: theme.dialogBorderColor, width: 0.8),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayHeaderTitle,
-                          style: TextStyle(
-                            color: (hasPinFailed || lockStringStatus != null)
-                                ? const Color(0xFFEF4444)
-                                : theme.textMain,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.05,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Builder(builder: (context) {
-                          Color currentFieldBorderColor;
-                          if (hasPinFailed || lockStringStatus != null) {
-                            currentFieldBorderColor = const Color(0xFFEF4444);
-                          } else {
-                            currentFieldBorderColor = theme.dialogBorderColor;
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('ENTER PASSWORD', style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextField(controller: controller, obscureText: true, maxLength: 32, autofocus: true, decoration: const InputDecoration(counterText: '', border: InputBorder.none)),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
+                      TextButton(
+                        onPressed: () async {
+                          final raw = controller.text;
+                          final record = await MasterKeyLocalStore.read();
+                          if (record == null || !await PasswordKeyDerivation.verifyPassword(raw, record.passwordVerifier)) {
+                            if (context.mounted) _showStatusDialog(context, 'PASSWORD VERIFICATION FAILED', 'THE PASSWORD DID NOT MATCH THE LOCAL VERIFIER.');
+                            return;
                           }
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: currentFieldBorderColor,
-                                width:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? 1.2
-                                        : 0.8,
-                              ),
-                            ),
-                            child: TextField(
-                              controller: pinVerifyController,
-                              keyboardType: TextInputType.text,
-                              maxLength: 32,
-                              obscureText: true,
-                              obscuringCharacter: '#',
-                              cursorColor: theme.textMain,
-                              autofocus: lockStringStatus == null,
-                              enabled: lockStringStatus == null,
-                              style: TextStyle(
-                                color:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? const Color(0xFFEF4444)
-                                        : theme.textMain,
-                                fontSize: 16,
-                                letterSpacing: 4,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              onChanged: (val) {
-                                setDialogState(() {
-                                  if (hasPinFailed) hasPinFailed = false;
-                                });
-                              },
-                              decoration: const InputDecoration(
-                                  counterText: '',
-                                  border: InputBorder.none,
-                                  isDense: true),
-                            ),
-                          );
-                        }),
-                        const SizedBox(height: 14),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            InkWell(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                    border: Border.all(
-                                        color: theme.dialogBorderColor,
-                                        width: 0.8)),
-                                child: Text('CANCEL',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFF888888)
-                                            : const Color(0xFF525252),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: () async {
-                                final activeLockCheck =
-                                    _checkLockoutViolation(settingsBox);
-                                if (activeLockCheck != null) {
-                                  setDialogState(() {
-                                    lockStringStatus = activeLockCheck;
-                                  });
-                                  return;
-                                }
-
-                                final bool isPinValid = await CryptoEngine
-                                    .verifyPinWithHardwareBinding(
-                                        pinVerifyController.text, globalPin);
-
-                                if (isPinValid) {
-                                  final String rawPassword =
-                                      pinVerifyController.text;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'secure_lockout_until', 0);
-
-                                  if (!context.mounted) return;
-                                  Navigator.pop(context);
-                                  if (!screenContext.mounted) return;
-                                  await _openGithubAccessDialog(
-                                      screenContext, globalPin, rawPassword);
-                                } else {
-                                  int attempts = settingsBox.get(
-                                          'secure_failed_attempts',
-                                          defaultValue: 0) +
-                                      1;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', attempts);
-
-                                  bool flagWipeConditionTriggered =
-                                      attempts > 15;
-                                  int penaltyDurationSeconds =
-                                      flagWipeConditionTriggered
-                                          ? 0
-                                          : CryptoEngine
-                                              .lockoutSecondsForAttempt(
-                                                  attempts);
-
-                                  if (flagWipeConditionTriggered) {
-                                    await _purgeEncryptedNotesOnBruteForce();
-                                    await settingsBox.put(
-                                        'secure_failed_attempts', 0);
-                                    await settingsBox.put(
-                                        'secure_lockout_until', 0);
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    if (!screenContext.mounted) return;
-                                    _showAcknowledgeDialog(
-                                        screenContext,
-                                        'SECURITY COMPLIANCE AUDIT',
-                                        'DATA PURGED PERMANENTLY.');
-                                    return;
-                                  }
-
-                                  if (penaltyDurationSeconds > 0) {
-                                    final int unlockTimestampMillis =
-                                        DateTime.now().millisecondsSinceEpoch +
-                                            (penaltyDurationSeconds * 1000);
-                                    await settingsBox.put(
-                                        'secure_lockout_until',
-                                        unlockTimestampMillis);
-                                  }
-
-                                  setDialogState(() {
-                                    pinVerifyController.clear();
-                                    lockStringStatus =
-                                        _checkLockoutViolation(settingsBox);
-                                    if (lockStringStatus == null) {
-                                      hasPinFailed = true;
-                                    }
-                                  });
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration:
-                                    BoxDecoration(color: theme.textMain),
-                                child: Text('VERIFY',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                          Navigator.pop(dialogContext);
+                          if (context.mounted) {
+                            _showGithubAccessDialog(context, raw, isRestore: isRestore);
+                          }
+                        },
+                        child: const Text('VERIFY'),
+                      ),
+                    ],
                   ),
-                ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
-    ).then((_) => countdownTimer?.cancel());
-  }
-
-  Future<GithubBackupService?> _buildGithubServiceFromStoredCredentials(
-      String pinHash) async {
-    final settingsBox = Hive.box(_boxName);
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-    if (accessBlob == null) return null;
-
-    try {
-      final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(
-          accessBlob,
-          keyAlias: CryptoEngine.githubTokenKeyAlias);
-      final String decoded = await CryptoEngine.decryptProcess(
-          unwrappedForRead ?? accessBlob, pinHash);
-      if (decoded == 'DECRYPTION FAULT') return null;
-      final Map<String, dynamic> access = jsonDecode(decoded);
-      final String? token = access['token']?.toString();
-      final String? repo = access['repo']?.toString();
-      if (token == null || repo == null || token.isEmpty || repo.isEmpty) {
-        return null;
-      }
-      return _buildGithubService(token: token, repoPath: repo);
-    } catch (_) {
-      return null;
-    }
+    ).then((_) => controller.dispose());
   }
 
   GithubBackupService _buildGithubService({
@@ -3104,666 +1470,148 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _openGithubAccessDialog(
-      BuildContext context, String pinHash, String rawPassword) async {
-    final settingsBox = Hive.box(_boxName);
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-
-    String initialToken = '';
-    String initialRepo = '';
-
-    if (accessBlob != null) {
-      try {
-        final String? unwrappedForRead = await CryptoEngine.hardwareUnwrap(
-            accessBlob,
-            keyAlias: CryptoEngine.githubTokenKeyAlias);
-        if (unwrappedForRead == null) {
-          secureDebugLog(
-              '[settings] hardwareUnwrap failed for githubTokenKeyAlias while opening GitHub settings - treating stored blob as software-encrypted only');
-        }
-        final String decoded = await CryptoEngine.decryptProcess(
-            unwrappedForRead ?? accessBlob, pinHash);
-        final Map<String, dynamic> access = jsonDecode(decoded);
-        initialToken = (access['token'] ?? '').toString();
-        initialRepo = (access['repo'] ?? '').toString();
-      } catch (_) {}
-    }
-
+      BuildContext context, String rawPassword) async {
     if (!context.mounted) return;
-    _showGithubAccessDialog(context, pinHash, rawPassword,
-        initialToken: initialToken, initialRepo: initialRepo);
+    _showGithubAccessDialog(context, rawPassword);
   }
 
   void _showGithubAccessDialog(
-      BuildContext context, String pinHash, String rawPassword,
-      {String initialToken = '', String initialRepo = ''}) {
+      BuildContext context, String rawPassword, {bool isRestore = false}) {
     final BuildContext screenContext = context;
     final isDark = ref.read(themeProvider);
     final theme = SettingsUiTheme(isDark);
-    final TextEditingController tokenController =
-        TextEditingController(text: initialToken);
-    final TextEditingController repoController =
-        TextEditingController(text: initialRepo);
-
+    final tokenController = TextEditingController();
+    final repoController = TextEditingController(
+      text: Hive.box(_boxName).get('github_repo')?.toString() ?? '',
+    );
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Dismiss',
       barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            textSelectionTheme: TextSelectionThemeData(
-              selectionColor: theme.textMain.withValues(alpha: 0.2),
-              selectionHandleColor: theme.textMain,
-              cursorColor: theme.textMain,
-            ),
-          ),
-          child: Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 320,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: theme.dialogBg,
-                  border:
-                      Border.all(color: theme.dialogBorderColor, width: 0.8),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'GITHUB TOKEN STORE',
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05),
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: tokenController,
-                      obscureText: true,
-                      contextMenuBuilder: (context, state) =>
-                          const SizedBox.shrink(),
-                      style: TextStyle(color: theme.textMain, fontSize: 13),
-                      cursorColor: theme.textMain,
-                      decoration: InputDecoration(
-                        hintText: 'Fine-grained token',
-                        hintStyle: TextStyle(color: theme.textSub),
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        isDense: true,
+      pageBuilder: (dialogContext, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.dialogBg,
+                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('GITHUB ACCESS', style: TextStyle(color: theme.textMain, fontSize: 11, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextField(controller: tokenController, obscureText: true, contextMenuBuilder: (context, state) => const SizedBox.shrink(), decoration: const InputDecoration(hintText: 'Fine-grained token', border: InputBorder.none)),
+                  const Divider(),
+                  TextField(controller: repoController, decoration: const InputDecoration(hintText: 'Repository (username/repo)', border: InputBorder.none)),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
+                      TextButton(
+                        onPressed: () async {
+                          final token = tokenController.text.trim();
+                          final repo = repoController.text.trim();
+                          if (token.isEmpty || repo.isEmpty) return;
+                          Navigator.pop(dialogContext);
+                          if (!screenContext.mounted) return;
+                          await _handlePostSaveGithubSync(
+                            screenContext,
+                            token,
+                            repo,
+                            rawPassword,
+                            isExplicitRestore: isRestore,
+                          );
+                        },
+                        child: const Text('CONFIRM'),
                       ),
-                    ),
-                    Container(height: 0.8, color: theme.dialogBorderColor),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: repoController,
-                      contextMenuBuilder: (context, state) =>
-                          const SizedBox.shrink(),
-                      style: TextStyle(color: theme.textMain, fontSize: 13),
-                      cursorColor: theme.textMain,
-                      decoration: InputDecoration(
-                        hintText: 'Repository (username/repo)',
-                        hintStyle: TextStyle(color: theme.textSub),
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        isDense: true,
-                      ),
-                    ),
-                    Container(height: 0.8, color: theme.dialogBorderColor),
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        InkWell(
-                          onTap: () => Navigator.pop(context),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.dialogBorderColor,
-                                    width: 0.8)),
-                            child: Text('CANCEL',
-                                style: TextStyle(
-                                    color: isDark
-                                        ? const Color(0xFF888888)
-                                        : const Color(0xFF525252),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        InkWell(
-                          onTap: () async {
-                            final String token = tokenController.text.trim();
-                            final String repo = repoController.text.trim();
-
-                            if (token.isEmpty || repo.isEmpty) {
-                              Navigator.pop(context);
-                              return;
-                            }
-
-                            Navigator.pop(context);
-                            if (!screenContext.mounted) return;
-                            await Future.delayed(Duration.zero);
-                            if (!screenContext.mounted) return;
-
-                            bool savingDialogVisible = true;
-                            void closeSavingDialogIfOpen() {
-                              if (savingDialogVisible &&
-                                  screenContext.mounted) {
-                                savingDialogVisible = false;
-                                Navigator.of(screenContext, rootNavigator: true)
-                                    .pop();
-                              }
-                            }
-
-                            _showSavingIndicatorDialog(screenContext, isDark);
-
-                            if (!screenContext.mounted) return;
-                            await _handlePostSaveGithubSync(
-                              screenContext,
-                              token,
-                              repo,
-                              rawPassword,
-                              pinHash,
-                              pullAfterKeySetup: false,
-                              persistCredentialsOnSuccess: true,
-                              onBeforeUserPrompt: closeSavingDialogIfOpen,
-                            );
-                            closeSavingDialogIfOpen();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(color: theme.textMain),
-                            child: Text('CONFIRM',
-                                style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
         );
       },
-    );
-  }
-
-  Future<void> _storeGithubCredentials({
-    required Box settingsBox,
-    required String token,
-    required String repo,
-    required String pinHash,
-  }) async {
-    final String payload = jsonEncode({'token': token, 'repo': repo});
-    final String encrypted =
-        await CryptoEngine.encryptProcess(payload, pinHash);
-    final String? hwWrapped = await CryptoEngine.hardwareWrap(
-      encrypted,
-      keyAlias: CryptoEngine.githubTokenKeyAlias,
-    );
-    if (hwWrapped == null) {
-      secureDebugLog(
-        '[settings] hardwareWrap failed for githubTokenKeyAlias while saving '
-        'validated GitHub credentials - using software-encrypted storage only',
-      );
-    }
-    await settingsBox.put(
-      'github_access_encrypted',
-      hwWrapped ?? encrypted,
-    );
+    ).then((_) {
+      tokenController.dispose();
+      repoController.dispose();
+    });
   }
 
   Future<bool> _handlePostSaveGithubSync(
     BuildContext context,
     String token,
     String repo,
-    String rawPassword,
-    String currentPinHash, {
+    String rawPassword, {
     bool isExplicitRestore = false,
-    bool pullAfterKeySetup = true,
-    bool persistCredentialsOnSuccess = false,
-    VoidCallback? onBeforeUserPrompt,
   }) async {
-    final GithubBackupService service;
     try {
-      service = _buildGithubService(token: token, repoPath: repo);
-    } catch (e) {
-      onBeforeUserPrompt?.call();
-      secureDebugLog('GITHUB SERVICE CONSTRUCTION FAILED: $e');
+      final service = _buildGithubService(token: token, repoPath: repo);
+      await service.validateRepositoryAccess();
+
+      final MasterKeyLocalRecord? local = await MasterKeyLocalStore.read();
+      if (local == null) {
+        final remote = await service.fetchNoteFile('device_key.json');
+        if (remote == null) {
+          if (context.mounted) {
+            _showStatusDialog(context, 'GITHUB SETUP BLOCKED', 'ESTABLISH THE LOCAL MASTER KEY AUTHORITY BEFORE CONNECTING A NEW REPOSITORY.');
+          }
+          return false;
+        }
+        if (!context.mounted) return false;
+        final words = await _promptMnemonicRecovery(context);
+        if (words == null) return false;
+        await MasterKeyProductionService.instance.recoverFromRemote(
+          service: service,
+          password: rawPassword,
+          mnemonicWords: words,
+          repository: repo,
+          knownRecoveryWrapJson: jsonEncode(remote),
+        );
+      } else {
+        final Map<String, dynamic>? remote =
+            await service.fetchNoteFile('device_key.json');
+        List<String> words = const <String>[];
+        if (remote != null &&
+            (local.remoteRecoveryStatus ==
+                    RemoteRecoveryStatus.unpublished ||
+                jsonEncode(remote) != local.recoveryWrap)) {
+          if (!context.mounted) return false;
+          final entered = await _promptMnemonicRecovery(context);
+          if (entered == null) return false;
+          words = entered;
+        }
+        await MasterKeyProductionService.instance.associateRemote(
+          service: service,
+          password: rawPassword,
+          mnemonicWords: words,
+          repository: repo,
+        );
+      }
+
+      await Hive.box(_boxName).put('github_repo', repo);
+
+      if (context.mounted) {
+        _showAcknowledgeDialog(
+          context,
+          isExplicitRestore ? 'RECOVERY COMPLETE' : 'GITHUB LINKED',
+          'THE SELECTED REPOSITORY NOW REFERENCES THIS DATASET'S RECOVERY-WRAPPED MASTER KEY. GITHUB TOKENS ARE NOT PERSISTED BY THE BLOCK B CUTOVER.',
+        );
+      }
+      return true;
+    } catch (_) {
       if (context.mounted) {
         _showStatusDialog(
           context,
-          'GITHUB SYNC UNAVAILABLE',
-          'GITHUB SECURITY CONFIGURATION FOR THIS APP BUILD IS INCOMPLETE, SO SECURE SYNC COULD NOT START. YOUR LOCAL DATA IS UNCHANGED. CONTACT THE APP DEVELOPER IF THIS PERSISTS.',
+          'GITHUB SETUP FAILED',
+          'THE REPOSITORY COULD NOT BE ASSOCIATED WITH THIS DATASET. NO REPLACEMENT MASTER KEY WAS CREATED.',
         );
-      }
-      return false;
-    }
-    final settingsBox = Hive.box(_boxName);
-
-    final List<String> syncLog = [];
-    void log(String msg) {
-      syncLog.add(msg);
-      secureDebugLog(msg);
-    }
-
-    Future<void> finish(String title) async {
-      onBeforeUserPrompt?.call();
-      if (isExplicitRestore && context.mounted) {
-        _showDiagnosticLogDialog(context, title, syncLog);
-      }
-    }
-
-    try {
-      try {
-        await service.validateRepositoryAccess();
-        log('repository metadata preflight: OK');
-      } catch (e) {
-        log('repository metadata preflight: $e (non-blocking)');
-      }
-
-      String effectivePinHash = currentPinHash;
-      final String? ownedRepo = settingsBox.get('device_key_owned_repo');
-      bool ownsThisRepoKey = ownedRepo == repo;
-      log('ownedRepo locally = "$ownedRepo", this repo = "$repo", ownsThisRepoKey = $ownsThisRepoKey');
-
-      Map<String, dynamic>? existingDeviceKey;
-      bool initializedDeviceKeyDuringThisRun = false;
-
-      if (!ownsThisRepoKey) {
-        try {
-          existingDeviceKey = await service.fetchNoteFile('device_key.json');
-          log(
-            'device_key.json fetch: '
-            '${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}',
-          );
-        } on GithubSyncException catch (readError, stackTrace) {
-          final String readErrorText = readError.toString();
-          final bool isContentsReadDenied =
-              readErrorText.contains('HTTP 403') &&
-                  readErrorText.toLowerCase().contains('permission denied');
-
-          if (!isContentsReadDenied) {
-            log('device_key.json fetch FAILED: $readError');
-            secureDebugLog('$stackTrace');
-            onBeforeUserPrompt?.call();
-            if (context.mounted) {
-              _showStatusDialog(
-                context,
-                'GITHUB BACKUP CHECK FAILED',
-                'Rocen could not securely check the GitHub backup repository. '
-                    'Your local data is unchanged.\n\nERROR: $readError',
-              );
-            }
-            return false;
-          }
-          log('device_key.json read was denied; attempting safe create-if-absent bootstrap');
-
-          try {
-            final Uint8List authSalt =
-                CryptoEngine.extractAuthSalt(currentPinHash);
-            final List<String> mnemonicWords =
-                await CryptoEngine.generateMnemonic();
-            final Map<String, String> wrapped =
-                await CryptoEngine.wrapDeviceKey(
-              authSaltBytes: authSalt,
-              password: rawPassword,
-              mnemonicWords: mnemonicWords,
-            );
-
-            await service.createFileIfAbsent(
-              path: 'device_key.json',
-              content: jsonEncode(wrapped),
-              message: 'initialize device recovery key',
-            );
-            await settingsBox.put('device_key_owned_repo', repo);
-            ownsThisRepoKey = true;
-            initializedDeviceKeyDuringThisRun = true;
-            existingDeviceKey = Map<String, dynamic>.from(wrapped);
-            log('create-if-absent bootstrap succeeded; device_key.json created');
-
-            if (!context.mounted) return false;
-            await _showMnemonicDisplayDialog(context, mnemonicWords);
-            if (!context.mounted) return false;
-          } on GithubFileAlreadyExists {
-            log('create-if-absent reported an existing device_key.json; attempting recovery read');
-            existingDeviceKey = await service.fetchNoteFile('device_key.json');
-            log('device_key.json recovery read: ${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}');
-          } catch (bootstrapError, bootstrapStackTrace) {
-            log('create-if-absent bootstrap FAILED: $bootstrapError');
-            secureDebugLog('$bootstrapStackTrace');
-            onBeforeUserPrompt?.call();
-            if (context.mounted) {
-              _showStatusDialog(
-                context,
-                'GITHUB BACKUP SETUP FAILED',
-                'Rocen could not create the recovery file in the selected GitHub repository. '
-                    'Your local data is unchanged.\n\nERROR: $bootstrapError',
-              );
-            }
-            return false;
-          }
-        }
-      } else {
-        try {
-          existingDeviceKey = await service.fetchNoteFile('device_key.json');
-          log(
-            'device_key.json fetch for locally owned repo: '
-            '${existingDeviceKey == null ? "NOT FOUND" : "FOUND"}',
-          );
-        } catch (e, stackTrace) {
-          log('device_key.json fetch for locally owned repo FAILED: $e');
-          secureDebugLog('$stackTrace');
-          onBeforeUserPrompt?.call();
-          if (context.mounted) {
-            _showStatusDialog(
-              context,
-              'GITHUB BACKUP CHECK FAILED',
-              'Rocen could not verify the recovery file for this already-owned repository. '
-                  'Your local data is unchanged.\n\nERROR: $e',
-            );
-          }
-          return false;
-        }
-      }
-
-      if (initializedDeviceKeyDuringThisRun) {
-      } else if (existingDeviceKey == null) {
-        log('taking first-time-setup branch');
-
-        final Uint8List authSalt = CryptoEngine.extractAuthSalt(currentPinHash);
-        final List<String> mnemonicWords =
-            await CryptoEngine.generateMnemonic();
-
-        final Map<String, String> wrapped = await CryptoEngine.wrapDeviceKey(
-          authSaltBytes: authSalt,
-          password: rawPassword,
-          mnemonicWords: mnemonicWords,
-        );
-
-        bool deviceKeyPublished = false;
-        String? deviceKeyPublishError;
-
-        try {
-          if (!context.mounted) return false;
-          await _showMnemonicDisplayDialog(context, mnemonicWords);
-          if (!context.mounted) return false;
-
-          await service.amendSync(
-            upsertFiles: {'device_key.json': jsonEncode(wrapped)},
-            message: 'initialize device recovery key',
-          );
-          log('device_key.json upload completed');
-
-          final Map<String, dynamic>? publishedDeviceKey =
-              await service.fetchNoteFile('device_key.json');
-          final bool hasRequiredFields = publishedDeviceKey != null &&
-              (publishedDeviceKey['wrapSalt'] ?? '').toString().isNotEmpty &&
-              (publishedDeviceKey['wrapNonce'] ?? '').toString().isNotEmpty &&
-              (publishedDeviceKey['wrappedAuthSalt'] ?? '')
-                  .toString()
-                  .isNotEmpty;
-
-          if (!hasRequiredFields) {
-            throw GithubSyncException(
-              'device_key.json was uploaded but could not be verified after upload.',
-            );
-          }
-
-          await settingsBox.put('device_key_owned_repo', repo);
-          ownsThisRepoKey = true;
-          initializedDeviceKeyDuringThisRun = true;
-          deviceKeyPublished = true;
-          log('device_key.json verified successfully; local repo ownership recorded');
-        } catch (e, stackTrace) {
-          deviceKeyPublishError = e.toString();
-          log('device_key.json publish/verification FAILED: $e');
-          secureDebugLog('[settings] first-time device_key publish failed: $e');
-          secureDebugLog('$stackTrace');
-        }
-
-        if (!deviceKeyPublished) {
-          onBeforeUserPrompt?.call();
-
-          if (context.mounted) {
-            _showStatusDialog(
-              context,
-              'BACKUP SETUP FAILED',
-              'Rocen could not securely save and verify the recovery information '
-                  'on GitHub. Your local data is unchanged.\n\nERROR: ${deviceKeyPublishError ?? "unknown error"}',
-            );
-          }
-
-          return false;
-        }
-      } else if (!ownsThisRepoKey) {
-        log('taking recovery branch - prompting for 12 words');
-        if (!context.mounted) {
-          log('context unmounted before mnemonic prompt, aborting');
-          return false;
-        }
-        onBeforeUserPrompt?.call();
-        final List<String>? recoveredWords =
-            await _promptMnemonicRecovery(context);
-        if (recoveredWords == null) {
-          log('mnemonic dialog closed without submitting (cancelled or dismissed)');
-          await finish('RECOVERY CANCELLED');
-          return false;
-        }
-        log('12 words submitted, attempting unwrap');
-
-        final Uint8List? unwrapped = await CryptoEngine.unwrapDeviceKey(
-          wrapSalt: (existingDeviceKey['wrapSalt'] ?? '').toString(),
-          wrapNonce: (existingDeviceKey['wrapNonce'] ?? '').toString(),
-          wrappedAuthSalt:
-              (existingDeviceKey['wrappedAuthSalt'] ?? '').toString(),
-          password: rawPassword,
-          mnemonicWords: recoveredWords,
-        );
-
-        if (unwrapped == null) {
-          log('unwrapDeviceKey returned null - password or mnemonic did not match this backup');
-          await finish('RECOVERY FAILED');
-          return false;
-        }
-
-        effectivePinHash =
-            await CryptoEngine.hashPinWithSalt(rawPassword, unwrapped);
-        await settingsBox.put('system_crypto_pin', effectivePinHash);
-        await settingsBox.put(
-            'last_active_crypto_pin_snapshot', effectivePinHash);
-        await settingsBox.put('device_key_owned_repo', repo);
-
-        final String? hwWrappedRecoveredPin = await CryptoEngine.hardwareWrap(
-            effectivePinHash,
-            keyAlias: CryptoEngine.passwordKeyAlias);
-        if (hwWrappedRecoveredPin != null) {
-          await settingsBox.put('hw_wrapped_pin', hwWrappedRecoveredPin);
-        } else {
-          await settingsBox.delete('hw_wrapped_pin');
-        }
-
-        final String reEncryptedAccess = await CryptoEngine.encryptProcess(
-          jsonEncode({'token': token, 'repo': repo}),
-          effectivePinHash,
-        );
-        await settingsBox.put('github_access_encrypted', reEncryptedAccess);
-        log('re-encrypted stored GitHub credentials under the recovered key');
-        log('unwrap succeeded, local key updated');
-      } else {
-        log('this device already owns this repo key, skipping recovery');
-      }
-
-      // The shared password state is part of completing GitHub setup. A brand-new
-      // repository is initialized at generation 1; a joining device adopts the
-      // repository's current generation and registers itself without changing
-      // the shared password event. This runs only after device_key.json setup
-      // or recovery has completed successfully.
-      try {
-        await PasswordStateManager.initializeOrJoinState(
-          service: service,
-          allowCreateInitialState: initializedDeviceKeyDuringThisRun,
-        );
-        log(
-          'password_state.json initialize/join completed; '
-          'deviceNumber=${PasswordStateManager.getDeviceNumber()} '
-          'generation=${PasswordStateManager.getKnownGeneration()}',
-        );
-      } catch (e, stackTrace) {
-        log('password_state.json initialize/join FAILED: $e');
-        secureDebugLog('$stackTrace');
-        onBeforeUserPrompt?.call();
-        if (context.mounted) {
-          _showStatusDialog(
-            context,
-            'GITHUB BACKUP SETUP FAILED',
-            'Rocen could not establish the shared password state for this backup. '
-                'Your local data is unchanged.\n\nERROR: $e',
-          );
-        }
-        return false;
-      }
-
-      if (!pullAfterKeySetup) {
-        log(
-          'pullAfterKeySetup is false, stopping after completed key/state setup',
-        );
-
-        if (persistCredentialsOnSuccess) {
-          try {
-            await _storeGithubCredentials(
-              settingsBox: settingsBox,
-              token: token,
-              repo: repo,
-              pinHash: effectivePinHash,
-            );
-            log('validated GitHub credentials persisted locally');
-          } catch (e, stackTrace) {
-            log('validated GitHub credentials persistence FAILED: $e');
-            secureDebugLog(
-              '[settings] validated GitHub credentials could not be persisted: $e',
-            );
-            secureDebugLog('$stackTrace');
-            onBeforeUserPrompt?.call();
-            if (context.mounted) {
-              _showStatusDialog(
-                context,
-                'GITHUB CREDENTIAL SAVE FAILED',
-                'GitHub backup setup succeeded, but Rocen could not safely save the validated credentials locally. Your previous stored credentials remain unchanged.\n\nERROR: $e',
-              );
-            }
-            return false;
-          }
-        }
-
-        onBeforeUserPrompt?.call();
-        return true;
-      }
-
-      List<String> filesToImport = [];
-      try {
-        filesToImport = await service.listNoteFiles();
-        log('listNoteFiles returned: $filesToImport');
-      } catch (e) {
-        log('listNoteFiles THREW: $e');
-        filesToImport = [];
-      }
-      filesToImport.remove('device_key.json');
-      filesToImport.remove(PasswordStateManager.fileName);
-      log('filesToImport after removing system backup metadata: $filesToImport');
-
-      if (filesToImport.isEmpty) {
-        log('nothing to import, stopping');
-        onBeforeUserPrompt?.call();
-        if (isExplicitRestore && context.mounted) {
-          _showAcknowledgeDialog(context, 'BACKUP SIGN-IN SUCCESSFUL',
-              '0 NOTES FOUND IN THIS BACKUP.');
-        }
-        await finish('RESTORE RESULT');
-        return true;
-      }
-
-      final notifier = ref.read(localDatabaseProvider.notifier);
-      final List<CaptureItem> currentBackedUpItems = ref
-          .read(localDatabaseProvider)
-          .where((item) => item.backupEnabled)
-          .toList();
-      log('deleting ${currentBackedUpItems.length} existing local backup-enabled notes first');
-      for (final item in currentBackedUpItems) {
-        await notifier.deleteItem(item.id);
-      }
-      await notifier.clearSyncQueue();
-
-      int importedCount = 0;
-      for (final fileName in filesToImport) {
-        try {
-          final Map<String, dynamic>? data =
-              await service.fetchNoteFile(fileName);
-          log('fetched "$fileName" -> ${data == null ? "NULL" : "OK"}');
-          if (data == null) continue;
-
-          final String salt = (data['salt'] ?? '').toString();
-          final String nonce = (data['nonce'] ?? '').toString();
-          final String cyphertext = (data['cyphertext'] ?? '').toString();
-          final String title = fileName.endsWith('.json')
-              ? fileName.substring(0, fileName.length - 5)
-              : fileName;
-
-          String content;
-          String type;
-          if (salt.isEmpty) {
-            content = cyphertext;
-            type = 'note';
-            log('"$fileName" is plaintext, title="$title"');
-          } else {
-            final String merged =
-                CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
-            final String testDecrypt =
-                await CryptoEngine.decryptProcess(merged, effectivePinHash);
-            log('"$fileName" decrypt: ${testDecrypt == "DECRYPTION FAULT" ? "FAULT" : "OK"}');
-            if (testDecrypt == 'DECRYPTION FAULT') continue;
-            content = merged;
-            type = 'encrypted_note';
-          }
-
-          final bool inserted = await notifier.insertItem(content, type,
-              title: title, backupEnabled: true);
-          log('insertItem "$title" -> $inserted');
-          if (inserted) importedCount++;
-        } catch (e) {
-          log('exception processing "$fileName": $e');
-          continue;
-        }
-      }
-
-      log('done, importedCount=$importedCount');
-      onBeforeUserPrompt?.call();
-      if (context.mounted) {
-        _showAcknowledgeDialog(context, 'RESTORE COMPLETE',
-            'IMPORTED $importedCount NOTE(S) FROM BACKUP.');
-      }
-      await finish('RESTORE RESULT');
-      return true;
-    } catch (e, stackTrace) {
-      syncLog.add('UNCAUGHT EXCEPTION: $e');
-      syncLog.add('STACK TRACE: $stackTrace');
-      secureDebugLog('SYNC UNCAUGHT EXCEPTION: $e');
-      secureDebugLog('$stackTrace');
-      onBeforeUserPrompt?.call();
-      if (isExplicitRestore && context.mounted) {
-        _showDiagnosticLogDialog(context, 'SYNC ERROR', syncLog);
       }
       return false;
     }
@@ -4631,23 +2479,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 12),
             ValueListenableBuilder(
               valueListenable:
-                  Hive.box(_boxName).listenable(keys: ['system_crypto_pin']),
+                  Hive.box(_boxName).listenable(keys: ['master_key_record_v1']),
               builder: (context, Box box, _) {
-                final String currentPin =
-                    box.get('system_crypto_pin', defaultValue: '');
+                final bool authorityEstablished =
+                    box.get('master_key_record_v1') != null;
 
                 return _buildMenuTile(
                   title: 'CRYPTOGRAPHIC ACCESS PASSWORD',
-                  subtitle: currentPin.isEmpty
-                      ? 'SETUP REQUIRED // SECURITY KEY'
-                      : 'ACTIVE // MODIFY SECURE TERMINAL DEPLOYMENT KEY',
+                  subtitle: authorityEstablished
+                      ? 'ACTIVE // MASTER KEY AUTHORITY ESTABLISHED'
+                      : 'SETUP REQUIRED // MASTER KEY AUTHORITY',
                   textMain: theme.textMain,
-                  textSub: currentPin.isEmpty
-                      ? const Color(0xFFEF4444)
-                      : theme.textSub,
+                  textSub: authorityEstablished
+                      ? theme.textSub
+                      : const Color(0xFFEF4444),
                   borderColor: theme.mainBorderColor,
                   onTap: () {
-                    if (currentPin.isEmpty) {
+                    if (!authorityEstablished) {
                       _showCreatePinDialog(context);
                     } else {
                       _promptChangePasswordChallenge(context);
@@ -4659,15 +2507,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 12),
             ValueListenableBuilder(
               valueListenable: Hive.box(_boxName)
-                  .listenable(keys: ['github_access_encrypted']),
+                  .listenable(keys: ['master_key_record_v1', 'github_repo']),
               builder: (context, Box box, _) {
-                final bool githubReady =
-                    box.get('github_access_encrypted') != null;
+                final bool githubReady = box.get('github_repo') != null;
 
                 return _buildMenuTile(
-                  title: 'GITHUB TOKEN STORE',
+                  title: 'GITHUB ACCESS',
                   subtitle: githubReady
-                      ? 'ACTIVE // MODIFY REPOSITORY BACKUP CREDENTIALS'
+                      ? 'ACTIVE // RE-ENTER TOKEN OR CHANGE REPOSITORY'
                       : 'SETUP REQUIRED // FINE-GRAINED TOKEN + REPOSITORY',
                   textMain: theme.textMain,
                   textSub:
@@ -4841,7 +2688,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       theme.textSub),
                   _buildInfoSection(
                       '06 // CRYPTOGRAPHIC KEY WRAPPING',
-                      'Activating the CRYPTOGRAPHIC ACCESS PASSWORD applies an isolated user verification requirement. Secure components (like encrypted_note parameters) evaluate this key matching verification block locally. Changing or deleting the security password immediately purges corresponding key-dependent items from storage to guarantee absolute protection against physical file manipulation.',
+                      'The CRYPTOGRAPHIC ACCESS PASSWORD authenticates access to one random dataset Master Key. The password verifier authenticates only; a Password-KEK and Recovery-KEK wrap the same Master Key. Notes and GitHub token encryption are derived from that Master Key through the frozen Stage 4 HKDF hierarchy.',
                       theme.textMain,
                       theme.textSub),
                   _buildInfoSection(

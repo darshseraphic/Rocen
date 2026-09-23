@@ -1,13 +1,7 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../core/database.dart';
-import '../core/crypto_engine.dart';
-import '../core/github_backup_service.dart';
-import '../core/password_state_manager.dart';
 import '../core/debug_log.dart';
 import '../main.dart';
 
@@ -188,841 +182,25 @@ class GithubSyncGateResult {
   final String blockedReason;
   const GithubSyncGateResult._(this.allowed, this.blockedReason);
 
-  static const GithubSyncGateResult ok = GithubSyncGateResult._(true, '');
+  static const GithubSyncGateResult blocked = GithubSyncGateResult._(
+    false,
+    'SECURE NOTE/BACKUP SYNC IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE IS IMPLEMENTED. NO LEGACY OR TEMPORARY CIPHERTEXT IS READ OR WRITTEN.',
+  );
 }
 
-Future<GithubSyncGateResult> isGithubSyncCurrentlyAllowed() async {
-  try {
-    final settingsBox = Hive.box('rocen_settings_box');
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-
-    if (globalPin == null || accessBlob == null) {
-      return GithubSyncGateResult.ok;
-    }
-    if (LocalRotationOrphanStatus.isOrphaned()) {
-      return const GithubSyncGateResult._(
-        false,
-        'THIS DEVICE HAS AN UNRESOLVED PASSWORD-STATE CONFLICT FROM A PREVIOUS PASSWORD CHANGE. YOUR LOCAL NOTES ARE UNTOUCHED. RESOLVE THIS BEFORE SYNCING — SEE RECOVERY.',
-      );
-    }
-    if (PasswordStateManager.isPublishPending()) {
-      final bool isDeviceKeyIssue = PasswordStateManager.getPendingReason() ==
-          PendingReason.deviceKeyNotReady;
-      return GithubSyncGateResult._(
-        false,
-        isDeviceKeyIssue
-            ? 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE IS STILL WAITING ON RECOVERY SETUP TO COMPLETE. YOUR LOCAL NOTES ARE UNTOUCHED. FINISH RECOVERY SETUP BEFORE SYNCING.'
-            : 'A PREVIOUS PASSWORD CHANGE ON THIS DEVICE HASN\'T BEEN CONFIRMED WITH GITHUB YET. YOUR LOCAL NOTES ARE UNTOUCHED. TRY AGAIN SHORTLY, OR CHECK YOUR CONNECTION.',
-      );
-    }
-
-    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(
-        accessBlob,
-        keyAlias: CryptoEngine.githubTokenKeyAlias);
-    final String accessJson = await CryptoEngine.decryptProcess(
-        unwrappedAccessBlob ?? accessBlob, globalPin);
-    if (accessJson == 'DECRYPTION FAULT') {
-      return const GithubSyncGateResult._(
-        false,
-        'STORED GITHUB CREDENTIALS COULD NOT BE READ WITH THE CURRENT PASSWORD. YOUR LOCAL NOTES ARE UNTOUCHED. RE-ENTER YOUR GITHUB TOKEN IN SETTINGS.',
-      );
-    }
-    final Map<String, dynamic> access = jsonDecode(accessJson);
-    final String? token = access['token'] as String?;
-    final String? repo = access['repo'] as String?;
-    if (token == null || repo == null) {
-      return const GithubSyncGateResult._(
-        false,
-        'STORED GITHUB TOKEN OR REPOSITORY WAS EMPTY. YOUR LOCAL NOTES ARE UNTOUCHED.',
-      );
-    }
-
-    final service = GithubBackupService(token: token, repoPath: repo);
-    final PasswordStateResult result =
-        await PasswordStateManager.checkState(service);
-
-    switch (result.comparison) {
-      case PasswordStateComparison.synchronized:
-      case PasswordStateComparison.noRemoteStateYet:
-        return GithubSyncGateResult.ok;
-      case PasswordStateComparison.behindRemote:
-        return GithubSyncGateResult._(
-          false,
-          'YOUR PASSWORD WAS CHANGED ON ANOTHER DEVICE${result.remoteChangedByDeviceId != null ? " (${result.remoteChangedByDeviceId})" : ""}. YOUR LOCAL NOTES ARE UNTOUCHED. UPDATE YOUR PASSWORD ON THIS DEVICE (RECOVERY PHRASE REQUIRED) BEFORE SYNCING.',
-        );
-      case PasswordStateComparison.conflict:
-        return const GithubSyncGateResult._(
-          false,
-          'THIS DEVICE AND ANOTHER DEVICE HAVE CONFLICTING PASSWORD STATES. YOUR LOCAL NOTES ARE UNTOUCHED. SEE RECOVERY TO RESOLVE THIS BEFORE SYNCING.',
-        );
-      case PasswordStateComparison.remoteStateBehind:
-        return const GithubSyncGateResult._(
-          false,
-          'THE PASSWORD STATE ON GITHUB APPEARS OLDER THAN WHAT THIS DEVICE ALREADY KNOWS (POSSIBLY A REVERTED OR RESTORED FILE). YOUR LOCAL NOTES ARE UNTOUCHED. THIS NEEDS INVESTIGATION BEFORE SYNCING CAN CONTINUE.',
-        );
-      case PasswordStateComparison.remoteStateMissing:
-        return const GithubSyncGateResult._(
-          false,
-          'THIS DEVICE HAS A PASSWORD GENERATION ON RECORD, BUT THE SHARED PASSWORD STATE FILE IS MISSING FROM GITHUB. YOUR LOCAL NOTES ARE UNTOUCHED. THIS NEEDS INVESTIGATION BEFORE SYNCING CAN CONTINUE.',
-        );
-      case PasswordStateComparison.checkFailed:
-        return const GithubSyncGateResult._(
-          false,
-          'COULD NOT VERIFY THE CURRENT PASSWORD STATE WITH GITHUB. CHECK YOUR CONNECTION AND TRY AGAIN. YOUR LOCAL NOTES ARE UNTOUCHED.',
-        );
-    }
-  } catch (e) {
-    secureDebugLog(
-        'PASSWORD-STATE PRE-CHECK FAILED (failing closed for this sync): $e');
-    return const GithubSyncGateResult._(
-      false,
-      'COULD NOT VERIFY THE CURRENT PASSWORD STATE. YOUR LOCAL NOTES ARE UNTOUCHED. CHECK YOUR CONNECTION AND TRY AGAIN.',
-    );
-  }
-}
+Future<GithubSyncGateResult> isGithubSyncCurrentlyAllowed() async =>
+    GithubSyncGateResult.blocked;
 
 Future<bool> attemptGithubSync(
   WidgetRef ref, {
   Map<String, String>? upsert,
 }) async {
-  try {
-    final settingsBox = Hive.box('rocen_settings_box');
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-    if (globalPin == null || globalPin.isEmpty || accessBlob == null) {
-      secureDebugLog(
-        'GITHUB SYNC ABORTED: missing PIN or stored access blob',
-      );
-      return false;
-    }
-
-    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(
-      accessBlob,
-      keyAlias: CryptoEngine.githubTokenKeyAlias,
-    );
-
-    final String accessJson = await CryptoEngine.decryptProcess(
-      unwrappedAccessBlob ?? accessBlob,
-      globalPin,
-    );
-
-    if (accessJson == 'DECRYPTION FAULT') {
-      return false;
-    }
-    final Map<String, dynamic> access = jsonDecode(accessJson);
-    final String? token = access['token'] as String?;
-    final String? repo = access['repo'] as String?;
-    if (token == null || token.isEmpty || repo == null || repo.isEmpty) {
-      return false;
-    }
-
-    final service = GithubBackupService(
-      token: token,
-      repoPath: repo,
-    );
-    final bool pushAllowed = await PasswordStateManager.isPushAllowed(service);
-    if (!pushAllowed) {
-      secureDebugLog(
-          'GITHUB SYNC BLOCKED: password-state gate did not allow push (stale generation, pending rotation, or unreachable state check)');
-      return false;
-    }
-
-    final notifier = ref.read(localDatabaseProvider.notifier);
-    final queue = await notifier.getSyncQueue();
-    await service.amendSync(
-      upsertFiles: upsert ?? const {},
-      deleteFiles: List<String>.from(queue['deleted']),
-      renameFiles: Map<String, String>.from(queue['renamed']),
-    );
-
-    await notifier.clearSyncQueue();
-
-    secureDebugLog('GITHUB SYNC SUCCEEDED');
-
-    return true;
-  } catch (e, stackTrace) {
-    secureDebugLog('GITHUB SYNC FAILED: $e');
-    secureDebugLog('$stackTrace');
-    return false;
-  }
+  secureDebugLog('GITHUB NOTE SYNC BLOCKED: Stage 6 ciphertext envelope is not present.');
+  return false;
 }
 
-Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async {
-  try {
-    final settingsBox = Hive.box('rocen_settings_box');
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-    if (globalPin == null || accessBlob == null) {
-      return 'GITHUB CREDENTIALS ARE MISSING LOCALLY.';
-    }
-
-    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(
-        accessBlob,
-        keyAlias: CryptoEngine.githubTokenKeyAlias);
-    final String accessJson = await CryptoEngine.decryptProcess(
-        unwrappedAccessBlob ?? accessBlob, globalPin);
-    if (accessJson == 'DECRYPTION FAULT') {
-      return 'STORED GITHUB CREDENTIALS COULD NOT BE DECRYPTED WITH THE CURRENT PASSWORD. RE-ENTER YOUR TOKEN IN GITHUB TOKEN STORE.';
-    }
-    final Map<String, dynamic> access = jsonDecode(accessJson);
-    final String? token = access['token'] as String?;
-    final String? repo = access['repo'] as String?;
-    if (token == null || repo == null) {
-      return 'STORED TOKEN OR REPOSITORY WAS EMPTY.';
-    }
-
-    final service = GithubBackupService(token: token, repoPath: repo);
-    final bool pushAllowed = await PasswordStateManager.isPushAllowed(service);
-    if (!pushAllowed) {
-      secureDebugLog(
-          'GITHUB SYNC BLOCKED (pushAllBackupEnabledNotes): password-state gate did not allow push. No notes were encrypted or uploaded.');
-      return 'PASSWORD STATE IS OUT OF SYNC WITH GITHUB. THIS DEVICE\'S NOTES WERE NOT UPLOADED — SEE RECOVERY/SETTINGS.';
-    }
-
-    final backedUpItems = ref
-        .read(localDatabaseProvider)
-        .where((item) => item.backupEnabled)
-        .toList();
-    final notifier = ref.read(localDatabaseProvider.notifier);
-    final Map<String, String> upsertFiles = {};
-    final List<String> legacyFilesToDelete = [];
-    final List<({String id, DateTime timestamp})> pushedItems = [];
-
-    for (final item in backedUpItems) {
-      try {
-        String? remoteId = item.remoteFileId;
-        if (!DatabaseNotifier.isOpaqueRemoteFileId(remoteId)) {
-          final String? legacyName =
-              await notifier.migrateLegacyRemoteFileId(item.id);
-          if (legacyName != null) legacyFilesToDelete.add(legacyName);
-          final CaptureItem refreshed = ref
-              .read(localDatabaseProvider)
-              .firstWhere((e) => e.id == item.id);
-          remoteId = refreshed.remoteFileId;
-        }
-        if (remoteId == null) continue;
-
-        final Map<String, String> fields;
-        if (item.type == 'encrypted_note') {
-          if (item.pendingReviewAfterSync) {
-            fields = {
-              ...CryptoEngine.splitForBackup(item.content),
-              'timestamp': item.timestamp.toIso8601String()
-            };
-          } else {
-            final String decryptedBody =
-                await CryptoEngine.decryptProcess(item.content, globalPin);
-            if (decryptedBody == 'DECRYPTION FAULT') {
-              secureDebugLog(
-                  'SKIPPING NOTE "${item.title}" - COULD NOT DECRYPT FOR RE-PACKAGING');
-              continue;
-            }
-            final String combined =
-                _combineTitleAndBody(item.title, decryptedBody);
-            final String reEncrypted =
-                await CryptoEngine.encryptProcess(combined, globalPin);
-            fields = {
-              ...CryptoEngine.splitForBackup(reEncrypted),
-              'timestamp': item.timestamp.toIso8601String()
-            };
-          }
-        } else {
-          fields = {
-            'salt': '',
-            'nonce': '',
-            'cyphertext': _combineTitleAndBody(item.title, item.content),
-            'timestamp': item.timestamp.toIso8601String()
-          };
-        }
-        upsertFiles[remoteId] = jsonEncode(fields);
-        pushedItems.add((id: item.id, timestamp: item.timestamp));
-      } catch (e) {
-        secureDebugLog(
-            'SKIPPING CORRUPTED NOTE "${item.title}" DURING PUSH: $e');
-        continue;
-      }
-    }
-
-    final queue = await notifier.getSyncQueue();
-    final List<String> deleteList = [
-      ...List<String>.from(queue['deleted']),
-      ...legacyFilesToDelete
-    ];
-    await service.amendSync(
-      upsertFiles: upsertFiles,
-      deleteFiles: deleteList,
-      renameFiles: Map<String, String>.from(queue['renamed']),
-      message: 'refresh sync',
-    );
-    for (final pushed in pushedItems) {
-      await notifier.updateItem(
-        pushed.id,
-        ref
-            .read(localDatabaseProvider)
-            .firstWhere((e) => e.id == pushed.id)
-            .content,
-        timestamp: pushed.timestamp,
-        lastSyncedTimestamp: pushed.timestamp,
-      );
-    }
-
-    await notifier.clearSyncQueue();
-    return null;
-  } catch (e) {
-    return 'GITHUB PUSH FAILED: $e';
-  }
-}
-
-class PendingRemoteNote {
-  final String? localId;
-  final String title;
-  final DateTime localTimestamp;
-  final DateTime remoteTimestamp;
-  final String remoteFileId;
-  final String remoteType;
-  final String remoteSalt;
-  final String remoteNonce;
-  final String remoteCyphertext;
-  final bool isNewRemoteNote;
-
-  PendingRemoteNote({
-    required this.localId,
-    required this.title,
-    required this.localTimestamp,
-    required this.remoteTimestamp,
-    required this.remoteFileId,
-    required this.remoteType,
-    required this.remoteSalt,
-    required this.remoteNonce,
-    required this.remoteCyphertext,
-    required this.isNewRemoteNote,
-  });
-}
-
-class PullResult {
-  final List<PendingRemoteNote> pendingRemoteNotes;
-
-  PullResult({
-    required this.pendingRemoteNotes,
-  });
-}
-
-Future<void> _applyRemoteSwap(
-  DatabaseNotifier notifier, {
-  required String localId,
-  required String remoteFileId,
-  required String remoteType,
-  required String salt,
-  required String nonce,
-  required String cyphertext,
-  required DateTime remoteTimestamp,
-}) async {
-  final String newContent = salt.isEmpty
-      ? _splitTitleAndBody(cyphertext).body
-      : CryptoEngine.mergeFromBackup(salt, nonce, cyphertext);
-
-  await notifier.updateItem(
-    localId,
-    newContent,
-    type: remoteType,
-    backupEnabled: true,
-    remoteFileId: remoteFileId,
-    timestamp: remoteTimestamp,
-    lastSyncedTimestamp: remoteTimestamp,
-    pendingReviewAfterSync: true,
-  );
-}
-
-Future<PullResult?> pullAndReconcileNotes(WidgetRef ref) async {
-  try {
-    final settingsBox = Hive.box('rocen_settings_box');
-
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-
-    final String? accessBlob = settingsBox.get('github_access_encrypted');
-
-    if (globalPin == null || accessBlob == null) {
-      return null;
-    }
-
-    final String? unwrappedAccessBlob = await CryptoEngine.hardwareUnwrap(
-      accessBlob,
-      keyAlias: CryptoEngine.githubTokenKeyAlias,
-    );
-
-    final String accessJson = await CryptoEngine.decryptProcess(
-      unwrappedAccessBlob ?? accessBlob,
-      globalPin,
-    );
-
-    if (accessJson == 'DECRYPTION FAULT') {
-      return null;
-    }
-
-    final Map<String, dynamic> access = jsonDecode(accessJson);
-
-    final String? token = access['token'] as String?;
-
-    final String? repo = access['repo'] as String?;
-
-    if (token == null || repo == null) {
-      return null;
-    }
-
-    final service = GithubBackupService(
-      token: token,
-      repoPath: repo,
-    );
-    final List<String> filesToImport = await service.listNoteFiles();
-
-    filesToImport.remove('device_key.json');
-
-    final currentBackedUpItems = ref
-        .read(localDatabaseProvider)
-        .where((item) => item.backupEnabled)
-        .toList();
-
-    final Map<String, CaptureItem> localByRemoteId = {
-      for (final item in currentBackedUpItems)
-        if (item.remoteFileId != null) item.remoteFileId!: item,
-    };
-    final List<PendingRemoteNote> pendingRemoteNotes = [];
-    for (final fileName in filesToImport) {
-      try {
-        final Map<String, dynamic>? data =
-            await service.fetchNoteFile(fileName);
-        if (data == null) {
-          continue;
-        }
-
-        final String salt = (data['salt'] ?? '').toString();
-        final String nonce = (data['nonce'] ?? '').toString();
-        final String cyphertext = (data['cyphertext'] ?? '').toString();
-        final DateTime remoteTimestamp = DateTime.tryParse(
-              (data['timestamp'] ?? '').toString(),
-            ) ??
-            DateTime.fromMillisecondsSinceEpoch(0);
-
-        final String remoteType = salt.isEmpty ? 'note' : 'encrypted_note';
-        final CaptureItem? existing = localByRemoteId[fileName];
-        if (existing == null) {
-          String noteTitle;
-
-          if (salt.isEmpty) {
-            final split = _splitTitleAndBody(cyphertext);
-
-            noteTitle = split.title;
-          } else {
-            final String merged = CryptoEngine.mergeFromBackup(
-              salt,
-              nonce,
-              cyphertext,
-            );
-
-            final String decryptedCombined = await CryptoEngine.decryptProcess(
-              merged,
-              globalPin,
-            );
-
-            if (decryptedCombined == 'DECRYPTION FAULT') {
-              continue;
-            }
-
-            final split = _splitTitleAndBody(
-              decryptedCombined,
-            );
-
-            noteTitle = split.title;
-          }
-
-          if (noteTitle.trim().isEmpty) {
-            noteTitle = fileName.endsWith('.json')
-                ? fileName.substring(
-                    0,
-                    fileName.length - 5,
-                  )
-                : fileName;
-          }
-
-          pendingRemoteNotes.add(
-            PendingRemoteNote(
-              localId: null,
-              title: noteTitle,
-              localTimestamp: DateTime.fromMillisecondsSinceEpoch(0),
-              remoteTimestamp: remoteTimestamp,
-              remoteFileId: fileName,
-              remoteType: remoteType,
-              remoteSalt: salt,
-              remoteNonce: nonce,
-              remoteCyphertext: cyphertext,
-              isNewRemoteNote: true,
-            ),
-          );
-
-          continue;
-        }
-        final DateTime? lastSynced = existing.lastSyncedTimestamp;
-        if (lastSynced == null) {
-          if (remoteTimestamp.isAfter(existing.timestamp)) {
-            pendingRemoteNotes.add(
-              PendingRemoteNote(
-                localId: existing.id,
-                title: existing.title,
-                localTimestamp: existing.timestamp,
-                remoteTimestamp: remoteTimestamp,
-                remoteFileId: fileName,
-                remoteType: remoteType,
-                remoteSalt: salt,
-                remoteNonce: nonce,
-                remoteCyphertext: cyphertext,
-                isNewRemoteNote: false,
-              ),
-            );
-          }
-
-          continue;
-        }
-        final bool localChanged = existing.timestamp.isAfter(lastSynced);
-        final bool remoteChanged = remoteTimestamp.isAfter(lastSynced);
-        if (!localChanged && !remoteChanged) {
-          continue;
-        }
-        if (remoteChanged) {
-          pendingRemoteNotes.add(
-            PendingRemoteNote(
-              localId: existing.id,
-              title: existing.title,
-              localTimestamp: existing.timestamp,
-              remoteTimestamp: remoteTimestamp,
-              remoteFileId: fileName,
-              remoteType: remoteType,
-              remoteSalt: salt,
-              remoteNonce: nonce,
-              remoteCyphertext: cyphertext,
-              isNewRemoteNote: false,
-            ),
-          );
-
-          continue;
-        }
-
-        if (localChanged && !remoteChanged) {
-          continue;
-        }
-      } catch (e) {
-        secureDebugLog(
-          'FAILED TO STAGE REMOTE NOTE "$fileName": $e',
-        );
-        continue;
-      }
-    }
-
-    return PullResult(
-      pendingRemoteNotes: pendingRemoteNotes,
-    );
-  } catch (e, stackTrace) {
-    secureDebugLog(
-      'PULL AND STAGE FAILED: $e',
-    );
-
-    secureDebugLog(
-      '$stackTrace',
-    );
-
-    return null;
-  }
-}
-
-class RefreshFailure implements Exception {
-  final String message;
-  RefreshFailure(this.message);
-}
-
-String _formatTimeAgo(DateTime timestamp) {
-  final Duration diff = DateTime.now().difference(timestamp);
-  if (diff.inMinutes < 1) return 'JUST NOW';
-  if (diff.inMinutes < 60) return '${diff.inMinutes} MIN AGO';
-  if (diff.inHours < 24) return '${diff.inHours} HR AGO';
-  if (diff.inDays < 30)
-    return '${diff.inDays} DAY${diff.inDays == 1 ? '' : 'S'} AGO';
-  return '${(diff.inDays / 30).floor()} MO AGO';
-}
-
-Future<void> showConflictResolutionDialog(
-  BuildContext context,
-  WidgetRef ref,
-  bool isDark,
-  List<PendingRemoteNote> pendingRemoteNotes,
-  void Function(String phase)? onPhase,
-) async {
-  final theme = SecurityUiTheme(isDark);
-  final Set<String> selectedRemoteIds = {};
-
-  await showGeneralDialog(
-    context: context,
-    barrierDismissible: false,
-    barrierLabel: 'Dismiss',
-    barrierColor: Colors.black54,
-    pageBuilder: (dialogContext, anim1, anim2) {
-      return StatefulBuilder(
-        builder: (dialogContext, setDialogState) {
-          return Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 320,
-                constraints: const BoxConstraints(maxHeight: 480),
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: theme.dialogBg,
-                  border: Border.all(color: theme.borderColor, width: 0.8),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'BACKUP NOTES FOUND',
-                      style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'THESE NOTES WERE FOUND IN YOUR BACKUP. CHECK ANY NOTE YOU WANT TO ADD OR REPLACE. LEAVE UNCHECKED TO KEEP WHAT\'S ON THIS DEVICE.',
-                      style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11,
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: pendingRemoteNotes.map((c) {
-                            final bool isSelected =
-                                selectedRemoteIds.contains(c.remoteFileId);
-                            return Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 8.0),
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () {
-                                  setDialogState(() {
-                                    if (isSelected) {
-                                      selectedRemoteIds.remove(c.remoteFileId);
-                                    } else {
-                                      selectedRemoteIds.add(c.remoteFileId);
-                                    }
-                                  });
-                                },
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    AnimatedContainer(
-                                      duration:
-                                          const Duration(milliseconds: 250),
-                                      width: 18,
-                                      height: 18,
-                                      margin: const EdgeInsets.only(top: 1),
-                                      decoration: BoxDecoration(
-                                        color: isSelected
-                                            ? theme.textMain
-                                            : Colors.transparent,
-                                        border: Border.all(
-                                            color: theme.textMain, width: 1.2),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            c.title.isEmpty
-                                                ? '(UNTITLED)'
-                                                : c.title,
-                                            style: TextStyle(
-                                              color: theme.textMain,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            c.isNewRemoteNote
-                                                ? 'BACKUP: ${_formatTimeAgo(c.remoteTimestamp)}   ·   NEW NOTE'
-                                                : 'THIS DEVICE: ${_formatTimeAgo(c.localTimestamp)}   ·   BACKUP: ${_formatTimeAgo(c.remoteTimestamp)}',
-                                            style: TextStyle(
-                                              color: theme.textMain
-                                                  .withOpacity(0.6),
-                                              fontSize: 9,
-                                              letterSpacing: 0.02,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    InkWell(
-                      onTap: () async {
-                        final notifier =
-                            ref.read(localDatabaseProvider.notifier);
-
-                        final String? globalPin = Hive.box('rocen_settings_box')
-                            .get('system_crypto_pin');
-
-                        if (globalPin == null || globalPin.isEmpty) {
-                          if (dialogContext.mounted) {
-                            Navigator.pop(dialogContext);
-                          }
-
-                          if (context.mounted) {
-                            showMissingKeyUiDialog(context, isDark);
-                          }
-
-                          return;
-                        }
-
-                        for (final pending in pendingRemoteNotes) {
-                          try {
-                            if (!selectedRemoteIds
-                                .contains(pending.remoteFileId)) {
-                              continue;
-                            }
-                            if (pending.isNewRemoteNote) {
-                              String localReadyContent;
-
-                              if (pending.remoteSalt.isEmpty) {
-                                final split = _splitTitleAndBody(
-                                  pending.remoteCyphertext,
-                                );
-
-                                localReadyContent = split.body;
-                              } else {
-                                final String merged =
-                                    CryptoEngine.mergeFromBackup(
-                                  pending.remoteSalt,
-                                  pending.remoteNonce,
-                                  pending.remoteCyphertext,
-                                );
-
-                                final String decryptedCombined =
-                                    await CryptoEngine.decryptProcess(
-                                  merged,
-                                  globalPin,
-                                );
-
-                                if (decryptedCombined == 'DECRYPTION FAULT') {
-                                  continue;
-                                }
-
-                                final split =
-                                    _splitTitleAndBody(decryptedCombined);
-
-                                localReadyContent =
-                                    await CryptoEngine.encryptProcess(
-                                  split.body,
-                                  globalPin,
-                                );
-                              }
-
-                              await notifier.insertItem(
-                                localReadyContent,
-                                pending.remoteType,
-                                title: pending.title,
-                                backupEnabled: true,
-                                remoteFileId: pending.remoteFileId,
-                                timestamp: pending.remoteTimestamp,
-                                lastSyncedTimestamp: pending.remoteTimestamp,
-                              );
-
-                              continue;
-                            }
-
-                            if (pending.localId == null) {
-                              continue;
-                            }
-
-                            await _applyRemoteSwap(
-                              notifier,
-                              localId: pending.localId!,
-                              remoteFileId: pending.remoteFileId,
-                              remoteType: pending.remoteType,
-                              salt: pending.remoteSalt,
-                              nonce: pending.remoteNonce,
-                              cyphertext: pending.remoteCyphertext,
-                              remoteTimestamp: pending.remoteTimestamp,
-                            );
-                          } catch (e) {
-                            secureDebugLog(
-                                'SKIPPING MALFORMED REMOTE NOTE "${pending.remoteFileId}" DURING CONFLICT RESOLUTION: $e');
-                            continue;
-                          }
-                        }
-                        if (dialogContext.mounted) {
-                          Navigator.pop(dialogContext);
-                        }
-                        final String? pushError =
-                            await pushAllBackupEnabledNotes(ref);
-                        if (pushError != null) {
-                          if (context.mounted) {
-                            showAcknowledgeDialog(
-                              context,
-                              isDark,
-                              'SYNC PARTIALLY COMPLETE',
-                              'GITHUB UPDATE FAILED: $pushError',
-                            );
-                          }
-
-                          onPhase?.call('REFRESH');
-                          return;
-                        }
-                        onPhase?.call('CLEAN');
-                        await Future.delayed(
-                          const Duration(milliseconds: 700),
-                        );
-
-                        onPhase?.call('REFRESH');
-                      },
-                      child: Container(
-                        width: double.infinity,
-                        alignment: Alignment.center,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        color: isDark ? Colors.white : Colors.black,
-                        child: Text(
-                          'ACCEPTANCE',
-                          style: TextStyle(
-                              color: isDark ? Colors.black : Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      );
-    },
-  );
-}
+Future<String?> pushAllBackupEnabledNotes(WidgetRef ref) async =>
+    GithubSyncGateResult.blocked.blockedReason;
 
 Future<void> performRefresh(
   WidgetRef ref,
@@ -1030,158 +208,15 @@ Future<void> performRefresh(
   bool silent = false,
   void Function(String phase)? onPhase,
 }) async {
-  final isDark = ref.read(themeProvider);
-  List<PendingRemoteNote>? pendingRemoteNotes;
-  try {
-    onPhase?.call('FETCH');
-
-    final bool online = await hasInternetConnection();
-    if (!online) {
-      onPhase?.call('REFRESH');
-      if (!silent && context.mounted) {
-        showAcknowledgeDialog(context, isDark, 'YOU ARE OFFLINE',
-            'CONNECT TO THE INTERNET TO REFRESH YOUR BACKUP.');
-      }
-      return;
-    }
-
-    final settingsBox = Hive.box('rocen_settings_box');
-    final bool configured = settingsBox.get('system_crypto_pin') != null &&
-        settingsBox.get('github_access_encrypted') != null;
-    if (!configured) {
-      onPhase?.call('REFRESH');
-      if (!silent && context.mounted) {
-        showAcknowledgeDialog(context, isDark, 'GITHUB NOT CONFIGURED',
-            'SET UP THE GITHUB TOKEN STORE IN SETTINGS FIRST.');
-      }
-      return;
-    }
-
-    const int cooldownMillis = 5000;
-    final int? lastCompletedAt = settingsBox.get('last_refresh_completed_at');
-    if (lastCompletedAt != null) {
-      final int elapsed =
-          DateTime.now().millisecondsSinceEpoch - lastCompletedAt;
-      if (elapsed < cooldownMillis) {
-        onPhase?.call('REFRESH');
-        if (!silent && context.mounted) {
-          final int remainingSeconds =
-              ((cooldownMillis - elapsed) / 1000).ceil();
-          showAcknowledgeDialog(
-            context,
-            isDark,
-            'PLEASE WAIT',
-            'YOU CAN REFRESH AGAIN IN $remainingSeconds SECONDS.',
-          );
-        }
-        return;
-      }
-    }
-
-    Future<void> runSync() async {
-      final bool githubConfigured =
-          Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
-      if (githubConfigured) {
-        final GithubSyncGateResult syncGateResult =
-            await isGithubSyncCurrentlyAllowed();
-        if (!syncGateResult.allowed) {
-          throw RefreshFailure(syncGateResult.blockedReason);
-        }
-      }
-      onPhase?.call('DECRYPT');
-      final PullResult? result = await pullAndReconcileNotes(ref);
-      if (result == null)
-        throw RefreshFailure('COULD NOT FETCH YOUR BACKUP FROM GITHUB.');
-
-      if (result.pendingRemoteNotes.isNotEmpty) {
-        pendingRemoteNotes = result.pendingRemoteNotes;
-        onPhase?.call('SUCCESS');
-
-        await Future.delayed(
-          const Duration(milliseconds: 300),
-        );
-
-        onPhase?.call('CHANGE');
-
-        return;
-      }
-      final String? pushError = await pushAllBackupEnabledNotes(ref);
-
-      if (pushError != null) {
-        throw RefreshFailure(pushError);
-      }
-      onPhase?.call('SUCCESS');
-
-      await Future.delayed(
-        const Duration(milliseconds: 450),
-      );
-      onPhase?.call('CLEAN');
-
-      await Future.delayed(
-        const Duration(milliseconds: 700),
-      );
-      onPhase?.call('REFRESH');
-    }
-
-    try {
-      await runSync().timeout(const Duration(seconds: 15));
-    } on TimeoutException {
-      await settingsBox.put(
-          'last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
-      onPhase?.call('REFRESH');
-      if (!silent && context.mounted) {
-        showAcknowledgeDialog(context, isDark, 'CONNECTION TOO SLOW',
-            'YOUR INTERNET CONNECTION IS SLOW. PLEASE TRY AGAIN.');
-      }
-      return;
-    } on RefreshFailure catch (f) {
-      await settingsBox.put(
-          'last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
-      onPhase?.call('REFRESH');
-      if (!silent && context.mounted) {
-        showAcknowledgeDialog(context, isDark, 'REFRESH FAILED', f.message);
-      }
-      return;
-    }
-
-    await settingsBox.put(
-        'last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
-
-    await Future.delayed(
-      const Duration(milliseconds: 900),
+  onPhase?.call('REFRESH');
+  if (!silent && context.mounted) {
+    final isDark = ref.read(themeProvider);
+    showAcknowledgeDialog(
+      context,
+      isDark,
+      'BACKUP UNAVAILABLE',
+      GithubSyncGateResult.blocked.blockedReason,
     );
-    if (pendingRemoteNotes != null &&
-        pendingRemoteNotes!.isNotEmpty &&
-        context.mounted) {
-      await showConflictResolutionDialog(
-        context,
-        ref,
-        isDark,
-        pendingRemoteNotes!,
-        onPhase,
-      );
-    }
-  } catch (e) {
-    secureDebugLog('REFRESH UNCAUGHT EXCEPTION: $e');
-    try {
-      await Hive.box('rocen_settings_box').put(
-          'last_refresh_completed_at', DateTime.now().millisecondsSinceEpoch);
-    } catch (_) {}
-    onPhase?.call('REFRESH');
-    if (!silent && context.mounted) {
-      showAcknowledgeDialog(
-          context, isDark, 'REFRESH ERROR', 'UNEXPECTED ERROR: $e');
-    }
-  }
-}
-
-Future<bool> hasInternetConnection() async {
-  try {
-    final result = await InternetAddress.lookup('github.com')
-        .timeout(const Duration(seconds: 4));
-    return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
-  } catch (_) {
-    return false;
   }
 }
 
@@ -1207,7 +242,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     _titleController = TextEditingController();
     _bodyController = TextEditingController();
     _titleController.addListener(_onTitleChanged);
-    _enforceKeyRotationPurge();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         performRefresh(
@@ -1250,44 +284,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
   Future<void> _performTitleCheck(String title) async {
     final bool taken =
         ref.read(localDatabaseProvider.notifier).titleExists(title);
-    if (mounted)
+    if (mounted) {
       setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
-  }
-
-  void _enforceKeyRotationPurge() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final settingsBox = Hive.box('rocen_settings_box');
-      final String? currentPin = settingsBox.get('system_crypto_pin');
-      final String? lastActivePin =
-          settingsBox.get('last_active_crypto_pin_snapshot');
-
-      if (currentPin != lastActivePin) {
-        _executeWipeSequence();
-        settingsBox.put('last_active_crypto_pin_snapshot', currentPin);
-      }
-    });
-  }
-
-  void _executeWipeSequence() {
-    final currentItems = ref.read(localDatabaseProvider);
-    final targetsToPurge =
-        currentItems.where((item) => item.type == 'encrypted_note').toList();
-
-    for (var target in targetsToPurge) {
-      ref.read(localDatabaseProvider.notifier).deleteItem(target.id);
     }
-  }
-
-  String? _checkLockoutViolation(Box settingsBox) {
-    final int lockoutUntil =
-        settingsBox.get('secure_lockout_until', defaultValue: 0);
-    final int currentTime = DateTime.now().millisecondsSinceEpoch;
-
-    if (lockoutUntil > currentTime) {
-      final remainingTime = ((lockoutUntil - currentTime) / 1000).ceil();
-      return 'SYSTEM LOCKED - WAIT $remainingTime SECONDS';
-    }
-    return null;
   }
 
   Future<void> _compileAndSaveNote() async {
@@ -1296,569 +295,45 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     if (cleanBody.isEmpty) return;
 
     final isDark = ref.read(themeProvider);
-    String finalPayload = cleanBody;
-    final String? globalPin =
-        Hive.box('rocen_settings_box').get('system_crypto_pin');
-
-    if (_isNoteLocked) {
-      if (globalPin == null || globalPin.isEmpty) {
-        showMissingKeyUiDialog(context, isDark);
-        return;
-      }
-      finalPayload = await CryptoEngine.encryptProcess(cleanBody, globalPin);
+    if (_isNoteLocked || _isBackupEnabled) {
+      showAcknowledgeDialog(
+        context,
+        isDark,
+        'SECURE STORAGE UNAVAILABLE',
+        'NOTE ENCRYPTION AND GITHUB BACKUP REQUIRE THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE. ROCEN WILL NOT WRITE LEGACY OR TEMPORARY CIPHERTEXT.',
+      );
+      return;
     }
 
-    if (_isBackupEnabled) {
-      final settingsBox = Hive.box('rocen_settings_box');
-      final bool githubReady =
-          settingsBox.get('github_access_encrypted') != null;
-
-      if (!githubReady) {
-        showMissingKeyUiDialog(context, isDark,
-            message:
-                'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
-        return;
-      }
-
-      if (cleanTitle.isEmpty) {
-        showAcknowledgeDialog(context, isDark, 'BACKUP REQUIRES A TITLE',
-            'ENTER A NOTE TITLE BEFORE ENABLING BACKUP.');
-        return;
-      }
-
-      if (ref.read(localDatabaseProvider.notifier).titleExists(cleanTitle)) {
-        showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN',
-            'CHOOSE A DIFFERENT NOTE TITLE.');
-        return;
-      }
-    }
-
-    final String? generatedRemoteId =
-        _isBackupEnabled ? DatabaseNotifier.generateRemoteFileId() : null;
     final DateTime saveTimestamp = DateTime.now();
-    final String savedTitle = cleanTitle;
-    final String savedBody = cleanBody;
-    final bool savedLocked = _isNoteLocked;
-    final bool savedBackupEnabled = _isBackupEnabled;
     _titleController.clear();
     _bodyController.clear();
-
     setState(() {
       _isNoteLocked = false;
       _isBackupEnabled = false;
     });
-
     FocusScope.of(context).unfocus();
 
     final bool inserted =
         await ref.read(localDatabaseProvider.notifier).insertItem(
-              finalPayload,
-              savedLocked ? 'encrypted_note' : 'note',
-              title: savedTitle,
-              backupEnabled: savedBackupEnabled,
-              remoteFileId: generatedRemoteId,
+              cleanBody,
+              'note',
+              title: cleanTitle,
+              backupEnabled: false,
+              remoteFileId: null,
               timestamp: saveTimestamp,
             );
 
-    if (!inserted) {
-      _titleController.text = savedTitle;
-      _bodyController.text = savedBody;
-
-      setState(() {
-        _isNoteLocked = savedLocked;
-        _isBackupEnabled = savedBackupEnabled;
-      });
-
-      return;
+    if (!inserted && mounted) {
+      _titleController.text = cleanTitle;
+      _bodyController.text = cleanBody;
+      showAcknowledgeDialog(
+        context,
+        isDark,
+        'NOTE SAVE BLOCKED',
+        'PROTECTED NOTE PERSISTENCE IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE EXISTS. NO PLAINTEXT OR TEMPORARY CIPHERTEXT WAS WRITTEN.',
+      );
     }
-
-    if (savedBackupEnabled && generatedRemoteId != null) {
-      final GithubSyncGateResult syncGate =
-          await isGithubSyncCurrentlyAllowed();
-      if (!syncGate.allowed) {
-        secureDebugLog(
-            'SKIPPING GITHUB SYNC FOR "$savedTitle" - ${syncGate.blockedReason}');
-      } else {
-        final String combined = _combineTitleAndBody(savedTitle, savedBody);
-
-        Map<String, String>? backupFields;
-        try {
-          backupFields = savedLocked
-              ? {
-                  ...CryptoEngine.splitForBackup(
-                    await CryptoEngine.encryptProcess(
-                      combined,
-                      globalPin!,
-                    ),
-                  ),
-                  'timestamp': saveTimestamp.toIso8601String(),
-                }
-              : {
-                  'salt': '',
-                  'nonce': '',
-                  'cyphertext': combined,
-                  'timestamp': saveTimestamp.toIso8601String(),
-                };
-        } catch (e) {
-          secureDebugLog(
-              'FAILED TO PREPARE BACKUP PAYLOAD FOR "$savedTitle" - NOTE IS SAVED LOCALLY, SKIPPING THIS SYNC ATTEMPT: $e');
-          backupFields = null;
-        }
-
-        if (backupFields != null) {
-          await attemptGithubSync(
-            ref,
-            upsert: {
-              generatedRemoteId: jsonEncode(backupFields),
-            },
-          );
-        }
-      }
-    }
-
-    Hive.box('rocen_settings_box')
-        .put('last_active_crypto_pin_snapshot', globalPin);
-  }
-
-  void _promptForPinChallenge(CaptureItem item, bool isDark,
-      {bool openForEditing = false}) {
-    final BuildContext screenContext = context;
-    final settingsBox = Hive.box('rocen_settings_box');
-    final String? globalPin = settingsBox.get('system_crypto_pin');
-
-    if (globalPin == null || globalPin.isEmpty) {
-      showMissingKeyUiDialog(context, isDark);
-      return;
-    }
-
-    final theme = SecurityUiTheme(isDark);
-    final TextEditingController pinVerifyController = TextEditingController();
-
-    bool hasPinFailed = false;
-    String? lockStringStatus = _checkLockoutViolation(settingsBox);
-    Timer? countdownTimer;
-
-    void ensureCountdownRunning(void Function(void Function()) setState_) {
-      if (lockStringStatus == null) return;
-      if (countdownTimer != null && countdownTimer!.isActive) return;
-      countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        final String? current = _checkLockoutViolation(settingsBox);
-        setState_(() {
-          lockStringStatus = current;
-        });
-        if (current == null) {
-          timer.cancel();
-        }
-      });
-    }
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            ensureCountdownRunning(setDialogState);
-            String displayHeaderTitle = 'ENTER PASSWORD';
-            if (lockStringStatus != null) {
-              displayHeaderTitle = lockStringStatus!;
-            } else if (hasPinFailed) {
-              displayHeaderTitle = 'INVALID PASSWORD - TRY AGAIN';
-            }
-
-            return Theme(
-              data: Theme.of(context).copyWith(
-                textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: theme.textMain.withOpacity(0.2),
-                  selectionHandleColor: theme.textMain,
-                  cursorColor: theme.textMain,
-                ),
-              ),
-              child: Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    width: 320,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: theme.dialogBg,
-                      border: Border.all(color: theme.borderColor, width: 0.8),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(displayHeaderTitle,
-                            style: TextStyle(
-                                color:
-                                    (hasPinFailed || lockStringStatus != null)
-                                        ? const Color(0xFFEF4444)
-                                        : theme.textMain,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.05)),
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: (hasPinFailed || lockStringStatus != null)
-                                  ? const Color(0xFFEF4444)
-                                  : theme.borderColor,
-                              width: (hasPinFailed || lockStringStatus != null)
-                                  ? 1.2
-                                  : 0.8,
-                            ),
-                          ),
-                          child: TextField(
-                            controller: pinVerifyController,
-                            keyboardType: TextInputType.text,
-                            maxLength: 32,
-                            obscureText: true,
-                            obscuringCharacter: '#',
-                            cursorColor: theme.textMain,
-                            autofocus: lockStringStatus == null,
-                            enabled: lockStringStatus == null,
-                            style: TextStyle(
-                              color: (hasPinFailed || lockStringStatus != null)
-                                  ? const Color(0xFFEF4444)
-                                  : theme.textMain,
-                              fontSize: 16,
-                              letterSpacing: 4,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            onChanged: (val) {
-                              setDialogState(() {
-                                if (hasPinFailed) {
-                                  hasPinFailed = false;
-                                }
-                              });
-                            },
-                            decoration: const InputDecoration(
-                              counterText: '',
-                              border: InputBorder.none,
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            InkWell(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme.borderColor, width: 0.8),
-                                ),
-                                child: Text('CANCEL',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFF888888)
-                                            : const Color(0xFF525252),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: () async {
-                                final activeLockCheck =
-                                    _checkLockoutViolation(settingsBox);
-                                if (activeLockCheck != null) {
-                                  setDialogState(() {
-                                    lockStringStatus = activeLockCheck;
-                                  });
-                                  return;
-                                }
-
-                                final bool isPinValid =
-                                    await CryptoEngine.verifyPin(
-                                        pinVerifyController.text, globalPin);
-
-                                if (isPinValid) {
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', 0);
-                                  await settingsBox.put(
-                                      'secure_lockout_until', 0);
-
-                                  if (!context.mounted) return;
-                                  Navigator.pop(context);
-                                  if (!screenContext.mounted) return;
-
-                                  if (openForEditing) {
-                                    String rawContent = '';
-                                    try {
-                                      rawContent =
-                                          await CryptoEngine.decryptProcess(
-                                              item.content, globalPin);
-                                      if (rawContent != 'DECRYPTION FAULT' &&
-                                          item.pendingReviewAfterSync) {
-                                        rawContent =
-                                            _splitTitleAndBody(rawContent).body;
-                                        await ref
-                                            .read(
-                                                localDatabaseProvider.notifier)
-                                            .updateItem(
-                                              item.id,
-                                              item.content,
-                                              pendingReviewAfterSync: false,
-                                            );
-                                      }
-                                    } catch (_) {
-                                      rawContent = 'DECRYPTION FAULT';
-                                    }
-                                    final unpackedItem = CaptureItem(
-                                      id: item.id,
-                                      title: item.title,
-                                      content: rawContent,
-                                      type: item.type,
-                                      timestamp: item.timestamp,
-                                      backupEnabled: item.backupEnabled,
-                                      remoteFileId: item.remoteFileId,
-                                      lastSyncedTimestamp:
-                                          item.lastSyncedTimestamp,
-                                      pendingReviewAfterSync:
-                                          item.pendingReviewAfterSync,
-                                    );
-                                    _navigateToEdit(
-                                        screenContext, unpackedItem);
-                                  } else {
-                                    _revealEncryptedNotePayload(
-                                        item, globalPin, isDark);
-                                  }
-                                } else {
-                                  int attempts = settingsBox.get(
-                                          'secure_failed_attempts',
-                                          defaultValue: 0) +
-                                      1;
-                                  await settingsBox.put(
-                                      'secure_failed_attempts', attempts);
-
-                                  bool flagWipeConditionTriggered =
-                                      attempts > 15;
-                                  int penaltyDurationSeconds =
-                                      flagWipeConditionTriggered
-                                          ? 0
-                                          : CryptoEngine
-                                              .lockoutSecondsForAttempt(
-                                                  attempts);
-
-                                  if (flagWipeConditionTriggered) {
-                                    _executeWipeSequence();
-                                    await settingsBox.put(
-                                        'secure_failed_attempts', 0);
-                                    await settingsBox.put(
-                                        'secure_lockout_until', 0);
-                                    if (!context.mounted) return;
-                                    Navigator.pop(context);
-                                    showAcknowledgeDialog(
-                                        context,
-                                        isDark,
-                                        'SECURITY COMPLIANCE AUDIT',
-                                        'DATA PURGED PERMANENTLY.');
-                                    return;
-                                  }
-
-                                  if (penaltyDurationSeconds > 0) {
-                                    final int unlockTimestampMillis =
-                                        DateTime.now().millisecondsSinceEpoch +
-                                            (penaltyDurationSeconds * 1000);
-                                    await settingsBox.put(
-                                        'secure_lockout_until',
-                                        unlockTimestampMillis);
-                                  }
-
-                                  setDialogState(() {
-                                    pinVerifyController.clear();
-                                    lockStringStatus =
-                                        _checkLockoutViolation(settingsBox);
-                                    if (lockStringStatus == null) {
-                                      hasPinFailed = true;
-                                    }
-                                  });
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration:
-                                    BoxDecoration(color: theme.textMain),
-                                child: Text('VERIFY',
-                                    style: TextStyle(
-                                        color: isDark
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ],
-                        )
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ).then((_) => countdownTimer?.cancel());
-  }
-
-  void _revealEncryptedNotePayload(
-      CaptureItem item, String pin, bool isDark) async {
-    String decryptedContent = '';
-    try {
-      decryptedContent = await CryptoEngine.decryptProcess(item.content, pin);
-      if (decryptedContent != 'DECRYPTION FAULT' &&
-          item.pendingReviewAfterSync) {
-        decryptedContent = _splitTitleAndBody(decryptedContent).body;
-        await ref.read(localDatabaseProvider.notifier).updateItem(
-              item.id,
-              item.content,
-              pendingReviewAfterSync: false,
-            );
-      }
-    } catch (e) {
-      decryptedContent = 'DECRYPTION FAULT';
-    }
-
-    if (!mounted) return;
-    final BuildContext screenContext = context;
-    final theme = SecurityUiTheme(isDark);
-    final formattedDate = _formatCustomDate(item.timestamp);
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              margin: const EdgeInsets.all(32),
-              padding: const EdgeInsets.all(24),
-              width: double.infinity,
-              constraints: const BoxConstraints(maxWidth: 400),
-              decoration: BoxDecoration(
-                color: theme.dialogBg,
-                border: Border.all(color: theme.borderColor, width: 0.8),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.lock_open,
-                              color: theme.textMain, size: 13),
-                          const SizedBox(width: 8),
-                          Text(
-                            item.title.isNotEmpty
-                                ? item.title.toUpperCase()
-                                : 'UNLOCKED CRYPTO BLOCK',
-                            style: TextStyle(
-                                color: theme.textMain,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.05),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        formattedDate,
-                        style: TextStyle(
-                            color: isDark
-                                ? const Color(0xFF666666)
-                                : const Color(0xFF888888),
-                            fontSize: 9,
-                            fontFamily: 'Courier'),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 24, thickness: 0.8),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: Text(
-                        decryptedContent,
-                        style: TextStyle(
-                            color: theme.textMain,
-                            fontSize: 13,
-                            height: 1.5,
-                            letterSpacing: 0.02),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      InkWell(
-                        onTap: () {
-                          Navigator.pop(context);
-                          final unpackedItem = CaptureItem(
-                            id: item.id,
-                            title: item.title,
-                            content: decryptedContent,
-                            type: item.type,
-                            timestamp: item.timestamp,
-                            backupEnabled: item.backupEnabled,
-                            remoteFileId: item.remoteFileId,
-                            lastSyncedTimestamp: item.lastSyncedTimestamp,
-                            pendingReviewAfterSync: item.pendingReviewAfterSync,
-                          );
-                          if (!screenContext.mounted) return;
-                          _navigateToEdit(screenContext, unpackedItem);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 6),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                                color: theme.borderColor, width: 0.8),
-                          ),
-                          child: Text('EDIT TEXT',
-                              style: TextStyle(
-                                  color: theme.textMain,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      InkWell(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 6),
-                          decoration: BoxDecoration(color: theme.textMain),
-                          child: Text('CLOSE RUNTIME',
-                              style: TextStyle(
-                                  color: isDark ? Colors.black : Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   void _showDeleteConfirmation(BuildContext context, String id) {
@@ -1918,9 +393,29 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                           Expanded(
                             child: InkWell(
                               onTap: () async {
-                                await ref
+                                if (!protectedApplicationPersistenceAvailable) {
+                                  showAcknowledgeDialog(
+                                    context,
+                                    isDark,
+                                    'DELETE BLOCKED',
+                                    'PROTECTED NOTE PERSISTENCE IS UNAVAILABLE. THE NOTE WAS NOT DELETED OR CHANGED.',
+                                  );
+                                  return;
+                                }
+                                final bool deleted = await ref
                                     .read(localDatabaseProvider.notifier)
                                     .deleteItem(id);
+                                if (!deleted) {
+                                  if (context.mounted) {
+                                    showAcknowledgeDialog(
+                                      context,
+                                      isDark,
+                                      'DELETE NOT SAVED',
+                                      'PROTECTED NOTE PERSISTENCE IS UNAVAILABLE. THE NOTE WAS NOT DELETED.',
+                                    );
+                                  }
+                                  return;
+                                }
                                 if (context.mounted) Navigator.pop(context);
                                 unawaited(attemptGithubSync(ref));
                               },
@@ -1984,14 +479,14 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
     final isDark = ref.watch(themeProvider);
     final items = ref
         .watch(localDatabaseProvider)
-        .where((e) => e.type == 'note' || e.type == 'encrypted_note')
+        .where((e) => e.type == 'note')
         .toList();
     final theme = SecurityUiTheme(isDark);
 
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: theme.textMain.withOpacity(0.2),
+          selectionColor: theme.textMain.withValues(alpha: 0.2),
           selectionHandleColor: theme.textMain,
         ),
       ),
@@ -2016,8 +511,9 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                             ref,
                             context,
                             onPhase: (phase) {
-                              if (mounted)
+                              if (mounted) {
                                 setState(() => _refreshLabel = phase);
+                              }
                             },
                           ),
                   child: Container(
@@ -2101,13 +597,12 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                   children: [
                     GestureDetector(
                       onTap: () {
-                        final String? globalPin = Hive.box('rocen_settings_box')
-                            .get('system_crypto_pin');
-                        if (globalPin == null || globalPin.isEmpty) {
-                          showMissingKeyUiDialog(context, isDark);
-                        } else {
-                          setState(() => _isNoteLocked = !_isNoteLocked);
-                        }
+                        showAcknowledgeDialog(
+                          context,
+                          isDark,
+                          'NOTE ENCRYPTION UNAVAILABLE',
+                          'THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE HAS NOT BEEN IMPLEMENTED YET. ROCEN WILL NOT CREATE LEGACY OR TEMPORARY CIPHERTEXT.',
+                        );
                       },
                       behavior: HitTestBehavior.opaque,
                       child: Row(
@@ -2135,33 +630,13 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                     ),
                     const SizedBox(width: 14),
                     GestureDetector(
-                      onTap: () async {
-                        final bool githubReady = Hive.box('rocen_settings_box')
-                                .get('github_access_encrypted') !=
-                            null;
-                        if (!githubReady) {
-                          showMissingKeyUiDialog(context, isDark,
-                              message:
-                                  'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
-                          return;
-                        }
-
-                        if (!_isBackupEnabled) {
-                          final bool online = await hasInternetConnection();
-                          if (!online) {
-                            if (!context.mounted) return;
-                            showAcknowledgeDialog(
-                              context,
-                              isDark,
-                              'YOU ARE OFFLINE',
-                              "CLOUD BACKUP IS UNAVAILABLE OFFLINE. SAVE YOUR NOTE LOCALLY NOW AND ENABLE BACKUP FROM NOTE SETTINGS ONCE RECONNECTED.",
-                            );
-                            return;
-                          }
-                        }
-
-                        setState(() => _isBackupEnabled = !_isBackupEnabled);
-                        _onTitleChanged();
+                      onTap: () {
+                        showAcknowledgeDialog(
+                          context,
+                          isDark,
+                          'GITHUB BACKUP UNAVAILABLE',
+                          'SECURE NOTE BACKUP REMAINS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE IS IMPLEMENTED.',
+                        );
                       },
                       behavior: HitTestBehavior.opaque,
                       child: Row(
@@ -2218,7 +693,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                       itemCount: items.length,
                       itemBuilder: (context, index) {
                         final item = items[index];
-                        final bool isEncrypted = item.type == 'encrypted_note';
+                        final bool isEncrypted = false;
                         final formattedDate = _formatCustomDate(item.timestamp);
 
                         return GestureDetector(
@@ -2283,7 +758,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                                   text: '-- UPDATED  ',
                                                   style: TextStyle(
                                                     color: theme.textMain
-                                                        .withOpacity(0.7),
+                                                        .withValues(alpha: 0.7),
                                                     fontSize: 9,
                                                     fontWeight: FontWeight.w700,
                                                     letterSpacing: 0.03,
@@ -2478,8 +953,8 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     super.initState();
     _titleController = TextEditingController(text: widget.item.title);
     _bodyController = TextEditingController(text: widget.item.content);
-    _isNoteLocked = widget.item.type == 'encrypted_note';
-    _isBackupEnabled = widget.item.backupEnabled;
+    _isNoteLocked = false;
+    _isBackupEnabled = false;
 
     _titleController.addListener(_onTextChanged);
     _bodyController.addListener(_onTextChanged);
@@ -2519,11 +994,13 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     final bool taken = ref
         .read(localDatabaseProvider.notifier)
         .titleExists(title, excludingId: widget.item.id);
-    if (mounted)
+    if (mounted) {
       setState(() => _titleCheckStatus = taken ? 'TAKEN' : 'AVAILABLE');
+    }
   }
 
   void _onTextChanged() {
+    if (!protectedApplicationPersistenceAvailable) return;
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
       await _dynamicSave();
@@ -2531,86 +1008,42 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
   }
 
   Future<void> _dynamicSave() async {
-    final bool originalIsLocked = widget.item.type == 'encrypted_note';
-    if (_isNoteLocked != originalIsLocked) return;
-
-    String contentToPersist = _bodyController.text.trim();
-
-    if (_isNoteLocked) {
-      final String? pin =
-          Hive.box('rocen_settings_box').get('system_crypto_pin');
-      if (pin != null && pin.isNotEmpty) {
-        contentToPersist =
-            await CryptoEngine.encryptProcess(contentToPersist, pin);
-      }
-    }
-
-    ref.read(localDatabaseProvider.notifier).updateItem(
+    if (!protectedApplicationPersistenceAvailable) return;
+    final bool saved = await ref.read(localDatabaseProvider.notifier).updateItem(
           widget.item.id,
-          contentToPersist,
+          _bodyController.text.trim(),
           title: _titleController.text.trim(),
-          backupEnabled: _isBackupEnabled,
+          backupEnabled: false,
+          remoteFileId: null,
         );
-  }
-
-  void _toggleLock() async {
-    final String? globalPin =
-        Hive.box('rocen_settings_box').get('system_crypto_pin');
-    final isDark = ref.read(themeProvider);
-
-    if (globalPin == null || globalPin.isEmpty) {
-      showMissingKeyUiDialog(context, isDark);
-    } else {
-      setState(() {
-        _isNoteLocked = !_isNoteLocked;
-      });
-      await _dynamicSave();
+    if (!saved && mounted) {
+      showAcknowledgeDialog(
+        context,
+        ref.read(themeProvider),
+        'NOTE SAVE BLOCKED',
+        'PROTECTED NOTE PERSISTENCE IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE EXISTS. NO PLAINTEXT OR TEMPORARY CIPHERTEXT WAS WRITTEN.',
+      );
     }
   }
 
-  void _toggleBackup() async {
-    final bool githubReady =
-        Hive.box('rocen_settings_box').get('github_access_encrypted') != null;
+  void _toggleLock() {
     final isDark = ref.read(themeProvider);
+    showAcknowledgeDialog(
+      context,
+      isDark,
+      'NOTE ENCRYPTION UNAVAILABLE',
+      'THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE HAS NOT BEEN IMPLEMENTED YET. THE APP WILL NOT CREATE A LEGACY OR TEMPORARY NOTE CIPHERTEXT.',
+    );
+  }
 
-    if (!githubReady) {
-      showMissingKeyUiDialog(context, isDark,
-          message: 'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
-      return;
-    }
-
-    if (!_isBackupEnabled) {
-      if (_titleController.text.trim().isEmpty) {
-        showAcknowledgeDialog(context, isDark, 'BACKUP REQUIRES A TITLE',
-            'ENTER A NOTE TITLE BEFORE ENABLING BACKUP.');
-        return;
-      }
-      if (ref.read(localDatabaseProvider.notifier).titleExists(
-          _titleController.text.trim(),
-          excludingId: widget.item.id)) {
-        showAcknowledgeDialog(context, isDark, 'TITLE ALREADY TAKEN',
-            'CHOOSE A DIFFERENT NOTE TITLE.');
-        return;
-      }
-
-      final bool online = await hasInternetConnection();
-      if (!online) {
-        if (!context.mounted) return;
-        showAcknowledgeDialog(
-          context,
-          isDark,
-          'YOU ARE OFFLINE',
-          "CLOUD BACKUP IS UNAVAILABLE OFFLINE. SAVE YOUR NOTE LOCALLY NOW AND ENABLE BACKUP FROM NOTE SETTINGS ONCE RECONNECTED..",
-        );
-        return;
-      }
-    }
-
-    setState(() {
-      _isBackupEnabled = !_isBackupEnabled;
-    });
-    _onTitleUniquenessChanged();
-    await _dynamicSave();
+  void _toggleBackup() {
+    final isDark = ref.read(themeProvider);
+    showAcknowledgeDialog(
+      context,
+      isDark,
+      'GITHUB BACKUP UNAVAILABLE',
+      'SECURE NOTE BACKUP REMAINS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE IS IMPLEMENTED. GITHUB ACCESS IS STILL AVAILABLE IN SETTINGS FOR MASTER-KEY RECOVERY METADATA.',
+    );
   }
 
   @override
@@ -2622,7 +1055,7 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
     return Theme(
       data: Theme.of(context).copyWith(
         textSelectionTheme: TextSelectionThemeData(
-          selectionColor: theme.textMain.withOpacity(0.2),
+          selectionColor: theme.textMain.withValues(alpha: 0.2),
           selectionHandleColor: theme.textMain,
         ),
       ),
@@ -2667,139 +1100,32 @@ class _EditNoteScreenState extends ConsumerState<EditNoteScreen> {
                 _debounceTimer?.cancel();
                 final String rawBody = _bodyController.text.trim();
                 final String cleanTitle = _titleController.text.trim();
-                final bool originalIsLocked =
-                    widget.item.type == 'encrypted_note';
                 String contentToPersist = rawBody;
-                final String? globalPin =
-                    Hive.box('rocen_settings_box').get('system_crypto_pin');
-
-                if (_isNoteLocked) {
-                  if (globalPin != null && globalPin.isNotEmpty) {
-                    contentToPersist = await CryptoEngine.encryptProcess(
-                        contentToPersist, globalPin);
-                  }
-                }
                 if (!mounted) return;
 
-                if (_isBackupEnabled) {
-                  final isDark = ref.read(themeProvider);
-                  final bool githubReady = Hive.box('rocen_settings_box')
-                          .get('github_access_encrypted') !=
-                      null;
-                  if (!githubReady) {
-                    showMissingKeyUiDialog(context, isDark,
-                        message:
-                            'SET GITHUB TOKEN FIRST FROM SETTINGS TO USE THIS FEATURE');
-                    return;
-                  }
-                  if (cleanTitle.isEmpty) {
-                    showAcknowledgeDialog(
-                        context,
-                        isDark,
-                        'BACKUP REQUIRES A TITLE',
-                        'ENTER A NOTE TITLE BEFORE ENABLING BACKUP.');
-                    return;
-                  }
-                  if (ref
-                      .read(localDatabaseProvider.notifier)
-                      .titleExists(cleanTitle, excludingId: widget.item.id)) {
-                    showAcknowledgeDialog(
-                        context,
-                        isDark,
-                        'TITLE ALREADY TAKEN',
-                        'CHOOSE A DIFFERENT NOTE TITLE.');
-                    return;
-                  }
-                }
+                _isBackupEnabled = false;
 
-                bool success;
-                final String? existingRemoteId = widget.item.remoteFileId;
-                final String? remoteIdForThisSave = _isBackupEnabled
-                    ? (existingRemoteId ??
-                        DatabaseNotifier.generateRemoteFileId())
-                    : null;
                 final DateTime saveTimestamp = DateTime.now();
+                final bool success =
+                    await ref.read(localDatabaseProvider.notifier).updateItem(
+                          widget.item.id,
+                          contentToPersist,
+                          title: cleanTitle,
+                          backupEnabled: false,
+                          remoteFileId: null,
+                          timestamp: saveTimestamp,
+                        );
 
-                if (_isNoteLocked == originalIsLocked) {
-                  success =
-                      await ref.read(localDatabaseProvider.notifier).updateItem(
-                            widget.item.id,
-                            contentToPersist,
-                            title: cleanTitle,
-                            backupEnabled: _isBackupEnabled,
-                            remoteFileId: remoteIdForThisSave,
-                            timestamp: saveTimestamp,
-                          );
-                } else {
-                  await ref
-                      .read(localDatabaseProvider.notifier)
-                      .deleteItem(widget.item.id);
-                  success =
-                      await ref.read(localDatabaseProvider.notifier).insertItem(
-                            contentToPersist,
-                            _isNoteLocked ? 'encrypted_note' : 'note',
-                            title: cleanTitle,
-                            backupEnabled: _isBackupEnabled,
-                            remoteFileId: remoteIdForThisSave,
-                            timestamp: saveTimestamp,
-                          );
-                }
-
-                if (!success) return;
-
-                if (_isBackupEnabled && remoteIdForThisSave != null) {
-                  final GithubSyncGateResult syncGate =
-                      await isGithubSyncCurrentlyAllowed();
-                  if (!syncGate.allowed) {
-                    secureDebugLog(
-                        'SKIPPING GITHUB SYNC FOR "$cleanTitle" - ${syncGate.blockedReason}');
-                  } else {
-                    final String combined =
-                        _combineTitleAndBody(cleanTitle, rawBody);
-
-                    Map<String, String>? backupFields;
-                    try {
-                      backupFields = _isNoteLocked
-                          ? {
-                              ...CryptoEngine.splitForBackup(
-                                  await CryptoEngine.encryptProcess(
-                                      combined, globalPin ?? '')),
-                              'timestamp': saveTimestamp.toIso8601String()
-                            }
-                          : {
-                              'salt': '',
-                              'nonce': '',
-                              'cyphertext': combined,
-                              'timestamp': saveTimestamp.toIso8601String()
-                            };
-                    } catch (e) {
-                      secureDebugLog(
-                          'FAILED TO PREPARE BACKUP PAYLOAD FOR "$cleanTitle" - NOTE IS SAVED LOCALLY, SKIPPING THIS SYNC ATTEMPT: $e');
-                      backupFields = null;
-                    }
-
-                    if (backupFields != null) {
-                      final bool pushSucceeded = await attemptGithubSync(
-                        ref,
-                        upsert: {
-                          remoteIdForThisSave: jsonEncode(backupFields),
-                        },
-                      );
-
-                      if (pushSucceeded) {
-                        await ref
-                            .read(localDatabaseProvider.notifier)
-                            .updateItem(
-                              widget.item.id,
-                              contentToPersist,
-                              timestamp: saveTimestamp,
-                              lastSyncedTimestamp: saveTimestamp,
-                            );
-                      }
-                    }
+                if (!success) {
+                  if (context.mounted) {
+                    showAcknowledgeDialog(
+                      context,
+                      isDark,
+                      'NOTE SAVE BLOCKED',
+                      'PROTECTED NOTE PERSISTENCE IS DISABLED UNTIL THE APPROVED STAGE 6 CIPHERTEXT ENVELOPE EXISTS. NO PLAINTEXT OR TEMPORARY CIPHERTEXT WAS WRITTEN.',
+                    );
                   }
-                } else {
-                  unawaited(attemptGithubSync(ref));
+                  return;
                 }
 
                 if (context.mounted) Navigator.pop(context);

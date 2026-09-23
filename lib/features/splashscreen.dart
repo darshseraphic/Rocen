@@ -59,7 +59,7 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
     try {
       await Future.delayed(const Duration(milliseconds: 500));
     } catch (e) {
-      debugPrint("Error loading background data: $e");
+      debugPrint('Error loading background data.');
     } finally {
       if (mounted) {
         setState(() {
