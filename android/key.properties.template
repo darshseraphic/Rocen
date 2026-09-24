@@ -1,0 +1,4 @@
+storePassword=REPLACE_WITH_YOUR_KEYSTORE_PASSWORD
+keyPassword=REPLACE_WITH_YOUR_KEY_PASSWORD
+keyAlias=rocen
+storeFile=/absolute/path/to/rocen-release.jks

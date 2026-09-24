@@ -163,12 +163,11 @@ final class _PinnedGithubClient extends http.BaseClient {
         'Native GitHub SPKI pinning is unavailable on this platform.',
         request.url,
       );
-    } on Object catch (e, stackTrace) {
-      debugPrint('GITHUB PINNING EXCEPTION: $e');
-      debugPrintStack(stackTrace: stackTrace);
+    } on Object {
+      debugPrint('GITHUB PINNING EXCEPTION: secure transport failure.');
 
       throw http.ClientException(
-        'Secure GitHub request failed: $e',
+        'Secure GitHub request failed.',
         request.url,
       );
     }
@@ -184,9 +183,7 @@ final class _PinnedGithubClient extends http.BaseClient {
 
       if (kDebugMode) {
         debugPrint(
-          'GITHUB SECURE CONNECTION FAILED (debug detail, not shown in release): '
-          '${response.errorType ?? 'unknown error'}'
-          '${response.error == null ? '' : ' - ${response.error}'}',
+          'GITHUB SECURE CONNECTION FAILED: transport error without sensitive detail.',
         );
       }
 

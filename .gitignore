@@ -30,8 +30,12 @@ app.*.map.json
 /debug-symbols/
 *.hive
 *.lock
-macos/
 ios/
 windows/
 linux/
 macos/
+
+# Release signing secrets - never commit these
+/android/key.properties
+*.jks
+*.keystore

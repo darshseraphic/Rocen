@@ -30,6 +30,9 @@ class GithubFileAlreadyExists implements Exception {
   String toString() => 'GithubFileAlreadyExists: $message';
 }
 
+String formatGithubHttpFailure(String operation, int statusCode) =>
+    '$operation failed (HTTP $statusCode).';
+
 class GithubBackupService {
   final String token;
   final String repoPath;
@@ -75,10 +78,21 @@ class GithubBackupService {
   ) async {
     try {
       return await request();
-    } on http.ClientException catch (e) {
+    } on Object {
+      // Do not propagate socket/timeout/native error text: it may contain
+      // implementation details or request-specific data.
       throw GithubSyncException(
-        'SECURE CONNECTION FAILED: ${e.message}',
+        'SECURE CONNECTION FAILED while contacting GitHub.',
       );
+    }
+  }
+
+
+  dynamic _decodeResponseJson(http.Response response, String operation) {
+    try {
+      return jsonDecode(response.body);
+    } catch (_) {
+      throw GithubSyncException('$operation returned an invalid GitHub response.');
     }
   }
 
@@ -109,8 +123,8 @@ class GithubBackupService {
 
     return GithubSyncException(
       'GITHUB TOKEN PERMISSION DENIED while $operation (HTTP 403).$accessText'
-      '$permissionText Check the token repository selection and repository permissions.\n\n'
-      'GitHub response: $body',
+      '$permissionText Check the token repository selection and repository permissions. '
+      '${formatGithubHttpFailure('GITHUB TOKEN PERMISSION DENIED while $operation', res.statusCode)}',
     );
   }
 
@@ -127,8 +141,8 @@ class GithubBackupService {
     if (res.statusCode == 401) {
       throw GithubSyncException(
         'GITHUB TOKEN REJECTED while checking repository access (HTTP 401). '
-        'The token may be invalid, expired, revoked, or otherwise rejected by GitHub.\n\n'
-        'GitHub response: ${res.body}',
+        'The token may be invalid, expired, revoked, or otherwise rejected by GitHub. '
+        '${formatGithubHttpFailure('GitHub request', res.statusCode)}',
       );
     }
 
@@ -143,19 +157,18 @@ class GithubBackupService {
     if (res.statusCode == 404) {
       throw GithubSyncException(
         'GITHUB REPOSITORY NOT FOUND OR NOT AUTHORIZED (HTTP 404) for "$repoPath". '
-        'Verify that the exact repository is selected for the fine-grained token.\n\n'
-        'GitHub response: ${res.body}',
+        'Verify that the exact repository is selected for the fine-grained token. '
+        '${formatGithubHttpFailure('GitHub request', res.statusCode)}',
       );
     }
 
     if (res.statusCode != 200) {
       throw GithubSyncException(
-        'REPOSITORY ACCESS FAILED for "$repoPath": HTTP ${res.statusCode}.\n\n'
-        'GitHub response: ${res.body}',
+        formatGithubHttpFailure('REPOSITORY ACCESS FAILED for "$repoPath"', res.statusCode),
       );
     }
 
-    final dynamic decoded = jsonDecode(res.body);
+    final dynamic decoded = _decodeResponseJson(res, 'GitHub request');
     if (decoded is! Map<String, dynamic>) {
       throw GithubSyncException(
         'REPOSITORY ACCESS FAILED: GitHub returned an invalid repository response.',
@@ -203,8 +216,7 @@ class GithubBackupService {
       throw GithubSyncException(
         'GITHUB REPOSITORY ACCESS IS READ-ONLY for "$repoPath". '
         'GitHub can see the repository, but the token has no effective push '
-        'permission. Rocen backup requires repository Contents write access.\n\n'
-        'GitHub response: ${res.body}',
+        'permission. Rocen backup requires repository Contents write access.',
       );
     }
   }
@@ -220,8 +232,8 @@ class GithubBackupService {
     if (res.statusCode == 401) {
       throw GithubSyncException(
         'GITHUB TOKEN REJECTED while checking repository access (HTTP 401). '
-        'The token may be invalid, expired, revoked, or otherwise rejected by GitHub.\n\n'
-        'GitHub response: ${res.body}',
+        'The token may be invalid, expired, revoked, or otherwise rejected by GitHub. '
+        '${formatGithubHttpFailure('GitHub request', res.statusCode)}',
       );
     }
 
@@ -236,18 +248,18 @@ class GithubBackupService {
     if (res.statusCode == 404) {
       throw GithubSyncException(
         'GITHUB REPOSITORY NOT FOUND OR NOT AUTHORIZED (HTTP 404). '
-        'Verify that the exact repository is selected for the fine-grained token.\n\n'
-        'GitHub response: ${res.body}',
+        'Verify that the exact repository is selected for the fine-grained token. '
+        '${formatGithubHttpFailure('GitHub request', res.statusCode)}',
       );
     }
 
     if (res.statusCode != 200) {
       throw GithubSyncException(
-        'REPOSITORY ACCESS FAILED: ${res.statusCode} ${res.body}',
+        formatGithubHttpFailure('REPOSITORY ACCESS FAILED', res.statusCode),
       );
     }
 
-    final dynamic decoded = jsonDecode(res.body);
+    final dynamic decoded = _decodeResponseJson(res, 'GitHub request');
 
     if (decoded is! Map<String, dynamic>) {
       throw GithubSyncException(
@@ -276,7 +288,7 @@ class GithubBackupService {
     );
 
     if (res.statusCode == 200) {
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final data = _decodeResponseJson(res, 'GitHub request') as Map<String, dynamic>;
 
       return (data['object'] as Map<String, dynamic>)['sha'] as String;
     }
@@ -296,7 +308,7 @@ class GithubBackupService {
           );
 
           if (retry.statusCode == 200) {
-            final retryData = jsonDecode(retry.body) as Map<String, dynamic>;
+            final retryData = _decodeResponseJson(retry, 'GitHub branch request') as Map<String, dynamic>;
 
             return (retryData['object'] as Map<String, dynamic>)['sha']
                 as String;
@@ -316,8 +328,7 @@ class GithubBackupService {
           }
 
           throw GithubSyncException(
-            'DEFAULT BRANCH REF FETCH FAILED: '
-            '${retry.statusCode} ${retry.body}',
+            formatGithubHttpFailure('DEFAULT BRANCH REF FETCH FAILED', retry.statusCode),
           );
         }
         return null;
@@ -335,7 +346,7 @@ class GithubBackupService {
     }
 
     throw GithubSyncException(
-      'REF FETCH FAILED: ${res.statusCode} ${res.body}',
+      formatGithubHttpFailure('REF FETCH FAILED', res.statusCode),
     );
   }
 
@@ -360,7 +371,7 @@ class GithubBackupService {
     );
 
     if (res.statusCode == 201) {
-      final dynamic decoded = jsonDecode(res.body);
+      final dynamic decoded = _decodeResponseJson(res, 'GitHub request');
       if (decoded is! Map<String, dynamic> ||
           decoded['content'] is! Map<String, dynamic> ||
           decoded['commit'] is! Map<String, dynamic>) {
@@ -382,73 +393,16 @@ class GithubBackupService {
 
     if (res.statusCode == 422) {
       throw GithubFileAlreadyExists(
-        'GitHub did not create "$path" because the target file or write parameters already exist/conflict (HTTP 422).\n\n'
-        'GitHub response: ${res.body}',
+        'GitHub did not create "$path" because the target file or write parameters already exist/conflict (HTTP 422).',
       );
     }
 
     throw GithubSyncException(
-      'GITHUB FILE CREATE FAILED for "$path": HTTP ${res.statusCode}.\n\n'
-      'GitHub response: ${res.body}',
+      formatGithubHttpFailure('GITHUB FILE CREATE FAILED for "$path"', res.statusCode),
     );
   }
 
-  Future<void> _initializeEmptyRepository({
-    required String path,
-    required String content,
-    required String message,
-  }) async {
-    final String encodedContent = base64Encode(utf8.encode(content));
-
-    final res = await _send(
-      () => _client.put(
-        _api('/contents/$path'),
-        headers: _headers,
-        body: jsonEncode({
-          'message': message,
-          'content': encodedContent,
-        }),
-      ),
-    );
-
-    if (res.statusCode == 403) {
-      throw _permissionDenied(
-        res,
-        operation: 'initializing the empty repository',
-        documentedPermission: 'contents=write',
-        repositoryAccessAlreadyValidated: true,
-      );
-    }
-
-    if (res.statusCode != 201) {
-      throw GithubSyncException(
-        'EMPTY REPOSITORY INITIALIZATION FAILED: '
-        '${res.statusCode} ${res.body}',
-      );
-    }
-
-    final dynamic decoded = jsonDecode(res.body);
-
-    if (decoded is! Map<String, dynamic>) {
-      throw GithubSyncException(
-        'EMPTY REPOSITORY INITIALIZATION FAILED: '
-        'invalid GitHub response.',
-      );
-    }
-
-    final dynamic contentResult = decoded['content'];
-    final dynamic commitResult = decoded['commit'];
-
-    if (contentResult is! Map<String, dynamic> ||
-        commitResult is! Map<String, dynamic>) {
-      throw GithubSyncException(
-        'EMPTY REPOSITORY INITIALIZATION FAILED: '
-        'GitHub did not return a created file and commit.',
-      );
-    }
-  }
-
-  Future<String?> _getCommitTreeSha(String commitSha) async {
+  Future<String> _getCommitTreeSha(String commitSha) async {
     final res = await _send(
       () => _client.get(
         _api('/git/commits/$commitSha'),
@@ -458,7 +412,7 @@ class GithubBackupService {
 
     if (res.statusCode == 401) {
       throw GithubSyncException(
-        'GITHUB TOKEN REJECTED while reading the commit tree (HTTP 401). GitHub response: ${res.body}',
+        'GITHUB TOKEN REJECTED while reading the commit tree (HTTP 401).',
       );
     }
 
@@ -473,13 +427,34 @@ class GithubBackupService {
 
     if (res.statusCode != 200) {
       throw GithubSyncException(
-        'COMMIT FETCH FAILED: ${res.statusCode} ${res.body}',
+        formatGithubHttpFailure('COMMIT FETCH FAILED', res.statusCode),
       );
     }
 
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final dynamic decoded = _decodeResponseJson(res, 'GitHub request');
+    if (decoded is! Map<String, dynamic>) {
+      throw GithubSyncException(
+        'GitHub request returned an invalid GitHub response.',
+      );
+    }
 
-    return (data['tree'] as Map<String, dynamic>)['sha'] as String;
+    final dynamic tree = decoded['tree'];
+    if (tree is! Map<String, dynamic>) {
+      throw GithubSyncException(
+        'GitHub request returned an invalid GitHub response.',
+      );
+    }
+
+    final dynamic sha = tree['sha'];
+    if (sha is! String ||
+        sha.isEmpty ||
+        !RegExp(r'^[0-9a-fA-F]{40}$').hasMatch(sha)) {
+      throw GithubSyncException(
+        'GitHub request returned an invalid GitHub response.',
+      );
+    }
+
+    return sha;
   }
 
   Future<String> _createTree({
@@ -519,214 +494,12 @@ class GithubBackupService {
           .join(', ');
 
       throw GithubSyncException(
-        'TREE CREATE FAILED: '
-        '${res.statusCode} ${res.body} '
-        '| base_tree=$baseTreeSha '
-        '| entries=[$entrySummary]',
+        '${formatGithubHttpFailure('TREE CREATE FAILED', res.statusCode)} '
+        'base_tree=$baseTreeSha | entries=[$entrySummary]',
       );
     }
 
-    return (jsonDecode(res.body) as Map<String, dynamic>)['sha'] as String;
-  }
-
-  Future<String> _createRootCommit({
-    required String treeSha,
-    required String message,
-  }) async {
-    final res = await _send(
-      () => _client.post(
-        _api('/git/commits'),
-        headers: _headers,
-        body: jsonEncode({
-          'message': message,
-          'tree': treeSha,
-          'parents': <String>[],
-        }),
-      ),
-    );
-
-    if (res.statusCode == 403) {
-      throw _permissionDenied(
-        res,
-        operation: 'creating a commit',
-        documentedPermission: 'contents=write',
-        repositoryAccessAlreadyValidated: true,
-      );
-    }
-
-    if (res.statusCode != 201) {
-      throw GithubSyncException(
-        'COMMIT CREATE FAILED: ${res.statusCode} ${res.body}',
-      );
-    }
-
-    return (jsonDecode(res.body) as Map<String, dynamic>)['sha'] as String;
-  }
-
-  Future<void> _forcePushRef(
-    String commitSha, {
-    required bool refExists,
-  }) async {
-    final String targetBranch = _resolvedBranch ?? branch;
-
-    if (refExists) {
-      final res = await _send(
-        () => _client.patch(
-          _api('/git/refs/heads/$targetBranch'),
-          headers: _headers,
-          body: jsonEncode({
-            'sha': commitSha,
-            'force': true,
-          }),
-        ),
-      );
-
-      if (res.statusCode == 403) {
-        throw _permissionDenied(
-          res,
-          operation: 'updating the Git branch reference',
-          documentedPermission: 'contents=write',
-          repositoryAccessAlreadyValidated: true,
-        );
-      }
-
-      if (res.statusCode != 200) {
-        throw GithubSyncException(
-          'REF UPDATE FAILED: ${res.statusCode} ${res.body}',
-        );
-      }
-    } else {
-      final res = await _send(
-        () => _client.post(
-          _api('/git/refs'),
-          headers: _headers,
-          body: jsonEncode({
-            'ref': 'refs/heads/$targetBranch',
-            'sha': commitSha,
-          }),
-        ),
-      );
-
-      if (res.statusCode == 403) {
-        throw _permissionDenied(
-          res,
-          operation: 'creating the Git branch reference',
-          documentedPermission: 'contents=write',
-          repositoryAccessAlreadyValidated: true,
-        );
-      }
-
-      if (res.statusCode != 201) {
-        throw GithubSyncException(
-          'REF CREATE FAILED: ${res.statusCode} ${res.body}',
-        );
-      }
-    }
-  }
-
-  Future<void> amendSync({
-    Map<String, String> upsertFiles = const {},
-    List<String> deleteFiles = const [],
-    Map<String, String> renameFiles = const {},
-    String message = 'rocen sync',
-  }) async {
-    if (upsertFiles.isEmpty && deleteFiles.isEmpty && renameFiles.isEmpty) {
-      return;
-    }
-
-    final String? currentRefSha = await _getBranchRefSha();
-    if (currentRefSha == null) {
-      if (upsertFiles.length != 1 ||
-          deleteFiles.isNotEmpty ||
-          renameFiles.isNotEmpty) {
-        throw GithubSyncException(
-          'EMPTY REPOSITORY REQUIRES EXACTLY ONE INITIAL FILE.',
-        );
-      }
-
-      final MapEntry<String, String> initialEntry = upsertFiles.entries.first;
-
-      await _initializeEmptyRepository(
-        path: initialEntry.key,
-        content: initialEntry.value,
-        message: message,
-      );
-
-      return;
-    }
-
-    final String? baseTreeSha = await _getCommitTreeSha(currentRefSha);
-
-    final Set<String> existingFiles =
-        (deleteFiles.isNotEmpty || renameFiles.isNotEmpty)
-            ? (await listNoteFiles()).toSet()
-            : <String>{};
-
-    final List<String> validDeleteFiles =
-        deleteFiles.where(existingFiles.contains).toList();
-
-    final Map<String, String> validRenameFiles = Map.fromEntries(
-      renameFiles.entries.where(
-        (entry) => existingFiles.contains(entry.key),
-      ),
-    );
-
-    final List<Map<String, dynamic>> entries = [];
-
-    for (final path in validDeleteFiles) {
-      entries.add({
-        'path': path,
-        'mode': '100644',
-        'type': 'blob',
-        'sha': null,
-      });
-    }
-
-    validRenameFiles.forEach((oldPath, newPath) {
-      entries.add({
-        'path': oldPath,
-        'mode': '100644',
-        'type': 'blob',
-        'sha': null,
-      });
-
-      if (!upsertFiles.containsKey(newPath)) {
-        entries.add({
-          'path': newPath,
-          'mode': '100644',
-          'type': 'blob',
-          'content': upsertFiles[newPath] ?? '',
-        });
-      }
-    });
-
-    upsertFiles.forEach((path, content) {
-      entries.add({
-        'path': path,
-        'mode': '100644',
-        'type': 'blob',
-        'content': content,
-      });
-    });
-
-    if (entries.isEmpty) {
-      return;
-    }
-
-    final String newTreeSha = await _createTree(
-      entries: entries,
-      baseTreeSha: baseTreeSha,
-    );
-
-    final String newCommitSha = await _createRootCommit(
-      treeSha: newTreeSha,
-      message: message,
-    );
-
-    await _forcePushRef(
-      newCommitSha,
-      refExists: true,
-    );
+    return (_decodeResponseJson(res, 'GitHub request') as Map<String, dynamic>)['sha'] as String;
   }
 
   Future<({Map<String, dynamic>? content, String? refSha})>
@@ -774,18 +547,31 @@ class GithubBackupService {
 
     if (res.statusCode != 200) {
       throw GithubSyncException(
-        'FILE FETCH FAILED: ${res.statusCode} ${res.body}',
+        formatGithubHttpFailure('FILE FETCH FAILED', res.statusCode),
       );
     }
 
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    final dynamic decoded = _decodeResponseJson(res, 'GitHub file fetch');
+    if (decoded is! Map<String, dynamic>) {
+      throw GithubSyncException(
+        'FILE FETCH FAILED: GitHub returned an invalid file response.',
+      );
+    }
 
-    final String encodedContent =
-        (data['content'] as String).replaceAll('\n', '');
-
-    final String rawJson = utf8.decode(base64.decode(encodedContent));
-
-    return jsonDecode(rawJson) as Map<String, dynamic>;
+    try {
+      final String encodedContent =
+          (decoded['content'] as String).replaceAll('\n', '');
+      final String rawJson = utf8.decode(base64.decode(encodedContent));
+      final dynamic fileJson = jsonDecode(rawJson);
+      if (fileJson is! Map<String, dynamic>) {
+        throw const FormatException('file payload is not an object');
+      }
+      return fileJson;
+    } catch (_) {
+      throw GithubSyncException(
+        'FILE FETCH FAILED: GitHub returned invalid file content.',
+      );
+    }
   }
 
   Future<void> updateFileWithFastForwardCheck({
@@ -843,13 +629,12 @@ class GithubBackupService {
 
     if (commitRes.statusCode != 201) {
       throw GithubSyncException(
-        'CONDITIONAL COMMIT CREATE FAILED: '
-        '${commitRes.statusCode} ${commitRes.body}',
+        formatGithubHttpFailure('CONDITIONAL COMMIT CREATE FAILED', commitRes.statusCode),
       );
     }
 
     final String newCommitSha =
-        (jsonDecode(commitRes.body) as Map<String, dynamic>)['sha'] as String;
+        (_decodeResponseJson(commitRes, 'GitHub commit request') as Map<String, dynamic>)['sha'] as String;
 
     if (currentRefSha == null) {
       final createRes = await _send(
@@ -881,8 +666,7 @@ class GithubBackupService {
 
       if (createRes.statusCode != 201) {
         throw GithubSyncException(
-          'CONDITIONAL REF CREATE FAILED: '
-          '${createRes.statusCode} ${createRes.body}',
+          formatGithubHttpFailure('CONDITIONAL REF CREATE FAILED', createRes.statusCode),
         );
       }
 
@@ -904,9 +688,8 @@ class GithubBackupService {
 
     if (updateRes.statusCode == 422 || updateRes.statusCode == 409) {
       throw GithubConditionalWriteConflict(
-        'REF UPDATE REJECTED '
-        '(not a fast-forward - branch moved): '
-        '${updateRes.statusCode} ${updateRes.body}',
+        'REF UPDATE REJECTED (not a fast-forward - branch moved): '
+        'HTTP ${updateRes.statusCode}.',
       );
     }
 
@@ -921,67 +704,108 @@ class GithubBackupService {
 
     if (updateRes.statusCode != 200) {
       throw GithubSyncException(
-        'CONDITIONAL REF UPDATE FAILED: '
-        '${updateRes.statusCode} ${updateRes.body}',
+        formatGithubHttpFailure('CONDITIONAL REF UPDATE FAILED', updateRes.statusCode),
       );
     }
   }
 
-  Future<List<String>> listNoteFiles() async {
-    final res = await _send(
-      () => _client.get(
-        _api('/contents'),
+  /// Atomically publishes multiple authority-sensitive files in one
+  /// non-force fast-forward commit. The branch SHA is compared immediately
+  /// before constructing the commit and GitHub itself rejects a moved ref.
+  /// This is intended for recovery/password metadata, never for force-pushed
+  /// history rewriting.
+  Future<void> updateFilesWithFastForwardCheck({
+    required Map<String, String> updates,
+    required String message,
+    required String? expectedParentSha,
+  }) async {
+    if (updates.isEmpty) return;
+
+    final String? currentRefSha = await _getBranchRefSha();
+    if (currentRefSha != expectedParentSha) {
+      throw GithubConditionalWriteConflict(
+        'branch moved: expected parent $expectedParentSha, actual $currentRefSha',
+      );
+    }
+
+    if (currentRefSha == null) {
+      throw GithubSyncException(
+        'MULTI-FILE CONDITIONAL UPDATE REQUIRES AN INITIALIZED REPOSITORY.',
+      );
+    }
+
+    final String baseTreeSha = await _getCommitTreeSha(currentRefSha);
+    final List<Map<String, dynamic>> entries = updates.entries
+        .map((entry) => <String, dynamic>{
+              'path': entry.key,
+              'mode': '100644',
+              'type': 'blob',
+              'content': entry.value,
+            })
+        .toList(growable: false);
+
+    final String newTreeSha = await _createTree(
+      entries: entries,
+      baseTreeSha: baseTreeSha,
+    );
+    final http.Response commitRes = await _send(
+      () => _client.post(
+        _api('/git/commits'),
         headers: _headers,
+        body: jsonEncode({
+          'message': message,
+          'tree': newTreeSha,
+          'parents': [currentRefSha],
+        }),
       ),
     );
 
-    debugPrint(
-      'LIST NOTE FILES: status=${res.statusCode}',
-    );
-
-    if (res.statusCode == 404) {
-      return [];
-    }
-
-    if (res.statusCode == 403) {
+    if (commitRes.statusCode == 403) {
       throw _permissionDenied(
-        res,
-        operation: 'listing repository contents',
-        documentedPermission: 'contents=read',
-        repositoryAccessAlreadyValidated: _repositoryMetadataValidated,
+        commitRes,
+        operation: 'creating the multi-file conditional commit',
+        documentedPermission: 'contents=write',
+        repositoryAccessAlreadyValidated: true,
       );
     }
-
-    if (res.statusCode != 200) {
+    if (commitRes.statusCode != 201) {
       throw GithubSyncException(
-        'DIRECTORY LIST FAILED: '
-        '${res.statusCode} ${res.body}',
+        'MULTI-FILE CONDITIONAL COMMIT FAILED: HTTP ${commitRes.statusCode}',
       );
     }
 
-    final dynamic decoded = jsonDecode(res.body);
-
-    if (decoded is! List) {
-      debugPrint(
-        'LIST NOTE FILES: response was not a List, '
-        'raw body: ${res.body}',
-      );
-
-      return [];
-    }
-
-    final List<String> names = decoded
-        .where(
-          (e) => e['type'] == 'file' && (e['name'] as String).endsWith('.json'),
-        )
-        .map((e) => e['name'] as String)
-        .toList();
-
-    debugPrint(
-      'LIST NOTE FILES: found ${decoded.length} '
-      'entries total, ${names.length} .json files: $names',
+    final String newCommitSha =
+        (_decodeResponseJson(commitRes, 'GitHub commit request') as Map<String, dynamic>)['sha'] as String;
+    final String targetBranch = _resolvedBranch ?? branch;
+    final http.Response updateRes = await _send(
+      () => _client.patch(
+        _api('/git/refs/heads/$targetBranch'),
+        headers: _headers,
+        body: jsonEncode({
+          'sha': newCommitSha,
+          'force': false,
+        }),
+      ),
     );
 
-    return names;
+    if (updateRes.statusCode == 409 || updateRes.statusCode == 422) {
+      throw GithubConditionalWriteConflict(
+        'conditional multi-file ref update rejected because the branch moved',
+      );
+    }
+    if (updateRes.statusCode == 403) {
+      throw _permissionDenied(
+        updateRes,
+        operation: 'updating the multi-file conditional branch reference',
+        documentedPermission: 'contents=write',
+        repositoryAccessAlreadyValidated: true,
+      );
+    }
+    if (updateRes.statusCode != 200) {
+      throw GithubSyncException(
+        'MULTI-FILE CONDITIONAL REF UPDATE FAILED: HTTP ${updateRes.statusCode}',
+      );
+    }
   }
+
 }

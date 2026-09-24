@@ -1,94 +1,11 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
-import 'package:Rocen/core/debug_log.dart' as debug_log;
+
 import 'package:hive_flutter/hive_flutter.dart';
-import 'crypto_engine.dart';
+
+import 'debug_log.dart' as debug_log;
 import 'github_backup_service.dart';
 
-enum PasswordStateComparison {
-  synchronized,
-  behindRemote,
-  conflict,
-  remoteStateBehind,
-  noRemoteStateYet,
-  remoteStateMissing,
-  checkFailed,
-}
-
-enum PendingReason {
-  publishUnconfirmed,
-  deviceKeyNotReady,
-}
-
-enum ReconciliationOutcome {
-  nothingPending,
-  confirmedSucceeded,
-  confirmedLostToNewerDevice,
-  confirmedConflict,
-  retriedPublishSucceeded,
-  retriedPublishFailed,
-  checkFailed,
-  blockedOnDeviceKey,
-}
-
-/// Outcome of retrying a publish that was previously held back because
-/// device_key.json could not be rewrapped (PendingReason.deviceKeyNotReady).
-enum DeviceKeyRetryOutcome {
-  /// Nothing was pending, or it wasn't the deviceKeyNotReady case; caller
-  /// should treat this as a no-op.
-  notApplicable,
-
-  /// password_state.json is behind, ahead, or in conflict on GitHub - the
-  /// existing precondition messaging should be shown instead of retrying.
-  requiresReconciliation,
-
-  /// Could not read password_state.json from GitHub (network, auth, etc).
-  checkFailed,
-
-  /// device_key.json was rewrapped and password-state was published.
-  succeeded,
-
-  /// The rewrap or upload of device_key.json itself failed.
-  deviceKeyUploadFailed,
-
-  /// device_key.json succeeded but the password-state publish failed.
-  publishFailed,
-}
-
-class DeviceKeyRetryResult {
-  final DeviceKeyRetryOutcome outcome;
-
-  /// Populated when outcome is requiresReconciliation or checkFailed, so the
-  /// caller can reuse the standard precondition-failure messaging.
-  final PasswordStateResult? stateResult;
-
-  const DeviceKeyRetryResult({
-    required this.outcome,
-    this.stateResult,
-  });
-}
-
-class LocalRotationOrphanStatus {
-  static const String _boxName = 'rocen_settings_box';
-  static const String _keyOrphaned = 'local_rotation_orphaned';
-
-  static bool isOrphaned() {
-    final box = Hive.box(_boxName);
-    return box.get(_keyOrphaned, defaultValue: false);
-  }
-
-  static Future<void> setOrphaned(bool value) async {
-    final box = Hive.box(_boxName);
-    await box.put(_keyOrphaned, value);
-  }
-}
-
-/// A registered device entry inside password_state.json.
-///
-/// deviceNumber is the stable human-facing membership number (1, 2, 3...).
-/// deviceId remains the random per-installation identifier and is the real
-/// unique identity used by Rocen internally.
 class PasswordStateDevice {
   final int deviceNumber;
   final String deviceId;
@@ -104,25 +21,22 @@ class PasswordStateDevice {
     if (raw is! Map) {
       throw const FormatException('device entry is not an object');
     }
-
     final int? deviceNumber = raw['deviceNumber'] is int
         ? raw['deviceNumber'] as int
         : int.tryParse('${raw['deviceNumber'] ?? ''}');
-    final String deviceId = (raw['deviceId'] ?? '').toString().trim();
     final int? generation = raw['passwordGeneration'] is int
         ? raw['passwordGeneration'] as int
         : int.tryParse('${raw['passwordGeneration'] ?? ''}');
-
+    final String deviceId = (raw['deviceId'] ?? '').toString().trim();
     if (deviceNumber == null || deviceNumber < 1) {
       throw const FormatException('deviceNumber is invalid');
+    }
+    if (generation == null || generation < 1) {
+      throw const FormatException('passwordGeneration is invalid');
     }
     if (deviceId.isEmpty) {
       throw const FormatException('deviceId is empty');
     }
-    if (generation == null || generation < 1) {
-      throw const FormatException('device passwordGeneration is invalid');
-    }
-
     return PasswordStateDevice(
       deviceNumber: deviceNumber,
       deviceId: deviceId,
@@ -137,114 +51,70 @@ class PasswordStateDevice {
       };
 }
 
-class PasswordStateResult {
-  final PasswordStateComparison comparison;
-  final int? remoteGeneration;
-  final String? remoteChangeId;
-  final DateTime? remoteChangedAt;
-  final String? remoteChangedByDeviceId;
-  final String? observedRefSha;
-  final List<PasswordStateDevice> devices;
-
-  const PasswordStateResult({
-    required this.comparison,
-    this.remoteGeneration,
-    this.remoteChangeId,
-    this.remoteChangedAt,
-    this.remoteChangedByDeviceId,
-    this.observedRefSha,
-    this.devices = const <PasswordStateDevice>[],
-  });
-}
-
 class PasswordStateManager {
   static const String fileName = 'password_state.json';
   static const String _boxName = 'rocen_settings_box';
-
   static const String _keyDeviceId = 'device_id';
   static const String _keyDeviceNumber = 'device_number';
   static const String _keyKnownGeneration = 'known_password_generation';
-  static const String _keyKnownChangeId = 'known_password_change_id';
-  static const String _keyLastBackupSyncAt = 'last_backup_sync_at';
   static const String _keyRegisteredAt = 'device_registered_at';
-  static const String _keyPublishPending = 'password_state_publish_pending';
-  static const String _keyPendingGeneration =
-      'password_state_pending_generation';
-  static const String _keyPendingChangeId = 'password_state_pending_change_id';
-  static const String _keyPendingReason = 'password_state_pending_reason';
 
   static String getOrCreateDeviceId() {
     final box = Hive.box(_boxName);
-    final String? existing = box.get(_keyDeviceId);
+    final String? existing = box.get(_keyDeviceId)?.toString();
     if (existing != null && existing.isNotEmpty) return existing;
 
-    final rnd = Random.secure();
-    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
-    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    final String deviceId = 'device-$hex';
+    final Random random = Random.secure();
+    final String suffix = List<int>.generate(16, (_) => random.nextInt(256))
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+    final String deviceId = 'device-$suffix';
     box.put(_keyDeviceId, deviceId);
-    if (box.get(_keyRegisteredAt) == null) {
-      box.put(_keyRegisteredAt, DateTime.now().toIso8601String());
-    }
+    box.put(_keyRegisteredAt, DateTime.now().toUtc().toIso8601String());
     return deviceId;
   }
 
   static int? getDeviceNumber() {
-    final box = Hive.box(_boxName);
-    final dynamic raw = box.get(_keyDeviceNumber);
-    if (raw is int && raw > 0) return raw;
-    return int.tryParse('${raw ?? ''}');
-  }
-
-  static String generateChangeId() {
-    final rnd = Random.secure();
-    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    final dynamic value = Hive.box(_boxName).get(_keyDeviceNumber);
+    if (value is int && value > 0) return value;
+    return int.tryParse('${value ?? ''}');
   }
 
   static int getKnownGeneration() {
-    final box = Hive.box(_boxName);
-    return box.get(_keyKnownGeneration, defaultValue: 0);
+    final dynamic value = Hive.box(_boxName).get(_keyKnownGeneration);
+    return value is int ? value : int.tryParse('${value ?? ''}') ?? 0;
   }
 
-  static String? getKnownChangeId() {
-    final box = Hive.box(_boxName);
-    return box.get(_keyKnownChangeId);
-  }
-
-  static Future<void> recordKnownState({
-    required int generation,
-    required String changeId,
-  }) async {
-    final box = Hive.box(_boxName);
-    await box.put(_keyKnownGeneration, generation);
-    await box.put(_keyKnownChangeId, changeId);
+  static String generateChangeId() {
+    final Random random = Random.secure();
+    return List<int>.generate(16, (_) => random.nextInt(256))
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
   }
 
   static Future<void> _recordKnownStateAndDeviceNumber({
     required int generation,
-    required String changeId,
     required int deviceNumber,
   }) async {
     final box = Hive.box(_boxName);
     await box.put(_keyKnownGeneration, generation);
-    await box.put(_keyKnownChangeId, changeId);
     await box.put(_keyDeviceNumber, deviceNumber);
   }
 
   static List<PasswordStateDevice> _decodeDevices(Map<String, dynamic> state) {
     final dynamic raw = state['devices'];
-    if (raw == null) return <PasswordStateDevice>[];
-    if (raw is! List) {
-      throw const FormatException('devices is not an array');
+    if (raw is! List || raw.isEmpty) {
+      throw const FormatException(
+        'password_state.json requires a non-empty devices array',
+      );
     }
 
-    final List<PasswordStateDevice> devices =
-        raw.map(PasswordStateDevice.fromJson).toList(growable: false);
-
+    final List<PasswordStateDevice> devices = raw
+        .map(PasswordStateDevice.fromJson)
+        .toList(growable: false);
     final Set<int> numbers = <int>{};
     final Set<String> ids = <String>{};
-    for (final PasswordStateDevice device in devices) {
+    for (final device in devices) {
       if (!numbers.add(device.deviceNumber)) {
         throw const FormatException('duplicate deviceNumber in password state');
       }
@@ -252,8 +122,15 @@ class PasswordStateManager {
         throw const FormatException('duplicate deviceId in password state');
       }
     }
-
     return devices;
+  }
+
+  static int _nextDeviceNumber(List<PasswordStateDevice> devices) {
+    int max = 0;
+    for (final device in devices) {
+      if (device.deviceNumber > max) max = device.deviceNumber;
+    }
+    return max + 1;
   }
 
   static Map<String, dynamic> _buildStateJson({
@@ -263,7 +140,7 @@ class PasswordStateManager {
     required String changedByDeviceId,
     required List<PasswordStateDevice> devices,
   }) {
-    return <String, dynamic>{
+    return {
       'passwordGeneration': generation,
       'passwordChangeId': changeId,
       'passwordChangedAt': changedAt,
@@ -272,111 +149,45 @@ class PasswordStateManager {
     };
   }
 
-  static int _nextDeviceNumber(List<PasswordStateDevice> devices) {
-    int maxNumber = 0;
-    for (final PasswordStateDevice device in devices) {
-      if (device.deviceNumber > maxNumber) {
-        maxNumber = device.deviceNumber;
-      }
-    }
-    return maxNumber + 1;
-  }
-
-  static Future<List<PasswordStateDevice>> _legacyAwareDevices({
-    required Map<String, dynamic> state,
-    required String currentDeviceId,
-  }) async {
-    final List<PasswordStateDevice> devices = _decodeDevices(state);
-    if (devices.isNotEmpty) return devices;
-
-    // Older Rocen versions did not store a device list. Preserve the old
-    // changedByDeviceId as Device 1 when it exists, then register the current
-    // device after it. This is a migration aid only; new states always carry a
-    // proper devices array from the beginning.
-    final int remoteGeneration = (state['passwordGeneration'] as int?) ?? 0;
-    if (remoteGeneration < 1) {
-      throw const FormatException('passwordGeneration is invalid');
-    }
-
-    final String legacyOwner =
-        (state['changedByDeviceId'] ?? '').toString().trim();
-    if (legacyOwner.isEmpty || legacyOwner == currentDeviceId) {
-      return <PasswordStateDevice>[
-        PasswordStateDevice(
-          deviceNumber: 1,
-          deviceId: currentDeviceId,
-          passwordGeneration: remoteGeneration,
-        ),
-      ];
-    }
-
-    return <PasswordStateDevice>[
-      PasswordStateDevice(
-        deviceNumber: 1,
-        deviceId: legacyOwner,
-        passwordGeneration: remoteGeneration,
-      ),
-    ];
-  }
-
-  /// Establishes the initial shared password state on a brand-new backup or
-  /// joins an existing backup as a newly registered device.
-  ///
-  /// A new repository receives generation 1 and Device 1. A second/following
-  /// device adopts the existing global generation/change ID and is appended to
-  /// the device registry without altering the password-state event itself.
-  /// Device registration uses the same fast-forward parent-SHA protection as
-  /// password-state changes, so simultaneous joins retry against the new state
-  /// rather than allocating the same device number twice.
+  /// Creates the shared state on a clean repository or registers this device
+  /// against an already-established Block B authority state.
   static Future<void> initializeOrJoinState({
     required GithubBackupService service,
     required bool allowCreateInitialState,
     int maxAttempts = 4,
   }) async {
     final String currentDeviceId = getOrCreateDeviceId();
-
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
-      final ({Map<String, dynamic>? content, String? refSha}) observed =
-          await service.fetchNoteFileWithRefSha(fileName);
-
+      final observed = await service.fetchNoteFileWithRefSha(fileName);
       if (observed.content == null) {
         if (!allowCreateInitialState) {
           throw GithubSyncException(
-            'PASSWORD STATE IS MISSING FROM THIS EXISTING BACKUP. '
-            'Rocen will not silently create a new shared password state because '
-            'that could overwrite the meaning of an existing backup.',
+            'password_state.json is missing from the selected existing repository',
           );
         }
-
-        const int initialGeneration = 1;
-        final String initialChangeId = generateChangeId();
-        final String changedAt = DateTime.now().toUtc().toIso8601String();
-        final List<PasswordStateDevice> initialDevices = <PasswordStateDevice>[
-          PasswordStateDevice(
-            deviceNumber: 1,
-            deviceId: currentDeviceId,
-            passwordGeneration: initialGeneration,
-          ),
-        ];
-
         if (observed.refSha == null) {
           throw GithubSyncException(
-            'INITIAL PASSWORD STATE FAILED: repository branch is not initialized.',
+            'cannot create password state without an initialized branch',
           );
         }
-
-        final String json = jsonEncode(_buildStateJson(
-          generation: initialGeneration,
-          changeId: initialChangeId,
-          changedAt: changedAt,
+        final String changeId = generateChangeId();
+        final Map<String, dynamic> state = _buildStateJson(
+          generation: 1,
+          changeId: changeId,
+          changedAt: DateTime.now().toUtc().toIso8601String(),
           changedByDeviceId: currentDeviceId,
-          devices: initialDevices,
-        ));
-
+          devices: [
+            PasswordStateDevice(
+              deviceNumber: 1,
+              deviceId: currentDeviceId,
+              passwordGeneration: 1,
+            ),
+          ],
+        );
         try {
           await service.updateFileWithFastForwardCheck(
             path: fileName,
-            content: json,
+            content: jsonEncode(state),
             message: 'initial password state',
             expectedParentSha: observed.refSha,
           );
@@ -384,549 +195,158 @@ class PasswordStateManager {
           if (attempt + 1 >= maxAttempts) rethrow;
           continue;
         }
-
         await _recordKnownStateAndDeviceNumber(
-          generation: initialGeneration,
-          changeId: initialChangeId,
+          generation: 1,
           deviceNumber: 1,
         );
-
-        debug_log.secureDebugLog(
-          '[password_state] initial shared state published successfully '
-          '(generation=$initialGeneration, device=1/$currentDeviceId)',
-        );
+        debug_log.secureDebugLog('[password_state] initialized shared state');
         return;
       }
 
       final Map<String, dynamic> state = observed.content!;
-      final int? remoteGeneration = state['passwordGeneration'] as int?;
-      final String remoteChangeId =
+      final int? remoteGeneration = state['passwordGeneration'] is int
+          ? state['passwordGeneration'] as int
+          : int.tryParse('${state['passwordGeneration'] ?? ''}');
+      final String changeId =
           (state['passwordChangeId'] ?? '').toString().trim();
-      final String remoteChangedAt =
+      final String changedAt =
           (state['passwordChangedAt'] ?? '').toString().trim();
-      final String remoteChangedByDeviceId =
+      final String changedBy =
           (state['changedByDeviceId'] ?? '').toString().trim();
-
       if (remoteGeneration == null ||
           remoteGeneration < 1 ||
-          remoteChangeId.isEmpty ||
-          remoteChangedAt.isEmpty ||
-          remoteChangedByDeviceId.isEmpty) {
-        throw const FormatException(
-          'existing password_state.json has incomplete shared-state fields',
+          changeId.isEmpty ||
+          changedAt.isEmpty ||
+          changedBy.isEmpty) {
+        throw const FormatException('password_state.json is structurally invalid');
+      }
+
+      final List<PasswordStateDevice> devices = _decodeDevices(state);
+      final List<PasswordStateDevice> existing = devices
+          .where((device) => device.deviceId == currentDeviceId)
+          .toList(growable: false);
+      if (existing.isNotEmpty) {
+        await _recordKnownStateAndDeviceNumber(
+          generation: remoteGeneration,
+          deviceNumber: existing.first.deviceNumber,
         );
+        return;
       }
 
-      final bool hasExplicitDeviceRegistry =
-          state['devices'] is List && (state['devices'] as List).isNotEmpty;
-      List<PasswordStateDevice> devices = await _legacyAwareDevices(
-        state: state,
-        currentDeviceId: currentDeviceId,
-      );
-
-      PasswordStateDevice? existing;
-      for (final PasswordStateDevice device in devices) {
-        if (device.deviceId == currentDeviceId) {
-          existing = device;
-          break;
-        }
-      }
-
-      if (existing != null) {
-        final int localGeneration = getKnownGeneration();
-        final String? localChangeId = getKnownChangeId();
-
-        // A freshly installed/joining device has no local shared-state record.
-        // Adopt the repository's canonical generation and change ID.
-        final bool localStateMatches = localGeneration == remoteGeneration &&
-            localChangeId == remoteChangeId;
-        if (localGeneration == 0 || localStateMatches) {
-          // If this is an older state file that predates the device registry,
-          // migrate it now so the backup has an explicit Device 1 record.
-          if (!hasExplicitDeviceRegistry) {
-            final Map<String, dynamic> migratedState = _buildStateJson(
-              generation: remoteGeneration,
-              changeId: remoteChangeId,
-              changedAt: remoteChangedAt,
-              changedByDeviceId: remoteChangedByDeviceId,
-              devices: devices,
-            );
-            try {
-              await service.updateFileWithFastForwardCheck(
-                path: fileName,
-                content: jsonEncode(migratedState),
-                message: 'migrate password state device registry',
-                expectedParentSha: observed.refSha,
-              );
-            } on GithubConditionalWriteConflict {
-              if (attempt + 1 >= maxAttempts) rethrow;
-              continue;
-            }
-          }
-
-          await _recordKnownStateAndDeviceNumber(
-            generation: remoteGeneration,
-            changeId: remoteChangeId,
-            deviceNumber: existing.deviceNumber,
-          );
-          return;
-        }
-
-        if (localGeneration < remoteGeneration) {
-          // This device has already changed password-state locally and is now
-          // behind a newer shared generation. Do not silently acknowledge it
-          // merely because the GitHub token was re-entered.
-          throw GithubSyncException(
-            'THIS DEVICE IS BEHIND THE SHARED PASSWORD STATE. '
-            'UPDATE THIS DEVICE TO THE CURRENT PASSWORD BEFORE RE-REGISTERING IT.',
-          );
-        }
-
-        throw GithubSyncException(
-          'THIS DEVICE HAS A PASSWORD-STATE CONFLICT WITH THE SELECTED GITHUB BACKUP.',
-        );
-      }
-
-      final int nextDeviceNumber = _nextDeviceNumber(devices);
-      final PasswordStateDevice newDevice = PasswordStateDevice(
-        deviceNumber: nextDeviceNumber,
-        deviceId: currentDeviceId,
-        passwordGeneration: remoteGeneration,
-      );
-      devices = <PasswordStateDevice>[...devices, newDevice];
-
+      final int nextNumber = _nextDeviceNumber(devices);
+      final List<PasswordStateDevice> nextDevices = [
+        ...devices,
+        PasswordStateDevice(
+          deviceNumber: nextNumber,
+          deviceId: currentDeviceId,
+          passwordGeneration: remoteGeneration,
+        ),
+      ];
       final Map<String, dynamic> nextState = _buildStateJson(
         generation: remoteGeneration,
-        changeId: remoteChangeId,
-        changedAt: remoteChangedAt,
-        changedByDeviceId: remoteChangedByDeviceId,
-        devices: devices,
+        changeId: changeId,
+        changedAt: changedAt,
+        changedByDeviceId: changedBy,
+        devices: nextDevices,
       );
-
       try {
         await service.updateFileWithFastForwardCheck(
           path: fileName,
           content: jsonEncode(nextState),
-          message: 'register device $nextDeviceNumber',
+          message: 'register device $nextNumber',
           expectedParentSha: observed.refSha,
         );
       } on GithubConditionalWriteConflict {
         if (attempt + 1 >= maxAttempts) rethrow;
         continue;
       }
-
       await _recordKnownStateAndDeviceNumber(
         generation: remoteGeneration,
-        changeId: remoteChangeId,
-        deviceNumber: nextDeviceNumber,
-      );
-
-      debug_log.secureDebugLog(
-        '[password_state] device registered successfully '
-        '(device=$nextDeviceNumber/$currentDeviceId generation=$remoteGeneration)',
+        deviceNumber: nextNumber,
       );
       return;
     }
-
     throw GithubConditionalWriteConflict(
-      'DEVICE REGISTRATION FAILED after repeated concurrent-write retries.',
+      'password-state device registration retries exhausted',
     );
   }
 
-  /// Backwards-compatible name retained for callers from the earlier design.
-  static Future<void> initializeInitialState({
+  /// Publishes the new recovery wrapper and the corresponding password-state
+  /// generation in one non-force CAS commit. A stale branch is a hard conflict.
+  static Future<void> publishRotationAtomically({
     required GithubBackupService service,
+    required String recoveryWrap,
+    int? expectedGeneration,
   }) async {
-    await initializeOrJoinState(
-      service: service,
-      allowCreateInitialState: true,
-    );
-  }
-
-  static Future<void> publishNewState({
-    required GithubBackupService service,
-    required int newGeneration,
-    required String newChangeId,
-    required String deviceId,
-    required String? expectedParentSha,
-    Map<String, dynamic>? baseState,
-  }) async {
-    Map<String, dynamic>? remoteState = baseState;
-
-    if (remoteState == null) {
-      final ({Map<String, dynamic>? content, String? refSha}) fetched =
-          await service.fetchNoteFileWithRefSha(fileName);
-      if (fetched.content == null) {
-        throw GithubSyncException(
-          'PASSWORD STATE PUBLISH FAILED: shared password state does not exist.',
-        );
-      }
-      if (expectedParentSha != fetched.refSha) {
-        throw GithubConditionalWriteConflict(
-          'password_state.json changed before the publish began',
-        );
-      }
-      remoteState = fetched.content;
-    }
-
-    final Map<String, dynamic> state = remoteState!;
-    final int? remoteGeneration = state['passwordGeneration'] as int?;
-    final String remoteChangeId =
-        (state['passwordChangeId'] ?? '').toString().trim();
-    final String remoteChangedAt =
-        (state['passwordChangedAt'] ?? '').toString().trim();
-    final String remoteChangedByDeviceId =
-        (state['changedByDeviceId'] ?? '').toString().trim();
-
-    if (remoteGeneration == null ||
-        remoteGeneration < 1 ||
-        remoteChangeId.isEmpty ||
-        remoteChangedAt.isEmpty ||
-        remoteChangedByDeviceId.isEmpty) {
-      throw const FormatException(
-        'existing password_state.json has incomplete shared-state fields',
+    final String deviceId = getOrCreateDeviceId();
+    final observed = await service.fetchNoteFileWithRefSha(fileName);
+    if (observed.content == null || observed.refSha == null) {
+      throw GithubSyncException(
+        'password_state.json is missing for password rotation',
       );
     }
 
-    final List<PasswordStateDevice> decodedDevices = await _legacyAwareDevices(
-      state: remoteState,
-      currentDeviceId: deviceId,
-    );
-    final List<PasswordStateDevice> devices = decodedDevices
+    final dynamic rawGeneration = observed.content!['passwordGeneration'];
+    final int? remoteGeneration = rawGeneration is int
+        ? rawGeneration
+        : int.tryParse('${rawGeneration ?? ''}');
+    if (remoteGeneration == null || remoteGeneration < 1) {
+      throw const FormatException('password_state.json generation is invalid');
+    }
+    if (expectedGeneration != null && remoteGeneration != expectedGeneration) {
+      throw GithubConditionalWriteConflict(
+        'remote password generation changed: expected $expectedGeneration, actual $remoteGeneration',
+      );
+    }
+
+    final String changeId = generateChangeId();
+    final List<PasswordStateDevice> devices = _decodeDevices(observed.content!);
+    final List<PasswordStateDevice> nextDevices = devices
         .map(
           (device) => device.deviceId == deviceId
               ? PasswordStateDevice(
                   deviceNumber: device.deviceNumber,
                   deviceId: device.deviceId,
-                  passwordGeneration: newGeneration,
+                  passwordGeneration: remoteGeneration + 1,
                 )
               : device,
         )
         .toList();
-
-    if (!devices.any((device) => device.deviceId == deviceId)) {
-      devices.add(
+    if (!nextDevices.any((device) => device.deviceId == deviceId)) {
+      nextDevices.add(
         PasswordStateDevice(
-          deviceNumber: _nextDeviceNumber(devices),
+          deviceNumber: _nextDeviceNumber(nextDevices),
           deviceId: deviceId,
-          passwordGeneration: newGeneration,
+          passwordGeneration: remoteGeneration + 1,
         ),
       );
     }
 
-    final String nowIso = DateTime.now().toUtc().toIso8601String();
-    final String json = jsonEncode(_buildStateJson(
-      generation: newGeneration,
-      changeId: newChangeId,
-      changedAt: nowIso,
-      changedByDeviceId: deviceId,
-      devices: devices,
-    ));
-
-    await service.updateFileWithFastForwardCheck(
-      path: fileName,
-      content: json,
-      message: 'password rotation - generation $newGeneration',
-      expectedParentSha: expectedParentSha,
+    final String nextState = jsonEncode(
+      _buildStateJson(
+        generation: remoteGeneration + 1,
+        changeId: changeId,
+        changedAt: DateTime.now().toUtc().toIso8601String(),
+        changedByDeviceId: deviceId,
+        devices: nextDevices,
+      ),
     );
-  }
 
-  static Future<void> recordBackupSyncNow() async {
-    final box = Hive.box(_boxName);
-    await box.put(
-      _keyLastBackupSyncAt,
-      DateTime.now().toIso8601String(),
+    await service.updateFilesWithFastForwardCheck(
+      updates: {
+        'device_key.json': recoveryWrap,
+        fileName: nextState,
+      },
+      message: 'rocen: password rotation',
+      expectedParentSha: observed.refSha,
     );
-  }
 
-  static bool isPublishPending() {
-    final box = Hive.box(_boxName);
-    return box.get(_keyPublishPending, defaultValue: false);
-  }
-
-  static PendingReason? getPendingReason() {
-    final box = Hive.box(_boxName);
-    final String? raw = box.get(_keyPendingReason);
-    if (raw == null) return null;
-    return PendingReason.values.firstWhere(
-      (r) => r.name == raw,
-      orElse: () => PendingReason.publishUnconfirmed,
+    final PasswordStateDevice thisDevice = nextDevices.firstWhere(
+      (device) => device.deviceId == deviceId,
     );
-  }
-
-  static Future<void> setPublishPending({
-    required int pendingGeneration,
-    required String pendingChangeId,
-    required PendingReason reason,
-  }) async {
-    final box = Hive.box(_boxName);
-    await box.put(_keyPublishPending, true);
-    await box.put(_keyPendingGeneration, pendingGeneration);
-    await box.put(_keyPendingChangeId, pendingChangeId);
-    await box.put(_keyPendingReason, reason.name);
-  }
-
-  static Future<void> clearPublishPending() async {
-    final box = Hive.box(_boxName);
-    await box.put(_keyPublishPending, false);
-    await box.delete(_keyPendingGeneration);
-    await box.delete(_keyPendingChangeId);
-    await box.delete(_keyPendingReason);
-  }
-
-  static int? getPendingGeneration() {
-    final box = Hive.box(_boxName);
-    return box.get(_keyPendingGeneration);
-  }
-
-  static String? getPendingChangeId() {
-    final box = Hive.box(_boxName);
-    return box.get(_keyPendingChangeId);
-  }
-
-  static Future<PasswordStateResult> checkState(
-      GithubBackupService service) async {
-    final int localGeneration = getKnownGeneration();
-    final String? localChangeId = getKnownChangeId();
-
-    final ({Map<String, dynamic>? content, String? refSha}) fetched;
-    try {
-      fetched = await service.fetchNoteFileWithRefSha(fileName);
-    } catch (_) {
-      return const PasswordStateResult(
-          comparison: PasswordStateComparison.checkFailed);
-    }
-
-    if (fetched.content == null) {
-      return PasswordStateResult(
-        comparison: localGeneration == 0
-            ? PasswordStateComparison.noRemoteStateYet
-            : PasswordStateComparison.remoteStateMissing,
-        observedRefSha: fetched.refSha,
-      );
-    }
-
-    try {
-      final Map<String, dynamic> remote = fetched.content!;
-      final int? remoteGeneration = remote['passwordGeneration'] as int?;
-      final String remoteChangeId =
-          (remote['passwordChangeId'] ?? '').toString().trim();
-      final String remoteChangedAtRaw =
-          (remote['passwordChangedAt'] ?? '').toString().trim();
-      final String remoteChangedByDeviceId =
-          (remote['changedByDeviceId'] ?? '').toString().trim();
-
-      if (remoteGeneration == null ||
-          remoteGeneration < 1 ||
-          remoteChangeId.isEmpty ||
-          remoteChangedAtRaw.isEmpty ||
-          remoteChangedByDeviceId.isEmpty) {
-        return const PasswordStateResult(
-            comparison: PasswordStateComparison.checkFailed);
-      }
-
-      final List<PasswordStateDevice> devices = _decodeDevices(remote);
-      final DateTime? remoteChangedAt = DateTime.tryParse(remoteChangedAtRaw);
-
-      final PasswordStateComparison comparison;
-      if (remoteGeneration > localGeneration) {
-        comparison = PasswordStateComparison.behindRemote;
-      } else if (remoteGeneration == localGeneration &&
-          localChangeId != null &&
-          remoteChangeId != localChangeId) {
-        comparison = PasswordStateComparison.conflict;
-      } else if (remoteGeneration < localGeneration) {
-        comparison = PasswordStateComparison.remoteStateBehind;
-      } else {
-        comparison = PasswordStateComparison.synchronized;
-      }
-
-      return PasswordStateResult(
-        comparison: comparison,
-        remoteGeneration: remoteGeneration,
-        remoteChangeId: remoteChangeId,
-        remoteChangedAt: remoteChangedAt,
-        remoteChangedByDeviceId: remoteChangedByDeviceId,
-        observedRefSha: fetched.refSha,
-        devices: devices,
-      );
-    } catch (_) {
-      return const PasswordStateResult(
-          comparison: PasswordStateComparison.checkFailed);
-    }
-  }
-
-  static Future<ReconciliationOutcome> reconcilePendingPublish(
-      GithubBackupService service) async {
-    if (!isPublishPending()) return ReconciliationOutcome.nothingPending;
-
-    final PendingReason? reason = getPendingReason();
-    if (reason == PendingReason.deviceKeyNotReady) {
-      return ReconciliationOutcome.blockedOnDeviceKey;
-    }
-
-    final int? pendingGeneration = getPendingGeneration();
-    final String? pendingChangeId = getPendingChangeId();
-    if (pendingGeneration == null || pendingChangeId == null) {
-      await clearPublishPending();
-      return ReconciliationOutcome.nothingPending;
-    }
-
-    final int oldLocalGeneration = getKnownGeneration();
-    final String? oldLocalChangeId = getKnownChangeId();
-
-    final ({Map<String, dynamic>? content, String? refSha}) fetched;
-    try {
-      fetched = await service.fetchNoteFileWithRefSha(fileName);
-    } catch (_) {
-      return ReconciliationOutcome.checkFailed;
-    }
-
-    final Map<String, dynamic>? remote = fetched.content;
-    final int? remoteGeneration = remote?['passwordGeneration'] as int?;
-    final String remoteChangeId =
-        (remote?['passwordChangeId'] ?? '').toString().trim();
-
-    if (remoteGeneration == null || remoteChangeId.isEmpty) {
-      return ReconciliationOutcome.checkFailed;
-    }
-    if (remoteGeneration == pendingGeneration &&
-        remoteChangeId == pendingChangeId) {
-      await recordKnownState(
-          generation: pendingGeneration, changeId: pendingChangeId);
-      await clearPublishPending();
-      return ReconciliationOutcome.confirmedSucceeded;
-    }
-    if (remoteGeneration > oldLocalGeneration) {
-      await LocalRotationOrphanStatus.setOrphaned(true);
-      await clearPublishPending();
-      return ReconciliationOutcome.confirmedLostToNewerDevice;
-    }
-
-    if (remoteGeneration == oldLocalGeneration &&
-        remoteChangeId == oldLocalChangeId) {
-      try {
-        final String deviceId = getOrCreateDeviceId();
-        await publishNewState(
-          service: service,
-          newGeneration: pendingGeneration,
-          newChangeId: pendingChangeId,
-          deviceId: deviceId,
-          expectedParentSha: fetched.refSha,
-          baseState: remote,
-        );
-        await recordKnownState(
-            generation: pendingGeneration, changeId: pendingChangeId);
-        await clearPublishPending();
-        return ReconciliationOutcome.retriedPublishSucceeded;
-      } catch (_) {
-        return ReconciliationOutcome.retriedPublishFailed;
-      }
-    }
-    await LocalRotationOrphanStatus.setOrphaned(true);
-    await clearPublishPending();
-    return ReconciliationOutcome.confirmedConflict;
-  }
-
-  /// Retries a publish that was previously held back because device_key.json
-  /// could not be rewrapped (PendingReason.deviceKeyNotReady).
-  ///
-  /// [currentPinHash] must be this device's CURRENT password hash (the new
-  /// one from the password change that left this pending) - it is used both
-  /// to derive the auth salt for the rewrap and, combined with
-  /// [mnemonicWords], to re-wrap device_key.json exactly as the original
-  /// password-change flow would have.
-  ///
-  /// Before touching device_key.json, this re-checks password_state.json on
-  /// GitHub. If another device has since changed the password (or the local
-  /// and remote states otherwise disagree), this returns
-  /// [DeviceKeyRetryOutcome.requiresReconciliation] with the fresh
-  /// [PasswordStateResult] instead of publishing - the caller should fall
-  /// back to the same reconciliation messaging used during a normal password
-  /// change, not silently overwrite a newer remote state.
-  static Future<DeviceKeyRetryResult> retryDeviceKeyPublish({
-    required GithubBackupService service,
-    required String currentPinHash,
-    required String currentPassword,
-    required List<String> mnemonicWords,
-  }) async {
-    if (!isPublishPending() ||
-        getPendingReason() != PendingReason.deviceKeyNotReady) {
-      return const DeviceKeyRetryResult(
-          outcome: DeviceKeyRetryOutcome.notApplicable);
-    }
-
-    final int? pendingGeneration = getPendingGeneration();
-    final String? pendingChangeId = getPendingChangeId();
-    if (pendingGeneration == null || pendingChangeId == null) {
-      await clearPublishPending();
-      return const DeviceKeyRetryResult(
-          outcome: DeviceKeyRetryOutcome.notApplicable);
-    }
-
-    final PasswordStateResult stateResult = await checkState(service);
-    if (stateResult.comparison == PasswordStateComparison.checkFailed) {
-      return DeviceKeyRetryResult(
-        outcome: DeviceKeyRetryOutcome.checkFailed,
-        stateResult: stateResult,
-      );
-    }
-    final bool checkOk =
-        stateResult.comparison == PasswordStateComparison.synchronized ||
-            stateResult.comparison == PasswordStateComparison.noRemoteStateYet;
-    if (!checkOk) {
-      return DeviceKeyRetryResult(
-        outcome: DeviceKeyRetryOutcome.requiresReconciliation,
-        stateResult: stateResult,
-      );
-    }
-
-    try {
-      final Uint8List authSalt = CryptoEngine.extractAuthSalt(currentPinHash);
-      final KdfParams params = CryptoEngine.currentEncryptionParams();
-      final Map<String, String> rewrapped =
-          await CryptoEngine.wrapDeviceKeyWithParams(
-        authSaltBytes: authSalt,
-        password: currentPassword,
-        mnemonicWords: mnemonicWords,
-        params: params,
-      );
-
-      await service.amendSync(
-        upsertFiles: {'device_key.json': jsonEncode(rewrapped)},
-        message: 'password rotation - device key retry',
-      );
-    } catch (_) {
-      return const DeviceKeyRetryResult(
-          outcome: DeviceKeyRetryOutcome.deviceKeyUploadFailed);
-    }
-
-    try {
-      final String deviceId = getOrCreateDeviceId();
-      await publishNewState(
-        service: service,
-        newGeneration: pendingGeneration,
-        newChangeId: pendingChangeId,
-        deviceId: deviceId,
-        expectedParentSha: stateResult.observedRefSha,
-      );
-      await recordKnownState(
-          generation: pendingGeneration, changeId: pendingChangeId);
-      await clearPublishPending();
-      return const DeviceKeyRetryResult(
-          outcome: DeviceKeyRetryOutcome.succeeded);
-    } catch (_) {
-      return const DeviceKeyRetryResult(
-          outcome: DeviceKeyRetryOutcome.publishFailed);
-    }
-  }
-
-  static Future<bool> isPushAllowed(GithubBackupService service) async {
-    if (isPublishPending()) return false;
-    if (LocalRotationOrphanStatus.isOrphaned()) return false;
-
-    final PasswordStateResult result = await checkState(service);
-    return result.comparison == PasswordStateComparison.synchronized ||
-        result.comparison == PasswordStateComparison.noRemoteStateYet;
+    await _recordKnownStateAndDeviceNumber(
+      generation: remoteGeneration + 1,
+      deviceNumber: thisDevice.deviceNumber,
+    );
   }
 }

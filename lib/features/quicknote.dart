@@ -5,19 +5,6 @@ import '../core/database.dart';
 import '../core/debug_log.dart';
 import '../main.dart';
 
-const String _kTitleBodySeparator = '\u0000\u0000ROCEN_TITLE_SPLIT\u0000\u0000';
-String _combineTitleAndBody(String title, String body) =>
-    '$title$_kTitleBodySeparator$body';
-
-({String title, String body}) _splitTitleAndBody(String combined) {
-  final int idx = combined.indexOf(_kTitleBodySeparator);
-  if (idx == -1) return (title: '', body: combined);
-  return (
-    title: combined.substring(0, idx),
-    body: combined.substring(idx + _kTitleBodySeparator.length),
-  );
-}
-
 class SecurityUiTheme {
   final bool isDark;
   late final Color textMain;
@@ -693,17 +680,10 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                       itemCount: items.length,
                       itemBuilder: (context, index) {
                         final item = items[index];
-                        final bool isEncrypted = false;
                         final formattedDate = _formatCustomDate(item.timestamp);
 
                         return GestureDetector(
-                          onTap: () {
-                            if (isEncrypted) {
-                              _promptForPinChallenge(item, isDark);
-                            } else {
-                              _navigateToEdit(context, item);
-                            }
-                          },
+                          onTap: () => _navigateToEdit(context, item),
                           behavior: HitTestBehavior.opaque,
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -726,22 +706,6 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                         child: RichText(
                                           text: TextSpan(
                                             children: [
-                                              WidgetSpan(
-                                                alignment:
-                                                    PlaceholderAlignment.middle,
-                                                child: isEncrypted
-                                                    ? Padding(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .only(
-                                                                right: 6.0),
-                                                        child: Icon(Icons.lock,
-                                                            size: 11,
-                                                            color:
-                                                                theme.textMain),
-                                                      )
-                                                    : const SizedBox.shrink(),
-                                              ),
                                               TextSpan(
                                                 text: item.title.isNotEmpty
                                                     ? '${item.title.toUpperCase()}  '
@@ -776,17 +740,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                           ),
                                         ),
                                       ),
-                                      isEncrypted
-                                          ? Text(
-                                              '● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ● ●',
-                                              style: TextStyle(
-                                                  color: isDark
-                                                      ? const Color(0xFF333333)
-                                                      : const Color(0xFFCCCCCC),
-                                                  fontSize: 10,
-                                                  letterSpacing: 1.2),
-                                            )
-                                          : AnimatedClampedText(
+                                      AnimatedClampedText(
                                               text: item.content,
                                               style: TextStyle(
                                                 color: isDark
@@ -805,14 +759,7 @@ class _QuickNoteScreenState extends ConsumerState<QuickNoteScreen> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     GestureDetector(
-                                      onTap: () {
-                                        if (isEncrypted) {
-                                          _promptForPinChallenge(item, isDark,
-                                              openForEditing: true);
-                                        } else {
-                                          _navigateToEdit(context, item);
-                                        }
-                                      },
+                                      onTap: () => _navigateToEdit(context, item),
                                       child: Padding(
                                         padding: const EdgeInsets.all(4.0),
                                         child: Icon(Icons.edit_outlined,

@@ -86,18 +86,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  String? _checkLockoutViolation(Box settingsBox) {
-    final int lockoutUntil =
-        settingsBox.get('secure_lockout_until', defaultValue: 0);
-    final int currentTime = DateTime.now().millisecondsSinceEpoch;
-
-    if (lockoutUntil > currentTime) {
-      final remainingTime = ((lockoutUntil - currentTime) / 1000).ceil();
-      return 'SYSTEM LOCKED - WAIT $remainingTime SECONDS';
-    }
-    return null;
-  }
-
   void _showAcknowledgeDialog(
       BuildContext context, String title, String message) {
     final isDark = ref.read(themeProvider);
@@ -246,128 +234,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       },
     );
-  }
-
-  /// Same look as _showStatusDialog, but with a second action button instead
-  /// of a single dismiss - used when the person can resolve the problem
-  /// immediately (e.g. finishing a held-back device-key retry) rather than
-  /// just being told about it.
-  void _showStatusDialogWithContinue(
-    BuildContext context,
-    String title,
-    String message, {
-    required String continueLabel,
-    required void Function() onContinue,
-  }) {
-    final isDark = ref.read(themeProvider);
-    final theme = SettingsUiTheme(isDark);
-
-    final buttonBg = isDark ? Colors.white : Colors.black;
-    final buttonText = isDark ? Colors.black : Colors.white;
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 300,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.dialogBg,
-                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    title.toUpperCase(),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.05),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    message.toUpperCase(),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: theme.textMain,
-                        fontSize: 11,
-                        height: 1.5,
-                        fontWeight: FontWeight.normal,
-                        letterSpacing: 0.02),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => Navigator.pop(context),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 11),
-                            decoration: BoxDecoration(
-                                border: Border.all(
-                                    color: theme.dialogBorderColor,
-                                    width: 0.8)),
-                            alignment: Alignment.center,
-                            child: Text(
-                              'APPRECIATED',
-                              style: TextStyle(
-                                color: isDark
-                                    ? const Color(0xFF888888)
-                                    : const Color(0xFF525252),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.06,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.pop(context);
-                            onContinue();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 11),
-                            decoration: BoxDecoration(color: buttonBg),
-                            alignment: Alignment.center,
-                            child: Text(
-                              continueLabel,
-                              style: TextStyle(
-                                color: buttonText,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.06,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _pushFullBackupSync() async {
-    await pushAllBackupEnabledNotes(ref);
   }
 
   Future<void> _handleDataExport() async {
@@ -880,84 +746,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showForgotWarningDialog(BuildContext context) {
-    final isDark = ref.read(themeProvider);
-    final theme = SettingsUiTheme(isDark);
-    final buttonBg = isDark ? Colors.white : Colors.black;
-    final buttonText = isDark ? Colors.black : Colors.white;
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return PopScope(
-          canPop: false,
-          child: Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 300,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: theme.dialogBg,
-                  border:
-                      Border.all(color: theme.dialogBorderColor, width: 0.8),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(
-                      'CRITICAL NOTICE',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'IF YOU FORGET YOUR PASSWORD, YOUR 12-WORD RECOVERY PHRASE IS THE ONLY WAY BACK IN. WITHOUT IT, YOUR LOCAL DATA CANNOT BE RECOVERED - ONLY CLEARED AND RESTARTED FROM SCRATCH.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 12,
-                          height: 1.5,
-                          fontWeight: FontWeight.normal,
-                          letterSpacing: 0.02),
-                    ),
-                    const SizedBox(height: 24),
-                    InkWell(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        decoration: BoxDecoration(color: buttonBg),
-                        alignment: Alignment.center,
-                        child: Text(
-                          'ACKNOWLEDGE',
-                          style: TextStyle(
-                            color: buttonText,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.06,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _promptChangePasswordChallenge(BuildContext context) {
     final BuildContext screenContext = context;
     final settingsBox = Hive.box(_boxName);
@@ -1013,6 +801,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           }
                           await settingsBox.put('secure_failed_attempts', 0);
                           await settingsBox.put('secure_lockout_until', 0);
+                          if (!dialogContext.mounted || !screenContext.mounted) return;
                           Navigator.pop(dialogContext);
                           if (screenContext.mounted) {
                             _showNewPasswordDialog(screenContext, raw);
@@ -1123,7 +912,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     color: SettingsUiTheme(isDark).dialogBg,
                     border: Border.all(color: SettingsUiTheme(isDark).dialogBorderColor, width: 0.8),
                   ),
-                  child: _mnemonicEntryBody(
+                  child: _buildMnemonicEntryState(
+                    SettingsUiTheme(isDark),
                     isDark,
                     controllers,
                     focusNodes,
@@ -1147,8 +937,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       },
     );
 
-    for (final c in controllers) c.dispose();
-    for (final f in focusNodes) f.dispose();
+    for (final c in controllers) {
+      c.dispose();
+    }
+    for (final f in focusNodes) {
+      f.dispose();
+    }
     if (!screenContext.mounted || mnemonic == null) return;
 
     try {
@@ -1163,62 +957,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _showStatusDialog(screenContext, 'PASSWORD CHANGE FAILED', 'THE SAME MASTER KEY COULD NOT BE REWRAPPED UNDER THE NEW PASSWORD. NO REPLACEMENT MASTER KEY WAS CREATED.');
       }
     }
-  }
-
-  Widget _buildTerminalState(
-    SettingsUiTheme theme,
-    bool isDark,
-    String title,
-    String message, {
-    required VoidCallback onAcknowledge,
-  }) {
-    final buttonBg = isDark ? Colors.white : Colors.black;
-    final buttonText = isDark ? Colors.black : Colors.white;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-              color: theme.textMain,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.05),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-              color: theme.textMain,
-              fontSize: 12,
-              height: 1.5,
-              fontWeight: FontWeight.normal,
-              letterSpacing: 0.02),
-        ),
-        const SizedBox(height: 24),
-        InkWell(
-          onTap: onAcknowledge,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            decoration: BoxDecoration(color: buttonBg),
-            alignment: Alignment.center,
-            child: Text(
-              'ACKNOWLEDGE',
-              style: TextStyle(
-                color: buttonText,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.06,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _buildMnemonicEntryState(
@@ -1439,6 +1177,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             if (context.mounted) _showStatusDialog(context, 'PASSWORD VERIFICATION FAILED', 'THE PASSWORD DID NOT MATCH THE LOCAL VERIFIER.');
                             return;
                           }
+                          if (!dialogContext.mounted || !context.mounted) return;
                           Navigator.pop(dialogContext);
                           if (context.mounted) {
                             _showGithubAccessDialog(context, raw, isRestore: isRestore);
@@ -1467,12 +1206,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       throw GithubSyncException(
           'GITHUB SECURITY CONFIGURATION IS INCOMPLETE: ${e.message}');
     }
-  }
-
-  Future<void> _openGithubAccessDialog(
-      BuildContext context, String rawPassword) async {
-    if (!context.mounted) return;
-    _showGithubAccessDialog(context, rawPassword);
   }
 
   void _showGithubAccessDialog(
@@ -1601,7 +1334,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _showAcknowledgeDialog(
           context,
           isExplicitRestore ? 'RECOVERY COMPLETE' : 'GITHUB LINKED',
-          'THE SELECTED REPOSITORY NOW REFERENCES THIS DATASET'S RECOVERY-WRAPPED MASTER KEY. GITHUB TOKENS ARE NOT PERSISTED BY THE BLOCK B CUTOVER.',
+          "THE SELECTED REPOSITORY NOW REFERENCES THIS DATASET'S RECOVERY-WRAPPED MASTER KEY. GITHUB TOKENS ARE NOT PERSISTED BY THE BLOCK B CUTOVER.",
         );
       }
       return true;
@@ -1615,128 +1348,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       return false;
     }
-  }
-
-  void _showSavingIndicatorDialog(
-    BuildContext context,
-    bool isDark, {
-    String status = 'SAVING...',
-  }) {
-    final theme = SettingsUiTheme(isDark);
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return PopScope(
-          canPop: false,
-          child: Center(
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 240,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: theme.dialogBg,
-                  border:
-                      Border.all(color: theme.dialogBorderColor, width: 0.8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: theme.textMain),
-                    ),
-                    const SizedBox(width: 14),
-                    Text(
-                      status,
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showDiagnosticLogDialog(
-      BuildContext context, String title, List<String> log) {
-    final isDark = ref.read(themeProvider);
-    final theme = SettingsUiTheme(isDark);
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.transparent,
-      pageBuilder: (context, anim1, anim2) {
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 330,
-              constraints: const BoxConstraints(maxHeight: 480),
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: theme.dialogBg,
-                border: Border.all(color: theme.dialogBorderColor, width: 0.8),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: TextStyle(
-                          color: theme.textMain,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.05)),
-                  const SizedBox(height: 12),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: Text(
-                        log.isEmpty ? 'NO LOG ENTRIES' : log.join('\n'),
-                        style: TextStyle(
-                            color: theme.textSub, fontSize: 10, height: 1.5),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  InkWell(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(color: theme.textMain),
-                      child: Text(
-                        'CLOSE',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: isDark ? Colors.black : Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   Future<void> _showMnemonicDisplayDialog(

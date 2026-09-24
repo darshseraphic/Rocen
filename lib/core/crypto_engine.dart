@@ -1,41 +1,23 @@
-import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart' show MethodChannel;
-import 'package:hive_flutter/hive_flutter.dart';
+
 import 'bip39.dart';
-import 'crypto_isolate.dart';
-import 'secure_bytes.dart';
 
-class BackupFormatException implements Exception {
-  final String message;
-  const BackupFormatException(this.message);
-
-  @override
-  String toString() => 'BackupFormatException: $message';
-}
-
-class KdfParams {
-  final int memory;
-  final int iterations;
-  const KdfParams(this.memory, this.iterations);
-}
-
+/// Small non-key-management utility surface retained during the Block B
+/// cutover. Master-key wrapping/verification and all persistent data
+/// encryption live in their dedicated Stage 3/4 components.
 class CryptoEngine {
-  static final Sha256 _sha256 = Sha256();
-
-  static const int _version = 1;
-  static const int _saltLength = 16;
-  static const int _nonceLength = 12;
-  static const int _macLength = 16;
+  CryptoEngine._();
 
   static const MethodChannel _integrityChannel =
       MethodChannel('com.darshseraphic.rocen/device_integrity');
-  static bool? _cachedRootStatus;
-
-  static const MethodChannel _secureKeystoreChannel =
+  static const MethodChannel _secureKeystoreStatusChannel =
       MethodChannel('com.darshseraphic.rocen/secure_keystore');
+  static final Sha256 _sha256 = Sha256();
+  static bool? _cachedRootStatus;
 
   static Future<bool> isDeviceRooted() async {
     if (_cachedRootStatus != null) return _cachedRootStatus!;
@@ -45,204 +27,24 @@ class CryptoEngine {
       _cachedRootStatus = result;
       return result;
     } catch (_) {
-      _cachedRootStatus = false;
-      return false;
+      _cachedRootStatus = true;
+      return true;
     }
   }
 
-  static bool _isHardened() {
+  /// Reports the platform's configured hardware-key tier only. This does not
+  /// create, wrap, unwrap, persist, or use any hardware-backed data key; that
+  /// architecture remains outside Block B and belongs to the later stage.
+  static Future<String> hardwareKeyTier({
+    String keyAlias = 'rocen_hw_password_key',
+  }) async {
     try {
-      final box = Hive.box('rocen_settings_box');
-      return box.get('kdf_hardened', defaultValue: false) as bool;
+      final String? tier = await _secureKeystoreStatusChannel
+          .invokeMethod<String>('keyTier', {'keyAlias': keyAlias});
+      return tier ?? 'unavailable';
     } catch (_) {
-      return false;
+      return 'unavailable';
     }
-  }
-
-  static const KdfParams _authParamsStandard = KdfParams(65536, 3);
-  static const KdfParams _authParamsHardened = KdfParams(131072, 4);
-  static const KdfParams _encryptionParamsStandard = KdfParams(65536, 3);
-  static const KdfParams _encryptionParamsHardened = KdfParams(131072, 4);
-
-  static KdfParams get _activeAuthParams =>
-      _isHardened() ? _authParamsHardened : _authParamsStandard;
-  static KdfParams get _activeEncryptionParams =>
-      _isHardened() ? _encryptionParamsHardened : _encryptionParamsStandard;
-  static KdfParams currentAuthParams() => _activeAuthParams;
-  static KdfParams currentEncryptionParams() => _activeEncryptionParams;
-  static ({KdfParams auth, KdfParams encryption}) paramsForHardenedState(
-      bool hardened) {
-    return (
-      auth: hardened ? _authParamsHardened : _authParamsStandard,
-      encryption:
-          hardened ? _encryptionParamsHardened : _encryptionParamsStandard,
-    );
-  }
-
-  static Future<String> encryptProcess(String input, String pin) async {
-    return encryptProcessWithParams(input, pin, _activeEncryptionParams);
-  }
-
-  static Future<String> encryptProcessWithParams(
-      String input, String pin, KdfParams params) async {
-    final Uint8List inputBytes = Uint8List.fromList(utf8.encode(input));
-
-    final salt = _generateSecureBytes(_saltLength);
-    final nonce = _generateSecureBytes(_nonceLength);
-
-    final result = await CryptoIsolate.deriveAndEncrypt(
-      plaintext: inputBytes,
-      password: pin,
-      salt: salt,
-      nonce: nonce,
-      memory: params.memory,
-      iterations: params.iterations,
-    );
-
-    if (result == null) {
-      throw StateError('ENCRYPTION FAILED');
-    }
-
-    final package = BytesBuilder()
-      ..add([_version])
-      ..add(salt)
-      ..add(nonce)
-      ..add(result['mac']!)
-      ..add(result['cipherText']!);
-
-    return base64.encode(package.toBytes());
-  }
-
-  static Future<String> decryptProcess(String input, String pin) async {
-    return decryptProcessWithParams(input, pin, _activeEncryptionParams);
-  }
-
-  static Future<String> decryptProcessWithParams(
-      String input, String pin, KdfParams params) async {
-    try {
-      final bytes = base64.decode(input);
-
-      if (bytes.isEmpty || bytes[0] != _version) {
-        return 'DECRYPTION FAULT';
-      }
-
-      int offset = 1;
-
-      final salt = bytes.sublist(offset, offset + _saltLength);
-      offset += _saltLength;
-
-      final nonce = bytes.sublist(offset, offset + _nonceLength);
-      offset += _nonceLength;
-
-      final mac = bytes.sublist(offset, offset + _macLength);
-      offset += _macLength;
-
-      final cipherText = bytes.sublist(offset);
-
-      final clear = await CryptoIsolate.deriveAndDecrypt(
-        cipherText: Uint8List.fromList(cipherText),
-        mac: Uint8List.fromList(mac),
-        password: pin,
-        salt: Uint8List.fromList(salt),
-        nonce: Uint8List.fromList(nonce),
-        memory: params.memory,
-        iterations: params.iterations,
-      );
-
-      if (clear == null) return 'DECRYPTION FAULT';
-      final pinnedClear = SecureBytes(clear);
-      zeroBytes(clear);
-      try {
-        return utf8.decode(pinnedClear.bytes);
-      } finally {
-        pinnedClear.zero();
-      }
-    } catch (_) {
-      return 'DECRYPTION FAULT';
-    }
-  }
-
-  static const int _minCipherAndMacLength = _macLength;
-
-  static Map<String, String> splitForBackup(String fullPackageBase64) {
-    final Uint8List bytes;
-    try {
-      bytes = base64.decode(fullPackageBase64);
-    } on FormatException {
-      throw const BackupFormatException(
-          'splitForBackup: input is not valid base64');
-    }
-
-    const int minLength =
-        1 + _saltLength + _nonceLength + _minCipherAndMacLength;
-    if (bytes.length < minLength) {
-      throw BackupFormatException(
-          'splitForBackup: input too short (${bytes.length} bytes, need at least $minLength)');
-    }
-
-    if (bytes[0] != _version) {
-      throw BackupFormatException(
-          'splitForBackup: unsupported version byte (${bytes[0]}, expected $_version)');
-    }
-
-    final versionByte = bytes.sublist(0, 1);
-    final salt = bytes.sublist(1, 1 + _saltLength);
-    final nonce =
-        bytes.sublist(1 + _saltLength, 1 + _saltLength + _nonceLength);
-    final macAndCipher = bytes.sublist(1 + _saltLength + _nonceLength);
-
-    final cypherPackage = BytesBuilder()
-      ..add(versionByte)
-      ..add(macAndCipher);
-
-    return {
-      'salt': base64.encode(salt),
-      'nonce': base64.encode(nonce),
-      'cyphertext': base64.encode(cypherPackage.toBytes()),
-    };
-  }
-
-  static String mergeFromBackup(
-      String saltBase64, String nonceBase64, String cyphertextBase64) {
-    final Uint8List saltBytes;
-    final Uint8List nonceBytes;
-    final Uint8List cypherBytes;
-    try {
-      saltBytes = base64.decode(saltBase64);
-      nonceBytes = base64.decode(nonceBase64);
-      cypherBytes = base64.decode(cyphertextBase64);
-    } on FormatException {
-      throw const BackupFormatException(
-          'mergeFromBackup: input is not valid base64');
-    }
-
-    if (saltBytes.length != _saltLength) {
-      throw BackupFormatException(
-          'mergeFromBackup: salt is ${saltBytes.length} bytes, expected exactly $_saltLength');
-    }
-    if (nonceBytes.length != _nonceLength) {
-      throw BackupFormatException(
-          'mergeFromBackup: nonce is ${nonceBytes.length} bytes, expected exactly $_nonceLength');
-    }
-    if (cypherBytes.length < 1 + _minCipherAndMacLength) {
-      throw BackupFormatException(
-          'mergeFromBackup: cyphertext too short (${cypherBytes.length} bytes, need at least ${1 + _minCipherAndMacLength})');
-    }
-    if (cypherBytes[0] != _version) {
-      throw BackupFormatException(
-          'mergeFromBackup: unsupported version byte (${cypherBytes[0]}, expected $_version)');
-    }
-
-    final versionByte = cypherBytes.sublist(0, 1);
-    final macAndCipher = cypherBytes.sublist(1);
-
-    final fullPackage = BytesBuilder()
-      ..add(versionByte)
-      ..add(saltBytes)
-      ..add(nonceBytes)
-      ..add(macAndCipher);
-
-    return base64.encode(fullPackage.toBytes());
   }
 
   static const int passwordMinLength = 8;
@@ -260,322 +62,69 @@ class CryptoEngine {
   static final RegExp _lowerPattern = RegExp(r'[a-z]');
   static final RegExp _digitPattern = RegExp(r'[0-9]');
   static final RegExp _symbolPattern =
-      RegExp(r'[!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]');
+      RegExp(r'[!@#$%^&*()_=+\-\\/:;. ,"~`{}\[\]|]'.replaceAll(' ', ''));
   static final RegExp _fullAllowedPattern =
-      RegExp(r'^[A-Za-z0-9!@#$%^&*()_=+\-\\/:;.,"~`{}\[\]|]{8,32}$');
-  static List<String> _uniqueCharsMatching(String candidate, RegExp pattern) {
-    final matched =
-        candidate.split('').where((c) => pattern.hasMatch(c)).toList();
-    return matched.toSet().toList();
-  }
+      RegExp(r'^[A-Za-z0-9!@#$%^&*()_=+\-\\/:;. ,"~`{}\[\]|]{8,32}$'.replaceAll(' ', ''));
 
   static bool isPasswordComplexityValid(String candidate) {
     if (!_fullAllowedPattern.hasMatch(candidate)) return false;
-
-    final upperChars =
-        candidate.split('').where((c) => _upperPattern.hasMatch(c)).toList();
-    final lowerChars =
-        candidate.split('').where((c) => _lowerPattern.hasMatch(c)).toList();
-    final digitChars =
-        candidate.split('').where((c) => _digitPattern.hasMatch(c)).toList();
-    final symbolChars =
-        candidate.split('').where((c) => _symbolPattern.hasMatch(c)).toList();
-
-    if (upperChars.length < 2 || upperChars.toSet().length < 2) return false;
-    if (lowerChars.length < 2 || lowerChars.toSet().length < 2) return false;
-    if (digitChars.length < 2 || digitChars.toSet().length < 2) return false;
-    if (symbolChars.length < 2 || symbolChars.toSet().length < 2) return false;
-
-    final lowerLetters = lowerChars.map((c) => c.toLowerCase()).toSet();
-    final upperLetters = upperChars.map((c) => c.toLowerCase()).toSet();
+    final upper = candidate.split('').where(_upperPattern.hasMatch).toSet();
+    final lower = candidate.split('').where(_lowerPattern.hasMatch).toSet();
+    final digits = candidate.split('').where(_digitPattern.hasMatch).toSet();
+    final symbols = candidate.split('').where(_symbolPattern.hasMatch).toSet();
+    if (upper.length < 2 || lower.length < 2 || digits.length < 2 || symbols.length < 2) {
+      return false;
+    }
+    final lowerLetters = lower.map((c) => c.toLowerCase()).toSet();
+    final upperLetters = upper.map((c) => c.toLowerCase()).toSet();
     if (lowerLetters.intersection(upperLetters).isNotEmpty) return false;
-
     return true;
   }
 
-  static List<String> missingPasswordRequirements(String candidate) {
-    final List<String> missing = [];
-    if (candidate.length < passwordMinLength ||
-        candidate.length > passwordMaxLength) {
-      missing.add('$passwordMinLength-$passwordMaxLength CHARACTERS');
-    }
-
-    final upperUnique = _uniqueCharsMatching(candidate, _upperPattern);
-    final lowerUnique = _uniqueCharsMatching(candidate, _lowerPattern);
-    final digitUnique = _uniqueCharsMatching(candidate, _digitPattern);
-    final symbolUnique = _uniqueCharsMatching(candidate, _symbolPattern);
-
-    if (upperUnique.length < 2) missing.add('2 UNIQUE UPPERCASE');
-    if (lowerUnique.length < 2) missing.add('2 UNIQUE LOWERCASE');
-    if (digitUnique.length < 2) missing.add('2 UNIQUE DIGITS');
-    if (symbolUnique.length < 2) missing.add('2 UNIQUE SYMBOLS');
-
-    final lowerLetters = lowerUnique.map((c) => c.toLowerCase()).toSet();
-    final upperLetters = upperUnique.map((c) => c.toLowerCase()).toSet();
-    if (lowerLetters.intersection(upperLetters).isNotEmpty) {
-      missing.add('NO SAME LETTER IN UPPER + LOWER');
-    }
-
-    return missing;
-  }
-
-  static List<(String label, bool satisfied)> passwordRequirementStatus(
-      String candidate) {
-    final upperUnique = _uniqueCharsMatching(candidate, _upperPattern);
-    final lowerUnique = _uniqueCharsMatching(candidate, _lowerPattern);
-    final digitUnique = _uniqueCharsMatching(candidate, _digitPattern);
-    final symbolUnique = _uniqueCharsMatching(candidate, _symbolPattern);
-
-    final lowerLetters = lowerUnique.map((c) => c.toLowerCase()).toSet();
-    final upperLetters = upperUnique.map((c) => c.toLowerCase()).toSet();
-    final noSharedCaseLetter = lowerLetters.intersection(upperLetters).isEmpty;
-
+  static List<(String, bool)> passwordRequirementStatus(String candidate) {
+    final upper = candidate.split('').where(_upperPattern.hasMatch).toSet();
+    final lower = candidate.split('').where(_lowerPattern.hasMatch).toSet();
+    final digits = candidate.split('').where(_digitPattern.hasMatch).toSet();
+    final symbols = candidate.split('').where(_symbolPattern.hasMatch).toSet();
+    final lowerLetters = lower.map((c) => c.toLowerCase()).toSet();
+    final upperLetters = upper.map((c) => c.toLowerCase()).toSet();
     return [
-      ('2 UNIQUE UPPERCASE', upperUnique.length >= 2),
-      ('2 UNIQUE LOWERCASE', lowerUnique.length >= 2),
-      ('2 UNIQUE DIGITS', digitUnique.length >= 2),
-      ('2 UNIQUE SYMBOLS', symbolUnique.length >= 2),
-      ('NO SAME LETTER IN UPPER + LOWER', noSharedCaseLetter),
+      ('2 UNIQUE UPPERCASE', upper.length >= 2),
+      ('2 UNIQUE LOWERCASE', lower.length >= 2),
+      ('2 UNIQUE DIGITS', digits.length >= 2),
+      ('2 UNIQUE SYMBOLS', symbols.length >= 2),
+      ('NO SAME LETTER IN UPPER + LOWER',
+          lowerLetters.intersection(upperLetters).isEmpty),
     ];
   }
 
-  static Future<String> hashPin(String pin) async {
-    final salt = _generateSecureBytes(_saltLength);
-    return hashPinWithSalt(pin, salt);
-  }
-
-  static Future<String> hashPinWithSalt(String pin, Uint8List saltBytes) async {
-    return hashPinWithSaltUsingParams(pin, saltBytes, _activeAuthParams);
-  }
-
-  static Future<String> hashPinWithSaltUsingParams(
-      String pin, Uint8List saltBytes, KdfParams params) async {
-    final hashBase64 = await CryptoIsolate.deriveKeyAsBase64(
-      password: pin,
-      salt: saltBytes,
-      memory: params.memory,
-      iterations: params.iterations,
-    );
-
-    return '${base64.encode(saltBytes)}:$hashBase64';
-  }
-
-  static Future<bool> verifyPin(String pin, String stored) async {
-    try {
-      final parts = stored.split(':');
-      if (parts.length != 2) return false;
-
-      final salt = base64.decode(parts[0]);
-      final expected = base64.decode(parts[1]);
-
-      final params = _activeAuthParams;
-      return await CryptoIsolate.deriveKeyAndCompare(
-        password: pin,
-        salt: Uint8List.fromList(salt),
-        memory: params.memory,
-        iterations: params.iterations,
-        expected: Uint8List.fromList(expected),
-      );
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Uint8List extractAuthSalt(String stored) {
-    return base64.decode(stored.split(':')[0]);
-  }
-
-  static const String passwordKeyAlias = 'rocen_hw_password_key';
-  static const String githubTokenKeyAlias = 'rocen_hw_github_key';
-  static Future<String?> hardwareWrap(String plaintext,
-      {required String keyAlias}) async {
-    try {
-      final Uint8List plainBytes = Uint8List.fromList(utf8.encode(plaintext));
-      final result =
-          await _secureKeystoreChannel.invokeMapMethod<String, dynamic>(
-        'hwEncrypt',
-        {'plaintext': base64.encode(plainBytes), 'keyAlias': keyAlias},
-      );
-      if (result == null) return null;
-
-      final String tier = (result['tier'] ?? 'tee').toString();
-      try {
-        final box = Hive.box('rocen_settings_box');
-        await box.put('hw_key_tier_$keyAlias', tier);
-      } catch (_) {}
-
-      final package =
-          jsonEncode({'iv': result['iv'], 'ct': result['ciphertext']});
-      return 'HW1:${base64.encode(utf8.encode(package))}';
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<String?> hardwareUnwrap(String wrapped,
-      {required String keyAlias}) async {
-    try {
-      if (!wrapped.startsWith('HW1:')) return null;
-      final Map<String, dynamic> package =
-          jsonDecode(utf8.decode(base64.decode(wrapped.substring(4))));
-
-      final result =
-          await _secureKeystoreChannel.invokeMapMethod<String, dynamic>(
-        'hwDecrypt',
-        {
-          'iv': package['iv'],
-          'ciphertext': package['ct'],
-          'keyAlias': keyAlias
-        },
-      );
-      if (result == null) return null;
-
-      return utf8.decode(base64.decode(result['plaintext'].toString()));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<String> hardwareKeyTier(
-      {String keyAlias = passwordKeyAlias}) async {
-    try {
-      final String? tier = await _secureKeystoreChannel
-          .invokeMethod<String>('keyTier', {'keyAlias': keyAlias});
-      return tier ?? 'unavailable';
-    } catch (_) {
-      return 'unavailable';
-    }
-  }
-
-  static Future<bool> verifyPinWithHardwareBinding(
-      String pin, String storedHash) async {
-    final bool softwareValid = await verifyPin(pin, storedHash);
-    if (!softwareValid) return false;
-
-    try {
-      final box = Hive.box('rocen_settings_box');
-      final String? hwWrapped = box.get('hw_wrapped_pin');
-
-      if (hwWrapped == null) {
-        final String? wrapped =
-            await hardwareWrap(storedHash, keyAlias: passwordKeyAlias);
-        if (wrapped != null) await box.put('hw_wrapped_pin', wrapped);
-        return true;
-      }
-
-      final String? unwrapped =
-          await hardwareUnwrap(hwWrapped, keyAlias: passwordKeyAlias);
-      return unwrapped == storedHash;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<Map<String, String>> wrapDeviceKey({
-    required Uint8List authSaltBytes,
-    required String password,
-    required List<String> mnemonicWords,
-  }) async {
-    return wrapDeviceKeyWithParams(
-      authSaltBytes: authSaltBytes,
-      password: password,
-      mnemonicWords: mnemonicWords,
-      params: _activeEncryptionParams,
-    );
-  }
-
-  static Future<Map<String, String>> wrapDeviceKeyWithParams({
-    required Uint8List authSaltBytes,
-    required String password,
-    required List<String> mnemonicWords,
-    required KdfParams params,
-  }) async {
-    final String combinedSecret =
-        '$password|${mnemonicWords.join(' ').trim().toLowerCase()}';
-    final wrapSalt = _generateSecureBytes(_saltLength);
-    final wrapNonce = _generateSecureBytes(_nonceLength);
-
-    final result = await CryptoIsolate.deriveAndEncrypt(
-      plaintext: authSaltBytes,
-      password: combinedSecret,
-      salt: wrapSalt,
-      nonce: wrapNonce,
-      memory: params.memory,
-      iterations: params.iterations,
-    );
-
-    if (result == null) {
-      throw StateError('DEVICE KEY WRAP FAILED');
-    }
-
-    final macAndCipher = BytesBuilder()
-      ..add(result['mac']!)
-      ..add(result['cipherText']!);
-
-    return {
-      'wrapSalt': base64.encode(wrapSalt),
-      'wrapNonce': base64.encode(wrapNonce),
-      'wrappedAuthSalt': base64.encode(macAndCipher.toBytes()),
-    };
-  }
-
-  static Future<Uint8List?> unwrapDeviceKey({
-    required String wrapSalt,
-    required String wrapNonce,
-    required String wrappedAuthSalt,
-    required String password,
-    required List<String> mnemonicWords,
-  }) async {
-    try {
-      final String combinedSecret =
-          '$password|${mnemonicWords.join(' ').trim().toLowerCase()}';
-      final saltBytes = base64.decode(wrapSalt);
-      final nonceBytes = base64.decode(wrapNonce);
-      final macAndCipherBytes = base64.decode(wrappedAuthSalt);
-
-      final macBytes = macAndCipherBytes.sublist(0, _macLength);
-      final cipherBytes = macAndCipherBytes.sublist(_macLength);
-
-      final params = _activeEncryptionParams;
-      final clear = await CryptoIsolate.deriveAndDecrypt(
-        cipherText: Uint8List.fromList(cipherBytes),
-        mac: Uint8List.fromList(macBytes),
-        password: combinedSecret,
-        salt: Uint8List.fromList(saltBytes),
-        nonce: Uint8List.fromList(nonceBytes),
-        memory: params.memory,
-        iterations: params.iterations,
-      );
-
-      return clear;
-    } catch (_) {
-      return null;
-    }
-  }
-
   static Future<List<String>> generateMnemonic() async {
-    final entropy = _generateSecureBytes(16);
-    return _entropyToMnemonic(entropy);
+    final Random random = Random.secure();
+    final Uint8List entropy = Uint8List.fromList(
+      List<int>.generate(16, (_) => random.nextInt(256)),
+    );
+    try {
+      return await _entropyToMnemonic(entropy);
+    } finally {
+      for (int i = 0; i < entropy.length; i++) {
+        entropy[i] = 0;
+      }
+    }
   }
 
   static Future<List<String>> _entropyToMnemonic(Uint8List entropy) async {
     final hash = await _sha256.hash(entropy);
     final int checksumBits = (hash.bytes[0] >> 4) & 0x0F;
-
     final StringBuffer bits = StringBuffer();
     for (final byte in entropy) {
       bits.write(byte.toRadixString(2).padLeft(8, '0'));
     }
     bits.write(checksumBits.toRadixString(2).padLeft(4, '0'));
-
     final String bitString = bits.toString();
-    final List<String> words = [];
-    for (int i = 0; i < 12; i++) {
+    return List<String>.generate(12, (i) {
       final chunk = bitString.substring(i * 11, i * 11 + 11);
-      final index = int.parse(chunk, radix: 2);
-      words.add(Bip39Wordlist.words[index]);
-    }
-    return words;
+      return Bip39Wordlist.words[int.parse(chunk, radix: 2)];
+    });
   }
 
   static bool isValidMnemonicWord(String word) {
@@ -585,42 +134,27 @@ class CryptoEngine {
   static Future<bool> validateMnemonicChecksum(
       List<String> mnemonicWords) async {
     if (mnemonicWords.length != 12) return false;
-
-    final List<int> indices = [];
-    for (final w in mnemonicWords) {
-      final idx = Bip39Wordlist.words.indexOf(w.trim().toLowerCase());
-      if (idx == -1) return false;
-      indices.add(idx);
+    final List<int> indices = <int>[];
+    for (final word in mnemonicWords) {
+      final index = Bip39Wordlist.words.indexOf(word.trim().toLowerCase());
+      if (index < 0) return false;
+      indices.add(index);
     }
-
-    final StringBuffer bits = StringBuffer();
-    for (final idx in indices) {
-      bits.write(idx.toRadixString(2).padLeft(11, '0'));
-    }
-    final String bitString = bits.toString();
-
+    final String bitString = indices
+        .map((i) => i.toRadixString(2).padLeft(11, '0'))
+        .join();
     final String entropyBits = bitString.substring(0, 128);
     final String checksumBits = bitString.substring(128, 132);
-
-    final Uint8List entropyBytes = Uint8List(16);
+    final Uint8List entropy = Uint8List(16);
     for (int i = 0; i < 16; i++) {
-      entropyBytes[i] =
-          int.parse(entropyBits.substring(i * 8, i * 8 + 8), radix: 2);
+      entropy[i] = int.parse(
+        entropyBits.substring(i * 8, i * 8 + 8),
+        radix: 2,
+      );
     }
-
-    final hash = await _sha256.hash(entropyBytes);
-    final String expectedChecksumBits =
+    final hash = await _sha256.hash(entropy);
+    final String expected =
         ((hash.bytes[0] >> 4) & 0x0F).toRadixString(2).padLeft(4, '0');
-
-    return expectedChecksumBits == checksumBits;
-  }
-
-  static Uint8List _generateSecureBytes(int length) {
-    final rnd = Random.secure();
-    final values = Uint8List(length);
-    for (int i = 0; i < length; i++) {
-      values[i] = rnd.nextInt(256);
-    }
-    return values;
+    return expected == checksumBits;
   }
 }
