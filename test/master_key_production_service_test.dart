@@ -121,6 +121,39 @@ Future<String> _recoveryWrap(Uint8List mk, String password) =>
       mnemonicWords: _mnemonic,
     );
 
+/// MasterKeyManager no longer holds Master Key bytes (Stage 5 single-owner
+/// invariant), so tests observe "the MK" the same way a real unlock does: by
+/// independently unwrapping the durable record's Password-KEK wrapper. This
+/// keeps every Stage 3 assertion (same MK across restart / password change /
+/// recovery / conflict) intact while removing the dependency on a retained
+/// in-memory copy.
+Future<Uint8List> _observedMk(String password) async {
+  final MasterKeyLocalRecord record = (await MasterKeyLocalStore.read())!;
+  final Uint8List? key = await PasswordKeyDerivation.unwrapMasterKeyWithPassword(
+    wrapJson: record.passwordWrap,
+    rawPassword: password,
+  );
+  return key!;
+}
+
+Future<List<int>> _deriveNek(Uint8List mk) async {
+  final key = await DomainKeyDerivation.deriveNoteEncryptionKey(mk);
+  try {
+    return List<int>.from(key.bytes);
+  } finally {
+    key.zero();
+  }
+}
+
+Future<List<int>> _deriveTek(Uint8List mk) async {
+  final key = await DomainKeyDerivation.deriveGithubTokenEncryptionKey(mk);
+  try {
+    return List<int>.from(key.bytes);
+  } finally {
+    key.zero();
+  }
+}
+
 Future<void> main() async {
   late Directory tempDir;
 
@@ -146,8 +179,9 @@ Future<void> main() async {
       mnemonicWords: _mnemonic,
     );
 
-    expect(MasterKeyManager.instance.state, MasterKeyState.authoritative);
-    final key = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
+    expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
+    final key = await _observedMk('BlockB!Password44');
     try {
       expect(key.length, 32);
     } finally {
@@ -213,7 +247,7 @@ Future<void> main() async {
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
     );
-    final before = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
+    final before = await _observedMk('BlockB!Password44');
     final beforeCopy = List<int>.from(before);
     before.fillRange(0, before.length, 0);
 
@@ -222,7 +256,7 @@ Future<void> main() async {
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
     );
-    final after = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
+    final after = await _observedMk('BlockB!Password44');
     try {
       expect(after, beforeCopy);
     } finally {
@@ -322,7 +356,8 @@ Future<void> main() async {
     expect(unchanged!.passwordWrap, record.passwordWrap);
     expect(unchanged.recoveryWrap, mismatchedRecoveryWrap);
     expect(unchanged.passwordVerifier, record.passwordVerifier);
-    expect(MasterKeyManager.instance.state, MasterKeyState.authoritative);
+    expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
   });
 
   test('authorityMutationsAreSerializedAndStalePasswordChangeCannotOverwrite', () async {
@@ -356,7 +391,8 @@ Future<void> main() async {
     final finalRecord = await MasterKeyLocalStore.read();
     expect(finalRecord, isNotNull);
     expect(finalRecord!.revision, 2);
-    expect(MasterKeyManager.instance.state, MasterKeyState.authoritative);
+    expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
   });
 
   test('passwordChangePreservesMK_NEK_and_TEK', () async {
@@ -366,16 +402,11 @@ Future<void> main() async {
       password: oldPassword,
       mnemonicWords: _mnemonic,
     );
-    final mkBefore = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
+    final mkBefore = await _observedMk(oldPassword);
     final mkBeforeCopy = List<int>.from(mkBefore);
+    final nekBeforeCopy = await _deriveNek(mkBefore);
+    final tekBeforeCopy = await _deriveTek(mkBefore);
     mkBefore.fillRange(0, mkBefore.length, 0);
-
-    final nekBefore = await DomainKeyDerivation.deriveNoteEncryptionKey();
-    final tekBefore = await DomainKeyDerivation.deriveGithubTokenEncryptionKey();
-    final nekBeforeCopy = List<int>.from(nekBefore.bytes);
-    final tekBeforeCopy = List<int>.from(tekBefore.bytes);
-    nekBefore.zero();
-    tekBefore.zero();
 
     final result = await MasterKeyProductionService.instance.changePassword(
       oldPassword: oldPassword,
@@ -383,13 +414,16 @@ Future<void> main() async {
       mnemonicWords: _mnemonic,
     );
 
-    final mkAfter = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
-    final nekAfter = await DomainKeyDerivation.deriveNoteEncryptionKey();
-    final tekAfter = await DomainKeyDerivation.deriveGithubTokenEncryptionKey();
+    // Observe through the NEW password: the same MK must now be reachable
+    // via the rewrapped Password-KEK wrapper, and the frozen Stage 4
+    // derivation of it must be unchanged.
+    final mkAfter = await _observedMk(newPassword);
+    final nekAfter = await _deriveNek(mkAfter);
+    final tekAfter = await _deriveTek(mkAfter);
     try {
       expect(mkAfter, mkBeforeCopy);
-      expect(nekAfter.bytes, nekBeforeCopy);
-      expect(tekAfter.bytes, tekBeforeCopy);
+      expect(nekAfter, nekBeforeCopy);
+      expect(tekAfter, tekBeforeCopy);
       final newPasswordKey =
           await PasswordKeyDerivation.unwrapMasterKeyWithPassword(
         wrapJson: result.newPasswordWrapJson,
@@ -440,8 +474,6 @@ Future<void> main() async {
       );
     } finally {
       mkAfter.fillRange(0, mkAfter.length, 0);
-      nekAfter.zero();
-      tekAfter.zero();
     }
 
     final local = await MasterKeyLocalStore.read();
@@ -495,7 +527,7 @@ Future<void> main() async {
       repository: 'owner/repo',
     );
 
-    final actual = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
+    final actual = await _observedMk('BlockB!Password44');
     try {
       expect(actual, expected);
     } finally {
@@ -602,7 +634,7 @@ Future<void> main() async {
       password: 'Local!Password77',
       mnemonicWords: _mnemonic,
     );
-    final localBefore = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
+    final localBefore = await _observedMk('Local!Password77');
     final localBeforeCopy = List<int>.from(localBefore);
     localBefore.fillRange(0, localBefore.length, 0);
 
@@ -616,7 +648,7 @@ Future<void> main() async {
       throwsStateError,
     );
 
-    final localAfter = MasterKeyManager.instance.requireAuthoritativeMasterKeyBytes();
+    final localAfter = await _observedMk('Local!Password77');
     final record = await MasterKeyLocalStore.read();
     try {
       expect(localAfter, localBeforeCopy);
@@ -729,7 +761,8 @@ Future<void> main() async {
       repository: 'owner/repo',
     );
 
-    expect(MasterKeyManager.instance.state, MasterKeyState.authoritative);
+    expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
     final retriedRecord = await MasterKeyLocalStore.read();
     expect(retriedRecord!.recoveryWrap, failedRecord.recoveryWrap);
     expect(retriedRecord.remoteRecoveryStatus, RemoteRecoveryStatus.published);
@@ -763,7 +796,8 @@ Future<void> main() async {
       repository: 'owner/repo',
     );
 
-    expect(MasterKeyManager.instance.state, MasterKeyState.authoritative);
+    expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
     final retried = await MasterKeyLocalStore.read();
     expect(retried!.recoveryWrap, recordAfterFailure.recoveryWrap);
   });
@@ -784,7 +818,8 @@ Future<void> main() async {
     );
 
     await Future.wait([first, second]);
-    expect(MasterKeyManager.instance.state, MasterKeyState.authoritative);
+    expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
     final record = await MasterKeyLocalStore.read();
     expect(record!.remoteRecoveryStatus, RemoteRecoveryStatus.published);
     expect(remote.files.containsKey('device_key.json'), isTrue);
