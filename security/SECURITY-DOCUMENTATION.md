@@ -1,6 +1,7 @@
 # ROCEN — Security Documentation Consolidation & Coverage
 
 **Consolidated:** 10 October 2026  
+**Status refreshed:** 12 October 2026 — repair history updated through `Rocen-P5-repair-8.zip`, including the latest dual-auditor review; Repair-9 remains proposed and unimplemented in any supplied source archive.  
 **Purpose:** Make this file the single, self-contained Markdown source for the in-scope Rocen security documentation and the current Stage 5 handoff, so the in-scope source Markdown files do not need to remain as separate files.  
 **Important:** This is documentation consolidation, not a fresh source-code audit, not evidence that the app compiles, and not a claim that Stage 5 is complete.
 
@@ -8,7 +9,7 @@
 
 1. [How to use this single file](#1-how-to-use-this-single-file)
 2. [Scope and source manifest](#2-scope-and-source-manifest)
-3. [Current status at the last reviewed snapshot](#3-current-status-at-the-last-reviewed-snapshot)
+3. [Current status at the latest reviewed snapshot](#3-current-status-at-the-latest-reviewed-snapshot)
 4. [Approved Stage 5 architecture and invariants](#4-approved-stage-5-architecture-and-invariants)
 5. [Open blockers and required repair sequence](#5-open-blockers-and-required-repair-sequence)
 6. [Runtime validation and completion gate](#6-runtime-validation-and-completion-gate)
@@ -29,6 +30,8 @@ The one separately supplied `Rocen_Stage5_Architecture_and_Security_Handoff.md` 
 The PNG diagram's semantic content is transcribed in Section 7. This Markdown-only consolidation does **not** preserve the PNG's exact pixels, typography, colors, or spatial layout as a binary image. Its component labels, flow steps, state transitions, responsibilities, and stated invariants are captured textually. If exact visual fidelity is required, retain the original PNG outside this single-file set.
 
 Relative links inside archived source text may still mention the original filenames. Those references are retained as historical context; they should not be assumed to open after the original files are deleted.
+
+**Repair-status precedence:** Sections 3, 5, and 6 are the refreshed operational status through Repair-8. The appended source documents preserve their original historical wording, including older statements that Repair-2 was the latest baseline at the time they were written. Those historical statements are not the current status. Repair-9 is recorded as a proposed follow-up only; no Repair-9 source archive or runtime results have been supplied.
 
 ## 2. Scope and source manifest
 
@@ -78,32 +81,58 @@ The included Markdown text is present in this file. After confirming this consol
 
 **Do not delete `security.zip` without consciously accepting the loss of the excluded material inside it.** The archive also contains `MULTI-DEVICE.md`, `security/audits/`, `security/remediation/`, and the original PNG. None of those excluded Markdown contents have been merged here. The PNG's readable semantic content is transcribed in Section 7, but its exact visual pixels/layout are not retained. If you truly want only this one Markdown file, deletion of the archives means accepting those omissions and the loss of the original visual asset.
 
-## 3. Current status at the last reviewed snapshot
+## 3. Current status at the latest reviewed snapshot
 
-**Snapshot date:** 10 October 2026.  
-**Last independently reviewed app-source archive named by the handoff:** `Rocen-P5-repair-2.zip`.  
-**Stage 5 status in that snapshot:** **IN PROGRESS / NOT APPROVED**.  
-**Runtime evidence:** no confirmed Flutter/Dart compile, analysis, or test run is recorded for that source snapshot.
+**Status refreshed:** 12 October 2026.  
+**Latest source archive independently inspected in this conversation:** `Rocen-P5-repair-8.zip`.  
+**Stage 5 status:** **IN PROGRESS / NOT APPROVED**.  
+**Runtime evidence for Repair-8:** no confirmed Flutter/Dart compilation, analysis, test run, or Android release build.  
+**Static evidence reported by the implementor:** Tree-sitter syntax-only parse of `lib/` and `test/`, Python text/static scans, and manual source inspection. These are not Dart compilation or Flutter test execution.
 
-This status is taken from the supplied handoff records. It does not establish what may have changed in files or archives produced after the recorded snapshot. Before acting on it as today's status, compare any newer source archive and implementor report against the source and update this section with actual evidence.
+The chronology below records the incremental security-repair work without repeating the original product-feature “Fixed” entries from the archived changelog. The Repair-2 baseline description in the earlier handoff is retained in the historical appendices; the table below is the current repair-status index. “Present in source” does not mean runtime-verified or fully approved.
 
-### Improvements the reviewed source was reported/observed to contain
+### Repair history and current status — Repair-1 through Repair-9
 
-The status documents record the following structures in `Rocen-P5-repair-2.zip`; they should be preserved unless a later independent source inspection proves a defect:
+| Repair | Source/action delta recorded | Status and evidence limitation |
+|---|---|---|
+| **Repair-1 — `Rocen-P5-repair.zip`** | First repair archive compared with `Rocen-P5.zip`. Source changes included the first targeted activation/key-ownership revision, making the activation transaction library-private, changing `SessionKeyMaterial` ownership/install behavior, adding `ProtectedSessionResources` and `screen_security.dart`, and updating session manager, unlock, settings, lock-screen and `main.dart` lifecycle integration. Related activation, session, widget, local-store, and ownership tests were changed. | Archive is available for source comparison. These were source changes, not proof of passing tests. Native screen-protection behavior was not established by the supplied archive. |
+| **Repair-2 — `Rocen-P5-repair-2.zip`** | Tightened checkpoint/pause ordering so freshness is checked after the pause resumes; moved `PasswordStateManager` into the trusted production-service library arrangement; introduced the initial reserved-authority-path guard and authority-write grant route; added `authority_remote_write_boundary_test.dart`; further updated activation, session, and ownership tests. | Archive is available. This was an intermediate baseline: its grant scope and bootstrap fencing were later found insufficient and were strengthened in subsequent repairs. Runtime validation was not established for this snapshot. |
+| **Repair-3 — reported as `Rocen-P5-repair-3.zip`** | Implementor reported making `GithubBackupService` a `final class`; adding operation/path/mutation-kind-scoped authority grants with budget and expiry; replacing the state-only bootstrap fence with epoch-bound `BootstrapPermit`; making established-account and corrupt-record routes fail closed; running bootstrap lock cleanup; and gating destructive reset controls behind `ROCEN_SECURITY_TEST_CHECKPOINTS`. | The Repair-3 ZIP is not among the source archives currently available for direct comparison. These changes were reported at the time and are reflected, with further changes, in the later Repair-5 through Repair-8 source. They are not runtime-verified. |
+| **Repair-4 — reported compile/test-harness correction** | Implementor reported fixing the missing `ownedLocal` argument at a recovery call site, correcting tests that passed `FakeGithubRemote` where `GithubBackupService` was expected, removing `await` from a `void` fake seed method, and moving a `productionFiles` declaration to a scope where multiple tests could use it. | No separate Repair-4 ZIP is available in the current file set. The report described source/test edits, but those edits were not established as compiling or passing tests against the final archive. |
+| **Repair-5 — `Rocen-P5-repair-5.zip`** | Carried forward the final GitHub service and bootstrap-permit approach; added `test_control.dart` and `test/support/fake_github_remote.dart`; gated reset/checkpoint controls; updated manager, service, session, settings, main, and tests; applied analyzer cleanup such as unused-import removals and the `super.message` constructor form. | Archive is available. The implementor explicitly said the final Repair-5 archive was not re-analyzed or tested after repackaging. An earlier analyzer result on an earlier tree does not validate Repair-5 or later archives. |
+| **Repair-6 — `Rocen-P5-repair-6.zip`** | Tightened percent-decoding canonicalization to fail closed at its limit; added `isSamePersistedRecordAs()` and a more complete expected-record check for recovery races; added a request-count/race hook to the GitHub fake; separated normal-build checkpoint/reset tests into `normal_build_checkpoint_isolation_test.dart`; added regression coverage for deep path encodings and recovery-record changes. | Archive is available. The source repairs were reported and inspected, but no Flutter/Dart commands were executed against Repair-6. Subsequent review found that the record check still needed to be enforced at the actual protected write boundary. |
+| **Repair-7 — `Rocen-P5-repair-7.zip`** | Rejected URI-ambiguous generic file paths and constructed Contents URLs from validated segments; removed caller-supplied `knownRecoveryWrapJson` from recovery; pinned remote file contents to observed commits with post-read/post-KDF freshness checks; moved local bookkeeping writes to checkpoint-then-final-fence ordering; captured bootstrap invocation epochs before queueing; added an `expectedCurrent` durable-write check and an `afterRecoveryUnwrap` checkpoint; added tests for URI aliases, stale recovery, queued bootstrap, local-write fencing and screen-policy documentation. | Archive is available and was source-reviewed. The implementor reported no Dart/Flutter runtime. Review then found remaining repository-URL interpolation, grant path identity, missing-branch snapshot, and strict persisted-schema concerns. |
+| **Repair-8 — `Rocen-P5-repair-8.zip`** | Returned explicit absence for a missing selected branch rather than taking an unpinned read on that path; replaced `_api()` string interpolation with segment-based URI construction and stricter repository validation; changed authority grants to exact literal target paths and validated all three authority mutation entry points before beginning a grant mutation; corrected B2 to change only revision; rejected unknown top-level and `remoteRecovery` keys; added tests for branch snapshots, repository identifiers, literal grant scope, revision-only mismatch, and unknown fields; expanded the fake with pinned commit history and request tracking. | Latest archive available and source-reviewed. Implementor reports all Flutter/Dart commands as **NOT EXECUTED**. Direct transport-level rejection tests for real authority methods remain source-reviewed because the grant-minting API is private. The current source still requires the Repair-9 follow-up items below. |
+| **Repair-9 — proposed follow-up, not yet implemented in a supplied archive** | After Auditor 2 challenged the Repair-8 review, the proposed scope was strengthened to include strict JSON value types/canonical persisted identity; one consistent effective GitHub branch across reference reads, pinned Contents, freshness, first-device setup, writes and read-back; prevention of unpinned cross-branch authority reads; and rejection of unknown pinned SHAs by the fake. Tests must cover the real Settings validation/setup path, default `master` with a separate `main`, an explicitly missing branch, and a genuinely empty repository. | **PENDING.** No Repair-9 source ZIP or executed runtime results have been supplied. The existing standalone `ROCEN_REPAIR_9_PROMPT.md` should be synchronized with this strengthened branch-consistency requirement before it is handed to the implementor; do not record these actions as completed until a returned archive is inspected. |
 
-- `MasterKeyManager` is no longer intended to be the long-lived live-key owner; the activation transaction is library-private as `_ActivationTransaction`.
-- Temporary activation MK/NEK/TEK values are transaction-owned before transfer; stale unwrap output is checked after the await, with a defensive stale adoption/clearing path.
-- The named activation checkpoints exist in source: `AFTER_PASSWORD_AUTH`, `AFTER_MK_UNWRAP`, `AFTER_NEK_DERIVATION`, `AFTER_TEK_DERIVATION`, `BEFORE_SESSION_INSTALL`, `AFTER_SESSION_INSTALL`, and `BEFORE_ACTIVATION_COMMIT`. A separate unwrap/adoption race seam is also discussed in the handoff.
-- Session key installation has generation/transaction freshness checks; rollback is intended to remain scoped to its activation attempt.
-- The old public `associateRemoteForTesting()` and `changePasswordForTesting()` APIs are reported removed from the reviewed snapshot.
-- `SessionAuthorizationToken` is used by authenticated `changePassword()` and `associateRemote()` operations; the previous public `MasterKeyLocalStore.write`/`clear` surface is removed in favor of the trusted-library arrangement described in the handoff.
-- Generic GitHub writes reject reserved authority paths, including malformed or normalized variants. Authority mutations use `GithubAuthorityWriteGrant` and are intended to revalidate immediately before remote mutation.
-- `PasswordStateManager` mutation methods have been moved away from public APIs into the trusted implementation.
-- A separate `ProtectedSessionApp`/Navigator and `ProtectedSessionResources` structure owns protected navigation and a root `ProviderContainer`; destruction callbacks are registered so security-owned resources can be destroyed synchronously through `lockSync()`.
-- Lifecycle transitions away from resumed/interactive state call `lockSync()`; corrupt authority is intended to fail closed rather than be treated as first-run absence.
-- Protected application-data persistence is gated off/fail-closed while the Stage 6 encrypted envelope is not implemented.
+### Current Repair-8 findings carried into Repair-9
 
-These are source-snapshot observations recorded in the handoff, not a claim that runtime tests passed.
+1. **Branch consistency remains open.** `validateRepositoryAccess()` may resolve the repository default branch into `_resolvedBranch`, while `_getBranchRefSha()` has been observed using the constructor's `branch`; protected writes use `_resolvedBranch ?? branch`. This can make authority reads and writes target different branches. An explicitly selected missing branch must not silently become default-branch authority.
+2. **First-device branch isolation remains open.** The `device_key.json` snapshot path is pinned, but the authority-related `password_state.json` read in `establishFirstDevice()` was reported as unpinned. Ensure it uses the same effective branch/snapshot and cannot inspect another branch's state implicitly.
+3. **Persisted-record value types remain open.** Repair-8 rejects unknown keys, but `fromJsonString()` can still accept numeric strings and coerce certain non-string fields; optional metadata may be trimmed. Strict types and canonical persisted representation are required for exact identity.
+4. **Pinned fake behavior remains open.** A non-null SHA unknown to `FakeGithubRemote` must not fall back to the live file map; return an error/not-found response instead.
+5. **Direct authority-method request-count coverage is partial.** The scope helper and source ordering are tested/reviewed, but real authority-entry-point invalid-path rejection with zero mutating requests is not independently runtime-proven because the grant constructor is private. Do not add an unrestricted public grant-minting bypass to address this.
+
+### Latest dual-auditor review and current Repair-9 handoff state — 12 October 2026
+
+Auditor 2 reviewed the Repair-8 findings and agreed that the persisted-record representation, missing-branch first-device bootstrap, and unknown pinned-SHA fake behavior are source-supported issues. Auditor 2 also identified a broader branch-selection inconsistency that must be repaired as a single cross-cutting issue, not just as a missing-branch special case. This review is based on the Repair-8 source review and follow-up discussion; it is **not** evidence of runtime test execution and does not mean a Repair-9 archive exists.
+
+The Repair-9 acceptance scope is now: 
+
+1. **Strict persisted-record identity:** require exact schema-1 JSON types, reject coercion and non-canonical values, define blank-versus-absent optional-field behavior, and ensure the protected expected-current write detects a raw persisted-representation change rather than comparing only normalized model values. Preserve valid schema-1 records and existing credential/wrapper formats; do not add a compatibility or migration reader.
+2. **One effective GitHub branch:** resolve implicit default-branch selection versus explicit branch selection deliberately, then use one selected/effective branch consistently for reference lookup, pinned Contents reads, freshness revalidation, first-device setup, authority publication, read-back, and any tree/commit/ref update. Do not silently redirect an explicitly requested missing branch to the repository default.
+3. **First-device branch isolation:** remove or constrain unpinned authority-related `password_state.json` reads and relevant `device_key.json` read-backs so they cannot be used as evidence about a different branch. Tests must exercise the real production Settings validation/setup sequence and must **not skip `validateRepositoryAccess()`** in the missing-branch case.
+4. **Faithful pinned-SHA fake:** a non-null SHA must resolve only to the exact current or a recorded historical commit. An unknown SHA must produce not-found/error behavior and never fall back to live content.
+5. **Deterministic branch/snapshot matrix:** test a repository whose default branch is `master` while a separate `main` branch contains different `device_key.json` authority; assert the same intended branch is used for validation, ref reads, pinned content reads, freshness checks, publication and read-back. Also test an explicitly missing non-main branch and a genuinely empty repository, preserving valid first-run setup. Test current, historical, and unknown pinned SHAs.
+6. **Preserve previous hardening:** keep exact repository identifier/URI validation, literal authority-path checks, scoped/expiring grants, recovery snapshot pinning and revalidation, bootstrap invocation-epoch checks, synchronous final fences, expected-current local write checks, unknown-key rejection, and production isolation of destructive test controls. Do not create a public grant-minting bypass to simplify tests.
+
+**Prompt-file synchronization note:** the currently present `ROCEN_REPAIR_9_PROMPT.md` covers strict persisted records, the missing-branch bootstrap path and fake pinned-SHA behavior, but does not fully spell out the newly agreed single-effective-branch requirement and the required `master`/separate-`main` production Settings-flow test. The prompt artifact should be updated before implementor handoff; until then, this consolidated status records the stronger agreed scope rather than implying the older prompt already contains it.
+
+**Immediate next step:** synchronize the Repair-9 prompt, have the implementor return a new archive plus a changed-file/test report, independently inspect that exact archive, and then run the validation sequence in Section 6 in a complete Flutter project. Keep Stage 5 **NOT APPROVED** until blockers are source-reviewed and runtime evidence and the screen-capture policy decision meet the completion gate.
+
+### Completed source changes do not imply approval
+
+The Repair-1 through Repair-8 archives and reports show incremental hardening, but the implementor explicitly states that Repair-8 has not been compiled or tested. The current source-review status is therefore **source changes present / runtime unverified**, not “passed.” The historical appendices preserve earlier reports and repair instructions as history; use this section for the latest action/status summary.
 
 ## 4. Approved Stage 5 architecture and invariants
 
@@ -146,86 +175,133 @@ Stage 5 hardens the session/authority boundary while preserving Stage 3/4 crypto
 
 ## 5. Open blockers and required repair sequence
 
-The last-reviewed `Rocen-P5-repair-2.zip` handoff identifies two primary architecture blockers and associated routing, cleanup, policy, and evidence issues.
+This section supersedes the Repair-2-era blocker status preserved in the historical appendices. The source archive currently reviewed is `Rocen-P5-repair-8.zip`; its security changes have not been validated with Flutter/Dart runtime commands.
 
-### Blocker A — GitHub authority-grant leakage / insufficient grant scope
+### Blocker A — Effective branch mismatch and missing-branch isolation
 
-The documented problem is that `GithubBackupService` is subclassable and authority-writing methods can be overridden. If a trusted production service passes a real `GithubAuthorityWriteGrant` through an overridable public method, a caller-controlled subclass can capture the grant. A private constructor by itself does not prevent this.
+The Repair-8 source contains explicit handling for a missing selected branch and now uses segment-based URI construction. However, the branch-selection flow is still inconsistent: repository validation can assign `_resolvedBranch` to the repository's default branch, while reference lookup has been observed to use the constructor's `branch`. First-device setup also needs to ensure `password_state.json` is read from the same selected/effective branch rather than implicitly from the default branch.
 
-**Required direction:** remove the caller-controlled grant-interception path; bind each grant to its intended operation, permitted paths and mutation kind, fence, and limited lifetime; reject unrelated or replayed use; use transport-level testing that does not expose real grants; recheck authority/freshness immediately before each protected remote mutation.
+**Required direction:** resolve one effective branch before authority operations begin, use it for reference lookup, pinned Contents reads, freshness, first-device setup, authority publication, read-back, and tree/commit/ref updates, and distinguish implicit default-branch selection from an explicitly requested branch. Test through the real Settings validation/setup flow; do not bypass `validateRepositoryAccess()` in the missing-branch test. Include a default-`master` repository with a separate `main` branch containing different authority, an explicitly missing non-main branch, and a genuinely empty repository. A missing explicitly selected branch must not silently become authority from another branch. Preserve legitimate first-run initialization and compatibility with non-`main` default branch names.
 
-### Blocker B — State-only bootstrap fence
+### Blocker B — Strict persisted-record representation
 
-The documented `_PreSessionFence` is stateless and delegates to `requirePreSession()`, which accepts both `BOOTSTRAP` and `LOCKED`. A locked established account must not gain privilege-free bootstrap mutation authority just because it is locked. In addition, `lockSync()` during `BOOTSTRAP` can advance the epoch while the state remains `BOOTSTRAP`; a state-only check can therefore accept stale work.
+Repair-8 rejects unknown top-level and nested `remoteRecovery` keys, and the durable write path compares an `expectedCurrent` record. However, the parser still accepts some non-canonical types, such as numeric strings for `schema` or `revision`, and coerces selected fields using `.toString()` or trims optional metadata. Different JSON representations can therefore map to equivalent model values.
 
-**Required direction:** use a narrowly scoped bootstrap permit/operation bound to an explicit eligibility decision and monotonic generation/epoch. Synchronous lock must invalidate it, and stale work must fail before further protected work.
+**Required direction:** enforce exact schema-1 JSON types and an explicit canonical persisted representation. Fail closed for invalid types and disallowed whitespace-normalized representations before a record can be accepted or overwritten. Do not add a migration/compatibility reader or change the stored wrapper formats.
 
-### Blocker C — Bootstrap routing and authority-state decisions
+### Blocker C — Pinned snapshot test fake
 
-The status snapshot says `_refreshAuthority()` calls `finishBootstrap()` without first making the transition conditional on separate no-authority, valid-authority, and corrupt-authority outcomes. `establishFirstDevice()` also has a path with an existing local record that was flagged for review because bootstrap/recovery must not become a privileged bypass for an existing locked account.
+`FakeGithubRemote` now models current/historical commits, but the reviewed Repair-8 report states that an unknown non-null pinned SHA can fall back to the live file map.
 
-**Required direction:** route fresh install, an existing valid authority record, and corrupt authority distinctly; ensure recover/first-device operations are truly bootstrap-scoped; after relevant local or remote awaits, revalidate before deriving secrets, mutating local authority, or initiating another remote mutation. If authority appears concurrently, use explicit conflict/reconciliation behavior rather than stale overwrite/promotion.
+**Required direction:** every non-null `ref` must resolve to the exact current commit or a recorded historical snapshot. Unknown pinned SHAs must return a not-found/error response, never current content. Retain tests for valid historical and current commit reads.
 
-### Blocker D — Bootstrap cleanup and test reset isolation
+### Blocker D — Authority-grant runtime coverage limitation
 
-The status snapshot reports that `lockSync()` has a `BOOTSTRAP` early-return path that skips registered cleanup callbacks. It also reports public `resetForTesting()` controls that reset the epoch to zero and return to `BOOTSTRAP`, raising production exposure and stale-generation/ABA concerns.
+Repair-8 adds exact literal path checks to the authority creation, single-update, and multi-update entry points, with source checks that validation occurs before mutation-budget use. Direct runtime transport-count tests for these real methods remain unavailable in the supplied test design because creating a grant requires a private trusted capability.
 
-**Required direction:** run security-owned cleanup when a lock occurs during bootstrap, synchronously where required; restrict test reset controls to a genuine test arrangement; do not reset monotonic freshness tokens to a fixed old value.
+**Required direction:** keep the production grant constructor private and the test bypasses prohibited. Preserve the scope/path tests and source-order checks; clearly mark direct method-level request-count proof as source-reviewed only unless a test can use a genuine authorized operation without widening production authority.
 
-### Blocker E — Screen-security policy and native evidence
+### Blocker E — GitHub/Hive are not one transaction
 
-The status documents flag that `ScreenSecurity.satisfiesPolicy()` treats `unsupportedPlatform` as satisfying the protection policy, while the actual native MethodChannel handler could not be audited from the repair archive. Native screenshot protection remains **unverified** until the platform sources and a real platform validation are available, and the unsupported-platform behavior must be explicitly decided.
+A remote GitHub commit can occur after the last remote freshness check and before local Hive persistence begins. The two stores do not share an atomic transaction.
 
-### Blocker F — Runtime verification absent
+**Required direction:** retain the current post-KDF/current-snapshot validation and minimize the check-to-write interval, but do not claim this residual cross-system race is eliminated. If a stronger guarantee is required, track a protocol-level generation/authority-version binding as a separately approved design task.
 
-The recorded implementation environment had no Flutter/Dart toolchain. Tree-sitter parsing and Python/static source assertions are not equivalent to Dart compilation, `flutter analyze`, or running `flutter test`. No completion decision may be based on the implementor report alone.
+### Blocker F — Screen-capture policy and native verification
 
-### Next repair sequence
+The current policy accepts `unsupportedPlatform`; under the reviewed Repair-8 report, protected sessions may therefore activate on platforms without screen-capture protection in this implementation. The supplied repair archive lacks the native Android/iOS implementation needed to prove OS-level enforcement.
 
-1. Inspect the actual returned archive and changed-file list; do not rely solely on the implementor summary.
-2. Verify grants cannot be captured through an override and are bound to intended operation, permitted path/mutation set, current fence, and short lifetime.
-3. Verify bootstrap permits are genuinely operation-scoped, generation/epoch-bound, invalidated by lock, and checked after relevant awaits and immediately before protected side effects.
-4. Verify fresh-install, established locked-account, valid authority, corrupt authority, and recovery routes separately.
-5. Verify bootstrap lock executes sensitive cleanup and test resets cannot reopen bootstrap or create an ABA/stale-generation problem.
-6. Preserve the existing seven activation checkpoints, transaction ownership, reserved path hardening, protected session UI/provider resources, and Stage 3/4 cryptographic meanings.
-7. Review deterministic test cases and then execute all required commands in the complete project.
-8. Update this section and the evidence inventory only after independently checking the new source and obtaining actual command output/exit codes.
+**Required direction:** preserve current behavior until the product decision is explicit. Document which statuses permit activation, and keep native screenshot/recording enforcement marked **UNVERIFIED** until native source and appropriate execution evidence are available.
+
+### Blocker G — Runtime and release-build verification
+
+For Repair-8, `flutter pub get`, `flutter analyze`, targeted tests, the full security suite, the normal-build checkpoint-isolation test, and `flutter build apk --release` are all reported as **NOT EXECUTED** because the implementor environment lacked Flutter/Dart. Tree-sitter parsing, Python scans, and manual source inspection do not establish compilation or runtime correctness.
+
+**Required direction:** run the validation sequence in Section 6 from the complete project tree. A test that is skipped is not passed; a source check is not a runtime test; and passing Dart tests alone does not prove Android release-build success or native screenshot enforcement.
+
+### Blocker H — Previously reported `manager` release-build error
+
+A Windows release-build attempt reported an undefined `manager` reference in `master_key_production_service.dart` around line 550. That expression was not present at the reported location in the Repair-5 through Repair-8 archives reviewed in this conversation; the remaining similar `manager.runExclusiveInitialization` call was reported inside a method where `manager` is locally declared.
+
+**Required direction:** compare the actual failing working-tree file against the final archive and inspect the complete enclosing method and lease call graph. Do not apply a blind textual substitution or claim the issue resolved until an actual release build of the relevant project succeeds.
+
+### Repair-9 sequence
+
+1. Enforce exact JSON value types and canonical persisted representation; add parser and protected-write tests for invalid types and altered optional metadata.
+2. Resolve one effective GitHub branch and enforce it consistently across reference reads, pinned content snapshots, freshness checks, first-device setup, authority writes and read-back verification.
+3. Ensure `establishFirstDevice()` does not perform unpinned authority-related reads that can consult a different branch.
+4. Change `FakeGithubRemote` so unknown pinned SHAs fail instead of returning live content.
+5. Add deterministic tests for a `master` default branch with a separate `main`, an explicitly missing branch, a genuinely empty repository, and current/historical/unknown pinned SHAs.
+6. Inspect the returned Repair-9 archive, preserve previous grant/bootstrap/fence/ownership hardening, then execute the complete validation sequence.
+
+Repair-9 remains a proposed repair scope until its source archive is supplied and reviewed.
 
 ## 6. Runtime validation and completion gate
 
-Run from the directory of the **complete** Flutter project, not from an incomplete security repair ZIP. In Windows PowerShell:
+### Current evidence status
+
+For `Rocen-P5-repair-8.zip`, all runtime checks below remain **NOT EXECUTED** according to the implementor report:
+
+| Validation | Repair-8 status |
+|---|---|
+| `flutter pub get` | **NOT EXECUTED** — Flutter unavailable in implementor environment. |
+| `flutter analyze` | **NOT EXECUTED** against the final Repair-8 archive. |
+| Targeted regression tests | **NOT EXECUTED**. |
+| Full Flutter suite with security define | **NOT EXECUTED**. |
+| `normal_build_checkpoint_isolation_test.dart` without define | **NOT EXECUTED**. |
+| `flutter build apk --release` | **NOT EXECUTED** against Repair-8. |
+
+The implementor reports a clean Tree-sitter syntax parse of `lib/` and `test/`, Python text/static scans, and manual source inspection. These are static checks only and do not count as Dart compilation, Flutter analysis, test execution, or a release build.
+
+### Required execution sequence
+
+Run from the root of the **complete Flutter project**, not from a repair ZIP that omits assets or native Android/iOS project files. Replace the relevant `lib/` and `test/` content with the exact final archive and do not mix stale test files or fakes from different repairs.
 
 ```powershell
 flutter pub get
 flutter analyze
-flutter test --reporter expanded
-flutter test --dart-define=ROCEN_SECURITY_TEST_CHECKPOINTS=true --reporter expanded
 ```
 
-Capture full output and exit code for each command. Do not report a command as passed unless it was actually executed and exited successfully.
+Run focused regression files first so failures are easier to isolate:
 
-The normal test run must demonstrate that checkpoint controls are inert in ordinary mode. The define-enabled run must actually exercise deterministic pause/resume tests; skipped or unexecuted race tests are not passes. Required deterministic coverage includes:
+```powershell
+flutter test test/master_key_local_store_test.dart --reporter expanded
+flutter test --dart-define=ROCEN_SECURITY_TEST_CHECKPOINTS=true test/session_authorization_gate_test.dart --reporter expanded
+flutter test --dart-define=ROCEN_SECURITY_TEST_CHECKPOINTS=true test/authority_remote_write_boundary_test.dart --reporter expanded
+flutter test --dart-define=ROCEN_SECURITY_TEST_CHECKPOINTS=true test/session_security_manager_test.dart --reporter expanded
+```
 
-- each of the seven activation checkpoints;
-- the unwrap/adoption race and stale install/rollback behavior;
-- inability to intercept/capture/replay authority grants, plus path and mutation scope restrictions;
-- bootstrap lock during local/remote awaits;
-- expired/stale bootstrap permit rejection;
-- refusal to run bootstrap-only mutations for an established locked account;
-- distinct missing/valid/corrupt authority routing;
-- synchronous bootstrap sensitive-input/resource cleanup;
-- test reset isolation and monotonic-generation behavior;
-- protected UI/provider-container teardown; and
-- stale results being unable to trigger later protected mutations.
+Then run the complete suite with checkpoint pauses enabled, followed by the isolated normal-build checkpoint test without the define:
 
-Use exactly one evidence label per required test or command:
+```powershell
+$D = "--dart-define=ROCEN_SECURITY_TEST_CHECKPOINTS=true"
+flutter test $D --reporter expanded
+flutter test test/normal_build_checkpoint_isolation_test.dart --reporter expanded
+```
 
-- `EXECUTED AND PASSED`
-- `EXECUTED AND FAILED`
-- `NOT EXECUTED — runtime unavailable`
-- `SOURCE-REVIEWED ONLY`
+Finally, test the Android release build in the complete project:
 
-Do not mark Stage 5 approved until the independent source review and complete-project runtime evidence support every required gate. The handoff also preserves broader follow-up items including Stage 6 encrypted note/application-data storage, Android release signing and backup policy, ProGuard/R8, native screen protection, remote payload limits, metadata minimization, sync failure surfacing, memory-copy hardening, supply-chain checks, and known changelog/source mismatches. Those are not closed by completing this narrow Stage 5 repair.
+```powershell
+flutter build apk --release
+```
+
+The targeted suite must include tests for branch selection and missing-branch first-device behavior, strict record types and full-record identity, unknown pinned SHA rejection, repository URI validation, literal authority grant paths, stale recovery snapshots, local-write fence boundaries, and queued bootstrap invalidation. Branch tests must exercise the production Settings validation/setup sequence, must not bypass `validateRepositoryAccess()`, and must distinguish implicit default-branch resolution from an explicitly selected missing branch. Include the `master` default plus a separate `main` authority branch, as well as a genuinely empty repository. If any planned test is absent from the archive, report that gap rather than implying it ran.
+
+### Evidence labels
+
+Use exactly one of the following for each required check:
+
+- **EXECUTED AND PASSED** — command ran on the final source and passed.
+- **EXECUTED AND FAILED** — command ran and failed; include the actual failure.
+- **NOT EXECUTED — runtime unavailable** — command was not run because the required runtime/tooling was unavailable.
+- **SOURCE-REVIEWED ONLY** — a claim was assessed by source inspection/static checking but not validated by execution.
+- **SKIPPED** — the test framework reported a skip; this is not a pass.
+
+Do not claim the archive compiles, tests pass, the release build succeeds, native screenshot protection is verified, or Stage 5 is approved without the corresponding evidence and product decision.
+
+### Approval gate
+
+Stage 5 remains **NOT APPROVED** until the remaining branch-consistency/schema/fake issues are dispositioned, the exact final source has been independently reviewed, the required runtime checks and Android release build have actual results, and the unresolved screen-capture policy/platform decision is explicitly reviewed. The cross-system GitHub/Hive consistency limitation must remain disclosed unless a new protocol design genuinely closes it.
 
 ## 7. Textual preservation of the architecture diagram
 
@@ -312,6 +388,10 @@ The earlier coverage review concluded that the two Stage 5 consolidation documen
 ### What this document does not prove
 
 It does not prove that the described architecture is correctly implemented; it does not turn historical changelog statements into verified facts; it does not show that runtime tests passed; it does not resolve open blockers; it does not implement Stage 6; and it does not cover the expressly excluded `MULTI-DEVICE.md`, audit folder, or remediation folder. A single-file consolidation reduces documentation navigation friction only. Code review, actual test execution, and explicit evidence recording are still required.
+
+### Documentation update log — 12 October 2026
+
+This update adds the post-Repair-8 dual-auditor review and strengthens the current Repair-9 handoff record. The review consensus is that Stage 5 is still **IN PROGRESS / NOT APPROVED**; Repair-8 is the latest supplied/reviewed archive; Repair-9 is only a proposed repair scope; and no Flutter/Dart runtime or release-build result has been established for Repair-8. The newly explicit acceptance point is consistent branch identity across the full production read/write lifecycle, tested through the actual Settings validation/setup route. The source appendices below and Appendix H remain preserved as historical records; older snapshot-specific statuses are not rewritten to pretend they were current at the time.
 
 ## 9. Archived source documents
 
