@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/session_security_manager.dart';
-import 'package:Rocen/core/session_unlock_service.dart';
-import 'package:Rocen/features/lock_screen.dart';
+import 'package:rocen/core/session_security_manager.dart';
+import 'package:rocen/features/lock_screen.dart';
 
 void main() {
   setUp(() {
@@ -51,6 +50,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Incorrect password.'), findsOneWidget);
+  });
+
+  testWidgets(
+      'shows a distinct "cannot read account" message for '
+      'CorruptLocalAuthorityException, never a "set up an account" message',
+      (tester) async {
+    await pumpLockScreen(tester, (password) async {
+      throw const SessionAuthenticationException(
+        'authentication failed',
+        CorruptLocalAuthorityException('record failed validation'),
+      );
+    });
+
+    await tester.enterText(find.byType(TextField), 'somepassword');
+    await tester.tap(find.text('UNLOCK'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Unable to read your account'), findsOneWidget);
+    // Must never be confused with the fresh-install message - that would
+    // route a user with a real, corrupt account toward re-creating one.
+    expect(find.textContaining('No account has been set up'), findsNothing);
   });
 
   testWidgets('shows interrupted message for SessionActivationException',

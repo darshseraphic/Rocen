@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/database.dart';
-import 'package:Rocen/features/bookmarks.dart';
+import 'package:rocen/core/database.dart';
+import 'package:rocen/features/bookmarks.dart';
 
 void main() {
   test('protected persistence is explicitly unavailable during cutover', () {

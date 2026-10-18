@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Rocen/core/clean_cutover_reset.dart';
-import 'package:Rocen/core/master_key_local_store.dart';
+import 'package:rocen/core/clean_cutover_reset.dart';
+import 'package:rocen/core/master_key_production_service.dart';
 
 void main() {
   late Directory tempDir;

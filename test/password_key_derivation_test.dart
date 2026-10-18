@@ -3,7 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/password_key_derivation.dart';
+import 'package:rocen/core/password_key_derivation.dart';
 
 Uint8List _testMasterKey([int seed = 1]) {
   final rnd = Random(seed); // deterministic for test fixtures only

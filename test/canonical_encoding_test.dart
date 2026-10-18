@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/canonical_encoding.dart';
+import 'package:rocen/core/canonical_encoding.dart';
 
 void main() {
   group('CanonicalEncoding.normalizePassword', () {

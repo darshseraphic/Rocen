@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/github_backup_service.dart';
+import 'package:rocen/core/github_backup_service.dart';
 
 void main() {
   test('sanitized GitHub HTTP failures never carry response-body content', () {

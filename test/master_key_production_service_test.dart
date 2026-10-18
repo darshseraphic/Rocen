@@ -4,115 +4,58 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Rocen/core/domain_key_derivation.dart';
-import 'package:Rocen/core/github_backup_service.dart';
-import 'package:Rocen/core/master_key_local_store.dart';
-import 'package:Rocen/core/master_key_manager.dart';
-import 'package:Rocen/core/master_key_production_service.dart';
-import 'package:Rocen/core/password_key_derivation.dart';
+import 'package:rocen/core/domain_key_derivation.dart';
+import 'package:rocen/core/github_backup_service.dart';
+import 'package:rocen/core/master_key_production_service.dart';
+import 'package:rocen/core/master_key_manager.dart';
+import 'package:rocen/core/password_key_derivation.dart';
+import 'package:rocen/core/session_security_manager.dart';
+import 'support/fake_github_remote.dart';
+import 'support/activation_contract.dart';
 
 const List<String> _mnemonic = [
-  'abandon', 'ability', 'able', 'about', 'above', 'absent',
-  'absorb', 'abstract', 'absurd', 'abuse', 'access', 'accident',
+  'abandon',
+  'ability',
+  'able',
+  'about',
+  'above',
+  'absent',
+  'absorb',
+  'abstract',
+  'absurd',
+  'abuse',
+  'access',
+  'accident',
 ];
+
+/// Real authenticated-session capability for Stage 3 mechanics tests: a REAL
+/// unlock against the REAL durable record created by establishFirstDevice
+/// (real password verify, real Argon2id unwrap, real HKDF), then the real
+/// token. There is no test-only entry point: the operations under test are
+/// the same public, token-requiring methods production uses.
+Future<SessionAuthorizationToken> _tokenFor(String password) async {
+  final ssm = SessionSecurityManager.instance;
+  ssm.lockSync();
+  if (ssm.state == SessionState.bootstrap) ssm.finishBootstrap();
+  await ssm.unlock(
+    password: password,
+    activateRoot: satisfyActivationContract,
+    teardownRoot: () {},
+  );
+  return ssm.captureAuthorization();
+}
+
+Future<void> _rawPutRecord(MasterKeyLocalRecord record) async {
+  // Scenario setup only: writes the serialized record straight into the Hive
+  // box (the genuine storage primitive). There is no public MasterKeyLocalStore
+  // write API any more.
+  await Hive.box(MasterKeyLocalStore.boxName)
+      .put(MasterKeyLocalStore.recordKey, record.toJsonString());
+}
 
 Uint8List _fixedMasterKey(int seed) => Uint8List.fromList(
       List<int>.generate(32, (i) => (seed + (i * 29)) & 0xFF),
     );
-
-class FakeGithubBackupService extends GithubBackupService {
-  FakeGithubBackupService({super.token = 'test-token', super.repoPath = 'owner/repo'})
-      : super(branch: 'main');
-
-  final Map<String, String> files = <String, String>{};
-  String? branchSha;
-  int _shaCounter = 0;
-  bool failCreateOnce = false;
-  bool failPasswordStateUpdateOnce = false;
-
-  String _nextSha() => 'sha-${++_shaCounter}';
-
-  void seed(String path, String content) {
-    files[path] = content;
-    branchSha ??= _nextSha();
-  }
-
-  Future<void> seedDifferentRemoteDataset(Uint8List mk, String password) async {
-    seed(
-      'device_key.json',
-      await _recoveryWrap(mk, password),
-    );
-  }
-
-  @override
-  Future<({Map<String, dynamic>? content, String? refSha})>
-      fetchNoteFileWithRefSha(String fileName) async {
-    final raw = files[fileName];
-    return (
-      content: raw == null
-          ? null
-          : Map<String, dynamic>.from(jsonDecode(raw) as Map),
-      refSha: branchSha,
-    );
-  }
-
-  @override
-  Future<Map<String, dynamic>?> fetchNoteFile(String fileName) async {
-    final raw = files[fileName];
-    if (raw == null) return null;
-    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
-  }
-
-  @override
-  Future<void> createFileIfAbsent({
-    required String path,
-    required String content,
-    required String message,
-  }) async {
-    if (failCreateOnce) {
-      failCreateOnce = false;
-      throw GithubSyncException('simulated remote create failure');
-    }
-    if (files.containsKey(path)) {
-      throw GithubFileAlreadyExists('already exists');
-    }
-    files[path] = content;
-    branchSha = _nextSha();
-  }
-
-  @override
-  Future<void> updateFileWithFastForwardCheck({
-    required String path,
-    required String content,
-    required String message,
-    required String? expectedParentSha,
-  }) async {
-    if (expectedParentSha != branchSha) {
-      throw GithubConditionalWriteConflict('stale branch');
-    }
-    if (path == 'password_state.json' && failPasswordStateUpdateOnce) {
-      failPasswordStateUpdateOnce = false;
-      throw GithubSyncException('simulated password-state failure');
-    }
-    files[path] = content;
-    branchSha = _nextSha();
-  }
-
-  @override
-  Future<void> updateFilesWithFastForwardCheck({
-    required Map<String, String> updates,
-    required String message,
-    required String? expectedParentSha,
-  }) async {
-    if (expectedParentSha != branchSha) {
-      throw GithubConditionalWriteConflict('stale branch');
-    }
-    for (final entry in updates.entries) {
-      files[entry.key] = entry.value;
-    }
-    branchSha = _nextSha();
-  }
-}
 
 Future<String> _recoveryWrap(Uint8List mk, String password) =>
     PasswordKeyDerivation.wrapMasterKeyWithRecovery(
@@ -129,7 +72,8 @@ Future<String> _recoveryWrap(Uint8List mk, String password) =>
 /// in-memory copy.
 Future<Uint8List> _observedMk(String password) async {
   final MasterKeyLocalRecord record = (await MasterKeyLocalStore.read())!;
-  final Uint8List? key = await PasswordKeyDerivation.unwrapMasterKeyWithPassword(
+  final Uint8List? key =
+      await PasswordKeyDerivation.unwrapMasterKeyWithPassword(
     wrapJson: record.passwordWrap,
     rawPassword: password,
   );
@@ -158,15 +102,20 @@ Future<void> main() async {
   late Directory tempDir;
 
   setUpAll(() async {
-    tempDir = await Directory.systemTemp.createTemp('rocen_master_service_test_');
+    tempDir =
+        await Directory.systemTemp.createTemp('rocen_master_service_test_');
     Hive.init(tempDir.path);
     await Hive.openBox(MasterKeyLocalStore.boxName);
   });
 
   setUp(() async {
+    SessionSecurityManager.instance.resetForTesting();
     MasterKeyManager.instance.resetForTesting();
     await Hive.box(MasterKeyLocalStore.boxName).clear();
+    enableSimulatedScreenAcknowledgementForTest();
   });
+
+  tearDown(() => SessionSecurityManager.instance.lockSync());
 
   tearDownAll(() async {
     await Hive.close();
@@ -174,6 +123,7 @@ Future<void> main() async {
   });
 
   test('firstDeviceGeneratesOneMK and establishes local authority', () async {
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
@@ -197,6 +147,7 @@ Future<void> main() async {
 
   test('sameMKAcrossBothWrappers and passwordVerifierAreValid', () async {
     const password = 'BlockB!Password44';
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: password,
       mnemonicWords: _mnemonic,
@@ -208,8 +159,7 @@ Future<void> main() async {
       wrapJson: record!.passwordWrap,
       rawPassword: password,
     );
-    final recoveryKey =
-        await PasswordKeyDerivation.unwrapMasterKeyWithRecovery(
+    final recoveryKey = await PasswordKeyDerivation.unwrapMasterKeyWithRecovery(
       wrapJson: record.recoveryWrap,
       rawPassword: password,
       mnemonicWords: _mnemonic,
@@ -243,19 +193,25 @@ Future<void> main() async {
   });
 
   test('localAuthorityPersistsAcrossRestart with the SAME MK', () async {
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
     );
+    final MasterKeyLocalRecord? beforeRestart =
+        await MasterKeyLocalStore.read();
     final before = await _observedMk('BlockB!Password44');
     final beforeCopy = List<int>.from(before);
     before.fillRange(0, before.length, 0);
 
     MasterKeyManager.instance.resetForTesting();
-    await MasterKeyProductionService.instance.establishFirstDevice(
-      password: 'BlockB!Password44',
-      mnemonicWords: _mnemonic,
-    );
+    SessionSecurityManager.instance.lockSync();
+    // A restart retains the durable authority. Re-running the bootstrap-only
+    // first-device operation is correctly refused once that authority exists.
+    final MasterKeyLocalRecord? afterRestart =
+        await MasterKeyLocalStore.read();
+    expect(afterRestart, isNotNull);
+    expect(afterRestart!.isSamePersistedRecordAs(beforeRestart!), isTrue);
     final after = await _observedMk('BlockB!Password44');
     try {
       expect(after, beforeCopy);
@@ -265,12 +221,14 @@ Future<void> main() async {
   });
 
   test('wrongPasswordDoesNotRestoreLocalMK', () async {
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
     );
     MasterKeyManager.instance.resetForTesting();
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.establishFirstDevice(
         password: 'Wrong!Password55',
@@ -284,8 +242,9 @@ Future<void> main() async {
   test('restartReconcilesAlreadyCommittedPasswordRotation', () async {
     const oldPassword = 'BlockB!Password44';
     const newPassword = 'BlockB!Password55';
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
 
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: oldPassword,
       mnemonicWords: _mnemonic,
@@ -294,13 +253,15 @@ Future<void> main() async {
     expect(oldRecord, isNotNull);
     remote.seed('device_key.json', oldRecord!.recoveryWrap);
     await MasterKeyProductionService.instance.associateRemote(
-      service: remote,
+      authorizationToken: await _tokenFor(oldPassword),
+      service: remote.service,
       password: oldPassword,
       mnemonicWords: _mnemonic,
       repository: 'owner/repo',
     );
 
     final result = await MasterKeyProductionService.instance.changePassword(
+      authorizationToken: await _tokenFor(oldPassword),
       oldPassword: oldPassword,
       newPassword: newPassword,
       mnemonicWords: _mnemonic,
@@ -314,10 +275,13 @@ Future<void> main() async {
     remote.branchSha = 'sha-committed-rotation';
     MasterKeyManager.instance.resetForTesting();
 
-    await MasterKeyProductionService.instance.establishFirstDevice(
+    // Reconciliation of an established account is an AUTHENTICATED operation
+    // (bootstrap-only establishFirstDevice refuses an existing account).
+    await MasterKeyProductionService.instance.associateRemote(
+      authorizationToken: await _tokenFor(newPassword),
+      service: remote.service,
       password: newPassword,
       mnemonicWords: _mnemonic,
-      remoteService: remote,
       repository: 'owner/repo',
     );
 
@@ -329,6 +293,7 @@ Future<void> main() async {
   test('passwordChangeRejectsCorruptedRecoveryWrapperBeforeMutation', () async {
     const password = 'BlockB!Password44';
     const newPassword = 'BlockB!Password55';
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: password,
       mnemonicWords: _mnemonic,
@@ -338,13 +303,14 @@ Future<void> main() async {
 
     final otherMk = _fixedMasterKey(91);
     final mismatchedRecoveryWrap = await _recoveryWrap(otherMk, password);
-    await MasterKeyLocalStore.write(
+    await _rawPutRecord(
       record!.copyWith(recoveryWrap: mismatchedRecoveryWrap),
     );
     otherMk.fillRange(0, otherMk.length, 0);
 
     await expectLater(
       MasterKeyProductionService.instance.changePassword(
+        authorizationToken: await _tokenFor(password),
         oldPassword: password,
         newPassword: newPassword,
         mnemonicWords: _mnemonic,
@@ -360,17 +326,21 @@ Future<void> main() async {
     expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
   });
 
-  test('authorityMutationsAreSerializedAndStalePasswordChangeCannotOverwrite', () async {
+  test('authorityMutationsAreSerializedAndStalePasswordChangeCannotOverwrite',
+      () async {
     const oldPassword = 'BlockB!Password44';
     const newPasswordA = 'BlockB!Password55';
     const newPasswordB = 'BlockB!Password66';
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: oldPassword,
       mnemonicWords: _mnemonic,
     );
 
+    final token = await _tokenFor(oldPassword);
     final Future<bool> first = MasterKeyProductionService.instance
         .changePassword(
+          authorizationToken: token,
           oldPassword: oldPassword,
           newPassword: newPasswordA,
           mnemonicWords: _mnemonic,
@@ -378,6 +348,7 @@ Future<void> main() async {
         .then<bool>((_) => true, onError: (_, __) => false);
     final Future<bool> second = MasterKeyProductionService.instance
         .changePassword(
+          authorizationToken: token,
           oldPassword: oldPassword,
           newPassword: newPasswordB,
           mnemonicWords: _mnemonic,
@@ -398,6 +369,7 @@ Future<void> main() async {
   test('passwordChangePreservesMK_NEK_and_TEK', () async {
     const oldPassword = 'BlockB!Password44';
     const newPassword = 'BlockB!Password55';
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: oldPassword,
       mnemonicWords: _mnemonic,
@@ -409,6 +381,7 @@ Future<void> main() async {
     mkBefore.fillRange(0, mkBefore.length, 0);
 
     final result = await MasterKeyProductionService.instance.changePassword(
+      authorizationToken: await _tokenFor(oldPassword),
       oldPassword: oldPassword,
       newPassword: newPassword,
       mnemonicWords: _mnemonic,
@@ -489,8 +462,9 @@ Future<void> main() async {
       rawPassword: password,
     );
     final recoveryWrap = await _recoveryWrap(mkB, password);
-    final verifier = await PasswordKeyDerivation.createPasswordVerifier(password);
-    await MasterKeyLocalStore.write(
+    final verifier =
+        await PasswordKeyDerivation.createPasswordVerifier(password);
+    await _rawPutRecord(
       MasterKeyLocalRecord.authoritative(
         passwordVerifier: verifier,
         passwordWrap: passwordWrap,
@@ -499,6 +473,7 @@ Future<void> main() async {
       ),
     );
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.establishFirstDevice(
         password: password,
@@ -507,6 +482,19 @@ Future<void> main() async {
       throwsStateError,
     );
     expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    // The bootstrap path refused an ESTABLISHED (even if mismatched) account
+    // before any mutation; the authenticated path validates the wrappers.
+    final token = await _tokenFor(password);
+    await expectLater(
+      MasterKeyProductionService.instance.associateRemote(
+        authorizationToken: token,
+        service: FakeGithubRemote().service,
+        password: password,
+        mnemonicWords: _mnemonic,
+        repository: 'owner/repo',
+      ),
+      throwsStateError,
+    );
     final persisted = await MasterKeyLocalStore.read();
     expect(persisted!.passwordWrap, passwordWrap);
     expect(persisted.recoveryWrap, recoveryWrap);
@@ -515,13 +503,14 @@ Future<void> main() async {
   });
 
   test('recoverSameMKFromRemoteWrapper', () async {
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
     final expected = _fixedMasterKey(7);
     final recoveryWrap = await _recoveryWrap(expected, 'BlockB!Password44');
     remote.seed('device_key.json', recoveryWrap);
 
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.recoverFromRemote(
-      service: remote,
+      service: remote.service,
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
       repository: 'owner/repo',
@@ -539,13 +528,15 @@ Future<void> main() async {
   });
 
   test('wrongPasswordDoesNotInstallMK during remote recovery', () async {
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
     final expected = _fixedMasterKey(11);
-    remote.seed('device_key.json', await _recoveryWrap(expected, 'BlockB!Password44'));
+    remote.seed(
+        'device_key.json', await _recoveryWrap(expected, 'BlockB!Password44'));
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.recoverFromRemote(
-        service: remote,
+        service: remote.service,
         password: 'Wrong!Password55',
         mnemonicWords: _mnemonic,
         repository: 'owner/repo',
@@ -558,14 +549,16 @@ Future<void> main() async {
   });
 
   test('wrongMnemonicDoesNotInstallMK during remote recovery', () async {
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
     final expected = _fixedMasterKey(13);
-    remote.seed('device_key.json', await _recoveryWrap(expected, 'BlockB!Password44'));
+    remote.seed(
+        'device_key.json', await _recoveryWrap(expected, 'BlockB!Password44'));
     final wrongMnemonic = List<String>.from(_mnemonic)..[0] = 'zoo';
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.recoverFromRemote(
-        service: remote,
+        service: remote.service,
         password: 'BlockB!Password44',
         mnemonicWords: wrongMnemonic,
         repository: 'owner/repo',
@@ -578,18 +571,19 @@ Future<void> main() async {
   });
 
   test('tamperedWrapperRejected without replacementMK', () async {
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
     final expected = _fixedMasterKey(17);
     final valid = await _recoveryWrap(expected, 'BlockB!Password44');
     final decoded = jsonDecode(valid) as Map<String, dynamic>;
     final ct = decoded['ct'] as String;
-    decoded['ct'] = ct.substring(0, ct.length - 1) +
-        (ct.endsWith('A') ? 'B' : 'A');
+    decoded['ct'] =
+        ct.substring(0, ct.length - 1) + (ct.endsWith('A') ? 'B' : 'A');
     remote.seed('device_key.json', jsonEncode(decoded));
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.recoverFromRemote(
-        service: remote,
+        service: remote.service,
         password: 'BlockB!Password44',
         mnemonicWords: _mnemonic,
         repository: 'owner/repo',
@@ -609,27 +603,31 @@ Future<void> main() async {
     ]) {
       MasterKeyManager.instance.resetForTesting();
       await Hive.box(MasterKeyLocalStore.boxName).clear();
-      final remote = FakeGithubBackupService();
+      final remote = FakeGithubRemote();
       remote.seed('device_key.json', malformed);
+      SessionSecurityManager.instance.lockSync();
       await expectLater(
         MasterKeyProductionService.instance.recoverFromRemote(
-          service: remote,
+          service: remote.service,
           password: 'BlockB!Password44',
           mnemonicWords: _mnemonic,
           repository: 'owner/repo',
         ),
-        throwsStateError,
+        throwsA(anyOf(isA<StateError>(), isA<GithubSyncException>())),
       );
       expect(MasterKeyManager.instance.state, MasterKeyState.none);
       expect(await MasterKeyLocalStore.read(), isNull);
     }
   });
 
-  test('remoteExistingDifferentMKProducesConflict without replacement', () async {
-    final remote = FakeGithubBackupService();
+  test('remoteExistingDifferentMKProducesConflict without replacement',
+      () async {
+    final remote = FakeGithubRemote();
     final remoteMk = _fixedMasterKey(19);
-    await remote.seedDifferentRemoteDataset(remoteMk, 'Local!Password77');
+    remote.seed(
+        'device_key.json', await _recoveryWrap(remoteMk, 'Local!Password77'));
 
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: 'Local!Password77',
       mnemonicWords: _mnemonic,
@@ -640,7 +638,8 @@ Future<void> main() async {
 
     await expectLater(
       MasterKeyProductionService.instance.associateRemote(
-        service: remote,
+        authorizationToken: await _tokenFor('Local!Password77'),
+        service: remote.service,
         password: 'Local!Password77',
         mnemonicWords: _mnemonic,
         repository: 'owner/repo',
@@ -661,17 +660,19 @@ Future<void> main() async {
 
   test('remoteConflictSurvivesRestart', () async {
     const password = 'Local!Password77';
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
     final remoteMk = _fixedMasterKey(43);
-    await remote.seedDifferentRemoteDataset(remoteMk, password);
+    remote.seed('device_key.json', await _recoveryWrap(remoteMk, password));
 
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: password,
       mnemonicWords: _mnemonic,
     );
     await expectLater(
       MasterKeyProductionService.instance.associateRemote(
-        service: remote,
+        authorizationToken: await _tokenFor(password),
+        service: remote.service,
         password: password,
         mnemonicWords: _mnemonic,
         repository: 'owner/repo',
@@ -682,6 +683,7 @@ Future<void> main() async {
     expect(conflict!.remoteRecoveryStatus, RemoteRecoveryStatus.conflict);
 
     MasterKeyManager.instance.resetForTesting();
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.establishFirstDevice(
         password: password,
@@ -690,14 +692,16 @@ Future<void> main() async {
       throwsStateError,
     );
     final persistedConflict = await MasterKeyLocalStore.read();
-    expect(persistedConflict!.remoteRecoveryStatus, RemoteRecoveryStatus.conflict);
+    expect(
+        persistedConflict!.remoteRecoveryStatus, RemoteRecoveryStatus.conflict);
 
     remoteMk.fillRange(0, remoteMk.length, 0);
   });
 
   test('sameMKAssociatesExistingRemote', () async {
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
     const password = 'BlockB!Password44';
+    SessionSecurityManager.instance.lockSync();
     await MasterKeyProductionService.instance.establishFirstDevice(
       password: password,
       mnemonicWords: _mnemonic,
@@ -706,7 +710,8 @@ Future<void> main() async {
     remote.seed('device_key.json', local!.recoveryWrap);
 
     await MasterKeyProductionService.instance.associateRemote(
-      service: remote,
+      authorizationToken: await _tokenFor(password),
+      service: remote.service,
       password: password,
       mnemonicWords: _mnemonic,
       repository: 'owner/repo',
@@ -718,14 +723,15 @@ Future<void> main() async {
   });
 
   test('existingRemoteAuthorityIsDiscoveredBeforeFreshGeneration', () async {
-    final remote = FakeGithubBackupService();
+    final remote = FakeGithubRemote();
     remote.seed('some_other_file.json', '{"legacy":true}');
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.establishFirstDevice(
         password: 'BlockB!Password44',
         mnemonicWords: _mnemonic,
-        remoteService: remote,
+        remoteService: remote.service,
         repository: 'owner/repo',
       ),
       throwsStateError,
@@ -736,14 +742,15 @@ Future<void> main() async {
   });
 
   test('retryAfterRemoteFailureDoesNotGenerateSecondMK', () async {
-    final remote = FakeGithubBackupService()..failCreateOnce = true;
+    final remote = FakeGithubRemote()..failCreateOnce = true;
     const password = 'BlockB!Password44';
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.establishFirstDevice(
         password: password,
         mnemonicWords: _mnemonic,
-        remoteService: remote,
+        remoteService: remote.service,
         repository: 'owner/repo',
       ),
       throwsA(isA<GithubSyncException>()),
@@ -752,12 +759,16 @@ Future<void> main() async {
 
     final failedRecord = await MasterKeyLocalStore.read();
     expect(failedRecord, isNotNull);
-    expect(failedRecord!.remoteRecoveryStatus, RemoteRecoveryStatus.unpublished);
+    expect(
+        failedRecord!.remoteRecoveryStatus, RemoteRecoveryStatus.unpublished);
 
-    await MasterKeyProductionService.instance.establishFirstDevice(
+    // Retry on the ESTABLISHED account is authenticated (token), never a
+    // second bootstrap.
+    await MasterKeyProductionService.instance.associateRemote(
+      authorizationToken: await _tokenFor(password),
+      service: remote.service,
       password: password,
       mnemonicWords: _mnemonic,
-      remoteService: remote,
       repository: 'owner/repo',
     );
 
@@ -769,30 +780,34 @@ Future<void> main() async {
   });
 
   test('remoteSuccessLocalFinalizeFailureCanBeRecoveredWithoutNewMK', () async {
-    final remote = FakeGithubBackupService()..failPasswordStateUpdateOnce = true;
+    final remote = FakeGithubRemote()..failPasswordStateUpdateOnce = true;
     const password = 'BlockB!Password44';
 
+    SessionSecurityManager.instance.lockSync();
     await expectLater(
       MasterKeyProductionService.instance.establishFirstDevice(
         password: password,
         mnemonicWords: _mnemonic,
-        remoteService: remote,
+        remoteService: remote.service,
         repository: 'owner/repo',
       ),
       throwsA(isA<GithubSyncException>()),
     );
     expect(MasterKeyManager.instance.state, MasterKeyState.none);
     final recordAfterFailure = await MasterKeyLocalStore.read();
-    expect(recordAfterFailure!.remoteRecoveryStatus, RemoteRecoveryStatus.published);
+    expect(recordAfterFailure!.remoteRecoveryStatus,
+        RemoteRecoveryStatus.unpublished,
+        reason: 'the shared-state commit failed, so publication is incomplete');
     expect(remote.files.containsKey('device_key.json'), isTrue);
 
     // Simulate process restart: the in-memory MK disappears, so reconciliation
     // must restore the same persisted local authority and never generate a new key.
     MasterKeyManager.instance.resetForTesting();
-    await MasterKeyProductionService.instance.establishFirstDevice(
+    await MasterKeyProductionService.instance.associateRemote(
+      authorizationToken: await _tokenFor(password),
+      service: remote.service,
       password: password,
       mnemonicWords: _mnemonic,
-      remoteService: remote,
       repository: 'owner/repo',
     );
 
@@ -800,42 +815,50 @@ Future<void> main() async {
     expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
     final retried = await MasterKeyLocalStore.read();
     expect(retried!.recoveryWrap, recordAfterFailure.recoveryWrap);
+    expect(retried.remoteRecoveryStatus, RemoteRecoveryStatus.published);
   });
 
-  test('twoConcurrentFirstDeviceCallsShareOneAuthorityOperation', () async {
-    final remote = FakeGithubBackupService();
+  test(
+      'twoConcurrentFirstDeviceCalls: serialized; the second sees the '
+      'established authority and is refused without mutating it', () async {
+    final remote = FakeGithubRemote();
+    SessionSecurityManager.instance.lockSync();
     final first = MasterKeyProductionService.instance.establishFirstDevice(
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
-      remoteService: remote,
+      remoteService: remote.service,
       repository: 'owner/repo',
     );
     final second = MasterKeyProductionService.instance.establishFirstDevice(
       password: 'BlockB!Password44',
       mnemonicWords: _mnemonic,
-      remoteService: remote,
+      remoteService: remote.service,
       repository: 'owner/repo',
     );
+    second.ignore();
 
-    await Future.wait([first, second]);
+    await first;
+    await expectLater(second, throwsA(isA<BootstrapNotEligibleException>()));
     expect(MasterKeyManager.instance.state, MasterKeyState.none);
     expect(MasterKeyManager.instance.isInitializationInFlight, isFalse);
     final record = await MasterKeyLocalStore.read();
     expect(record!.remoteRecoveryStatus, RemoteRecoveryStatus.published);
+    expect(record.revision, greaterThanOrEqualTo(1));
     expect(remote.files.containsKey('device_key.json'), isTrue);
   });
 
-  test('staleRemoteRefRejected', () async {
-    final remote = FakeGithubBackupService();
-    remote.seed('device_key.json', '{"v":1}');
+  test('staleRemoteRefRejected (generic write path, non-reserved file)',
+      () async {
+    final remote = FakeGithubRemote();
+    remote.seed('notes/a.json', '{"v":1}');
     final stale = remote.branchSha;
-    remote.seed('password_state.json', '{"passwordGeneration":1}');
+    remote.seed('notes/b.json', '{"n":1}');
     remote.branchSha = 'sha-moved';
     expect(remote.branchSha, isNot(stale));
 
     await expectLater(
-      remote.updateFilesWithFastForwardCheck(
-        updates: {'device_key.json': '{"v":2}'},
+      remote.service.updateFilesWithFastForwardCheck(
+        updates: {'notes/a.json': '{"v":2}'},
         message: 'stale test',
         expectedParentSha: stale,
       ),

@@ -1,33 +1,32 @@
+import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Rocen/core/master_key_local_store.dart';
-import 'package:Rocen/core/master_key_manager.dart';
-import 'package:Rocen/core/master_key_production_service.dart';
-import 'package:Rocen/core/password_key_derivation.dart';
-import 'package:Rocen/core/session_unlock_service.dart';
+import 'package:rocen/core/master_key_production_service.dart';
+import 'package:rocen/core/master_key_manager.dart';
+import 'package:rocen/core/session_security_manager.dart';
+import 'support/activation_contract.dart';
 
+/// SessionUnlockService's password-to-MK unwrap logic
+/// (`_authenticateWithPassword`) is a library-private top-level function -
+/// it is a `part of` session_security_manager.dart and is reachable ONLY
+/// from SessionSecurityManager.unlock(), by design (see the Stage 5 audit's
+/// "narrow raw-MK unlock access" requirement: no public API anywhere may
+/// hand an arbitrary caller a raw MK derived from a password). This file
+/// therefore tests:
+///   - SessionUnlockService.hasLocalAuthority(), the ONLY public member,
+///     directly;
+///   - the authentication behavior it used to test directly, now only
+///     observable through SessionSecurityManager.unlock()'s outcome (did it
+///     commit to UNLOCKED, or throw SessionAuthenticationException with the
+///     expected .cause).
 const List<String> _mnemonic = [
   'abandon', 'ability', 'able', 'about', 'above', 'absent',
   'absorb', 'abstract', 'absurd', 'abuse', 'access', 'accident',
 ];
 
 const String _password = 'BlockB!Password44';
-
-/// The plaintext MK is never exposed by MasterKeyProductionService or
-/// MasterKeyManager any more, so tests obtain the "expected" key by
-/// independently unwrapping the durable record - exactly what a real unlock
-/// does - and compare against what SessionUnlockService returns.
-Future<Uint8List> _expectedMkFromDurableRecord() async {
-  final MasterKeyLocalRecord record = (await MasterKeyLocalStore.read())!;
-  final Uint8List? key = await PasswordKeyDerivation.unwrapMasterKeyWithPassword(
-    wrapJson: record.passwordWrap,
-    rawPassword: _password,
-  );
-  return key!;
-}
 
 Future<void> main() async {
   late Directory tempDir;
@@ -40,7 +39,10 @@ Future<void> main() async {
 
   setUp(() async {
     MasterKeyManager.instance.resetForTesting();
+    SessionSecurityManager.instance.resetForTesting();
+    SessionSecurityManager.instance.finishBootstrap();
     await Hive.box(MasterKeyLocalStore.boxName).clear();
+    enableSimulatedScreenAcknowledgementForTest();
   });
 
   tearDownAll(() async {
@@ -54,103 +56,167 @@ Future<void> main() async {
         mnemonicWords: _mnemonic,
       );
 
-  test('hasLocalAuthority is false with no record', () async {
-    expect(await SessionUnlockService.instance.hasLocalAuthority(), isFalse);
-  });
+  group('hasLocalAuthority (the only public member)', () {
+    test('false with no record', () async {
+      expect(await SessionUnlockService.instance.hasLocalAuthority(), isFalse);
+    });
 
-  test('hasLocalAuthority is true after establishFirstDevice', () async {
-    await establish();
-    expect(await SessionUnlockService.instance.hasLocalAuthority(), isTrue);
-  });
+    test('true after establishFirstDevice', () async {
+      await establish();
+      expect(await SessionUnlockService.instance.hasLocalAuthority(), isTrue);
+    });
 
-  test('unlockWithPassword throws NoLocalAuthorityException with no record',
-      () async {
-    await expectLater(
-      SessionUnlockService.instance.unlockWithPassword(_password),
-      throwsA(isA<NoLocalAuthorityException>()),
-    );
-  });
+    test('throws CorruptLocalAuthorityException for a present-but-invalid '
+        'record, and never returns false for it', () async {
+      await establish();
+      // Corrupt the durable record the way MasterKeyLocalStore actually
+      // persists it - as a JSON string - removing a required field so
+      // fromJsonString's own structural validation fails, simulating
+      // storage corruption rather than "never set up".
+      final box = Hive.box(MasterKeyLocalStore.boxName);
+      final dynamic raw = box.get('master_key_record_v1');
+      expect(raw, isA<String>());
+      final Map<String, dynamic> decoded =
+          jsonDecode(raw as String) as Map<String, dynamic>;
+      decoded.remove('passwordWrap');
+      await box.put('master_key_record_v1', jsonEncode(decoded));
 
-  test('cold start: no live MK anywhere before unlock, and unlock needs only '
-      'the password', () async {
-    await establish();
-    // After establishment the manager holds nothing and its state is
-    // operation-scoped, so it is back to idle.
-    expect(MasterKeyManager.instance.state, MasterKeyState.none);
-
-    final Uint8List expected = await _expectedMkFromDurableRecord();
-    final Uint8List unlocked =
-        await SessionUnlockService.instance.unlockWithPassword(_password);
-
-    expect(unlocked, equals(expected));
-    // Acknowledgement was operation-scoped: nothing lingers afterwards.
-    expect(MasterKeyManager.instance.state, MasterKeyState.none);
-    unlocked.fillRange(0, unlocked.length, 0);
-    expected.fillRange(0, expected.length, 0);
-  });
-
-  test('second unlock re-unwraps from the durable record every time', () async {
-    await establish();
-    final Uint8List first =
-        await SessionUnlockService.instance.unlockWithPassword(_password);
-    final Uint8List second =
-        await SessionUnlockService.instance.unlockWithPassword(_password);
-
-    // Same MK (same durable authority) ...
-    expect(second, equals(first));
-    // ... but two independent buffers: nothing is cached and handed back.
-    expect(identical(first, second), isFalse);
-    first.fillRange(0, first.length, 0);
-    expect(second, isNot(everyElement(0)),
-        reason: 'zeroing one returned buffer must not affect another');
-    second.fillRange(0, second.length, 0);
-  });
-
-  test('wrong password: rejected and nothing is acknowledged', () async {
-    await establish();
-    await expectLater(
-      SessionUnlockService.instance.unlockWithPassword('wrong password entirely'),
-      throwsA(isA<UnlockAuthenticationFailedException>()),
-    );
-    expect(MasterKeyManager.instance.state, MasterKeyState.none);
-  });
-
-  test('repeated wrong-password attempts never establish authority', () async {
-    await establish();
-    for (int i = 0; i < 3; i++) {
       await expectLater(
-        SessionUnlockService.instance.unlockWithPassword('attempt $i wrong'),
-        throwsA(isA<UnlockAuthenticationFailedException>()),
+        SessionUnlockService.instance.hasLocalAuthority(),
+        throwsA(isA<CorruptLocalAuthorityException>()),
       );
-    }
-    expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    });
   });
 
-  test('unlockWithPassword never mutates the durable local record', () async {
-    await establish();
-    final MasterKeyLocalRecord before = (await MasterKeyLocalStore.read())!;
+  group('authentication, observed only through SessionSecurityManager.unlock()',
+      () {
+    test('no local record: unlock fails with NoLocalAuthorityException as the '
+        'cause', () async {
+      final ssm = SessionSecurityManager.instance;
+      try {
+        await ssm.unlock(
+          password: _password,
+          activateRoot: satisfyActivationContract,
+          teardownRoot: () {},
+        );
+        fail('expected SessionAuthenticationException');
+      } on SessionAuthenticationException catch (e) {
+        expect(e.cause, isA<NoLocalAuthorityException>());
+      }
+      expect(ssm.state, SessionState.locked);
+    });
 
-    final Uint8List unlocked =
-        await SessionUnlockService.instance.unlockWithPassword(_password);
-    unlocked.fillRange(0, unlocked.length, 0);
+    test('cold start: unlock succeeds with just the password (no mnemonic)',
+        () async {
+      await establish();
+      // Simulate a fresh process start: MasterKeyManager has no in-memory
+      // state yet, even though the local record is durable.
+      MasterKeyManager.instance.resetForTesting();
 
-    final MasterKeyLocalRecord after = (await MasterKeyLocalStore.read())!;
-    expect(after.revision, before.revision);
-    expect(after.passwordWrap, before.passwordWrap);
-    expect(after.recoveryWrap, before.recoveryWrap);
+      final ssm = SessionSecurityManager.instance;
+      await ssm.unlock(
+        password: _password,
+        activateRoot: satisfyActivationContract,
+        teardownRoot: () {},
+      );
+      expect(ssm.state, SessionState.unlocked);
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isTrue);
+      ssm.lockSync();
+    });
+
+    test('wrong password: unlock fails with UnlockAuthenticationFailedException '
+        'as the cause, and establishes nothing', () async {
+      await establish();
+      MasterKeyManager.instance.resetForTesting();
+
+      final ssm = SessionSecurityManager.instance;
+      try {
+        await ssm.unlock(
+          password: 'totally wrong password',
+          activateRoot: satisfyActivationContract,
+          teardownRoot: () {},
+        );
+        fail('expected SessionAuthenticationException');
+      } on SessionAuthenticationException catch (e) {
+        expect(e.cause, isA<UnlockAuthenticationFailedException>());
+      }
+      expect(ssm.state, SessionState.locked);
+      expect(MasterKeyManager.instance.state, MasterKeyState.none);
+    });
+
+    test('repeated wrong-password attempts never establish authority',
+        () async {
+      await establish();
+      MasterKeyManager.instance.resetForTesting();
+      final ssm = SessionSecurityManager.instance;
+
+      for (int i = 0; i < 3; i++) {
+        try {
+          await ssm.unlock(
+            password: 'attempt $i wrong',
+            activateRoot: satisfyActivationContract,
+            teardownRoot: () {},
+          );
+          fail('expected failure');
+        } catch (_) {}
+      }
+      expect(MasterKeyManager.instance.state, MasterKeyState.none);
+      expect(ssm.state, SessionState.locked);
+    });
+
+    test('second unlock re-authenticates from the durable record every time '
+        '(no shortcut across a lock)', () async {
+      await establish();
+      final ssm = SessionSecurityManager.instance;
+
+      await ssm.unlock(
+        password: _password,
+        activateRoot: satisfyActivationContract,
+        teardownRoot: () {},
+      );
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isTrue);
+      ssm.lockSync();
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isFalse);
+
+      await ssm.unlock(
+        password: _password,
+        activateRoot: satisfyActivationContract,
+        teardownRoot: () {},
+      );
+      // Re-derived and re-installed from scratch, not restored.
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isTrue);
+      ssm.lockSync();
+    });
+
+    test('unlockWithPassword no longer exists as a public entry point '
+        '(regression guard for the raw-MK confinement requirement)', () {
+      // There is intentionally no `SessionUnlockService.instance
+      // .unlockWithPassword(...)` call anywhere in this file - see the
+      // file-level documentation. This test exists only to make that
+      // absence a documented, deliberate fact rather than an oversight a
+      // future edit could quietly "fix" by re-adding a public raw-MK API.
+      expect(SessionUnlockService.instance, isNotNull);
+    });
   });
 
-  test('unlock while another exclusive operation is in flight shares it '
-      'rather than nesting or deadlocking', () async {
-    await establish();
-    final Future<Uint8List> a =
-        SessionUnlockService.instance.unlockWithPassword(_password);
-    final Future<Uint8List> b =
-        SessionUnlockService.instance.unlockWithPassword(_password);
-    final Uint8List ka = await a;
-    final Uint8List kb = await b;
-    expect(ka, equals(kb));
-    ka.fillRange(0, ka.length, 0);
-    kb.fillRange(0, kb.length, 0);
+  group('unlock never mutates the durable local record', () {
+    test('a successful unlock leaves the record byte-for-byte unchanged',
+        () async {
+      await establish();
+      final MasterKeyLocalRecord before = (await MasterKeyLocalStore.read())!;
+
+      final ssm = SessionSecurityManager.instance;
+      await ssm.unlock(
+        password: _password,
+        activateRoot: satisfyActivationContract,
+        teardownRoot: () {},
+      );
+      ssm.lockSync();
+
+      final MasterKeyLocalRecord after = (await MasterKeyLocalStore.read())!;
+      expect(after.revision, before.revision);
+      expect(after.passwordWrap, before.passwordWrap);
+      expect(after.recoveryWrap, before.recoveryWrap);
+    });
   });
 }

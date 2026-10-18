@@ -1,156 +1,141 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/domain_key_derivation.dart';
-import 'package:Rocen/core/session_security_manager.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:rocen/core/master_key_production_service.dart';
+import 'package:rocen/core/master_key_manager.dart';
+import 'package:rocen/core/password_key_derivation.dart';
+import 'package:rocen/core/session_security_manager.dart';
+import 'support/activation_contract.dart';
 
 /// SessionKeyMaterial's constructor is library-private (it is a `part of`
 /// session_security_manager.dart) so a second owner cannot be instantiated.
-/// Its behaviour is therefore verified through the only real path to it:
-/// SessionSecurityManager.unlock -> install, and lockSync -> destroy.
+/// Per the Stage 5 final hardening gate, there is also no injectable
+/// authenticator any more - unlock() only ever derives its candidate MK from
+/// a REAL password-wrap unwrap of a REAL durable record created by
+/// establishFirstDevice. These tests therefore always go through that real
+/// path; "different candidate" means "a different real established account",
+/// never a fabricated Uint8List.
+const List<String> _mnemonic = [
+  'abandon', 'ability', 'able', 'about', 'above', 'absent',
+  'absorb', 'abstract', 'absurd', 'abuse', 'access', 'accident',
+];
 
-Uint8List _candidate(int seed) => Uint8List.fromList(
-    List<int>.generate(32, (i) => (seed * 31 + i * 7) & 0xFF));
-
-Future<List<int>> _frozenNek(Uint8List mk) async {
-  final k = await DomainKeyDerivation.deriveNoteEncryptionKey(mk);
-  try {
-    return List<int>.from(k.bytes);
-  } finally {
-    k.zero();
-  }
+Future<Uint8List> _establishAndObserveMk(String password) async {
+  await MasterKeyProductionService.instance.establishFirstDevice(
+    password: password,
+    mnemonicWords: _mnemonic,
+  );
+  final MasterKeyLocalRecord record = (await MasterKeyLocalStore.read())!;
+  final Uint8List key = (await PasswordKeyDerivation.unwrapMasterKeyWithPassword(
+    wrapJson: record.passwordWrap,
+    rawPassword: password,
+  ))!;
+  return key;
 }
 
-Future<List<int>> _frozenTek(Uint8List mk) async {
-  final k = await DomainKeyDerivation.deriveGithubTokenEncryptionKey(mk);
-  try {
-    return List<int>.from(k.bytes);
-  } finally {
-    k.zero();
-  }
-}
-
-Future<void> _unlockWith(Uint8List candidate) =>
-    SessionSecurityManager.instance.unlock(
-      authenticate: () async => candidate,
-      activateRoot: (_) async {},
+Future<void> _unlock(String password) => SessionSecurityManager.instance.unlock(
+      password: password,
+      activateRoot: satisfyActivationContract,
       teardownRoot: () {},
     );
 
-void main() {
+Future<void> main() async {
+  late Directory tempDir;
   final ssm = SessionSecurityManager.instance;
 
-  setUp(() {
+  setUpAll(() async {
+    tempDir = await Directory.systemTemp.createTemp('rocen_skm_test_');
+    Hive.init(tempDir.path);
+    await Hive.openBox(MasterKeyLocalStore.boxName);
+  });
+
+  setUp(() async {
+    MasterKeyManager.instance.resetForTesting();
     ssm.resetForTesting();
     ssm.finishBootstrap();
+    await Hive.box(MasterKeyLocalStore.boxName).clear();
+    enableSimulatedScreenAcknowledgementForTest();
   });
 
   tearDown(() => ssm.lockSync());
 
-  group('ownership transfer', () {
-    test('the candidate buffer is consumed (zeroed) by the transfer', () async {
-      final Uint8List mk = _candidate(1);
-      await _unlockWith(mk);
-      expect(mk, everyElement(0));
-    });
+  tearDownAll(() async {
+    await Hive.close();
+    await tempDir.delete(recursive: true);
+  });
 
-    test('installed NEK/TEK are exactly the frozen Stage 4 derivation of the '
-        'supplied MK (proves the right MK was installed)', () async {
-      final Uint8List mk = _candidate(2);
-      final Uint8List reference = Uint8List.fromList(mk);
-      final List<int> wantNek = await _frozenNek(reference);
-      final List<int> wantTek = await _frozenTek(reference);
-
-      await _unlockWith(mk);
-
-      expect(ssm.requireNoteEncryptionKey(), equals(wantNek));
-      expect(ssm.requireGithubTokenEncryptionKey(), equals(wantTek));
-      expect(wantNek, isNot(equals(wantTek)));
-    });
-
-    test('a wrong-length candidate is rejected, zeroed, and installs nothing',
+  group('ownership transfer via the real unlock path', () {
+    test('a real unlock installs keys under SessionKeyMaterial, observed as '
+        'state only (derivation correctness is covered by the frozen '
+        'DomainKeyDerivation vectors; no raw NEK/TEK is exposed to tests)',
         () async {
-      final Uint8List bad = Uint8List.fromList(List<int>.filled(16, 0x11));
-      await expectLater(_unlockWith(bad),
-          throwsA(isA<SessionActivationException>()));
-      expect(bad, everyElement(0));
-      expect(ssm.state, SessionState.locked);
-      expect(() => ssm.requireNoteEncryptionKey(),
-          throwsA(isA<SessionAuthorizationException>()));
+      await _establishAndObserveMk('P4ssword-Alpha!');
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isFalse);
+      await _unlock('P4ssword-Alpha!');
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isTrue);
+      expect(ssm.activationDiagnostics.transactionOwnsMk, isFalse);
+      expect(ssm.activationDiagnostics.transactionOwnsNek, isFalse);
+      expect(ssm.activationDiagnostics.transactionOwnsTek, isFalse);
     });
 
-    test('returned NEK/TEK are defensive copies, not aliases of internal state',
-        () async {
-      await _unlockWith(_candidate(3));
-      final Uint8List a = ssm.requireNoteEncryptionKey();
-      final Uint8List original = Uint8List.fromList(a);
-      a.fillRange(0, a.length, 0xFF);
-      expect(ssm.requireNoteEncryptionKey(), equals(original));
-
-      final Uint8List t = ssm.requireGithubTokenEncryptionKey();
-      final Uint8List tOriginal = Uint8List.fromList(t);
-      t.fillRange(0, t.length, 0xFF);
-      expect(ssm.requireGithubTokenEncryptionKey(), equals(tOriginal));
+    test('the manager exposes NO raw-key accessor (SOURCE-REVIEWED ONLY)',
+        () {
+      final String src = File(
+              '${Directory.current.path}/lib/core/session_security_manager.dart')
+          .readAsStringSync();
+      expect(src, isNot(contains('requireNoteEncryptionKey')));
+      expect(src, isNot(contains('requireGithubTokenEncryptionKey')));
     });
   });
 
   group('destruction', () {
     test('lock makes NEK and TEK unreachable', () async {
-      await _unlockWith(_candidate(4));
+      await _establishAndObserveMk('P4ssword-Charlie!');
+      await _unlock('P4ssword-Charlie!');
       ssm.lockSync();
-      expect(() => ssm.requireNoteEncryptionKey(),
-          throwsA(isA<SessionAuthorizationException>()));
-      expect(() => ssm.requireGithubTokenEncryptionKey(),
-          throwsA(isA<SessionAuthorizationException>()));
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isFalse);
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isFalse);
     });
 
     test('lock is idempotent', () async {
-      await _unlockWith(_candidate(5));
+      await _establishAndObserveMk('P4ssword-Delta!');
+      await _unlock('P4ssword-Delta!');
       ssm.lockSync();
       expect(() => ssm.lockSync(), returnsNormally);
     });
   });
 
-  group('one owner at a time', () {
-    test('unlocking while already unlocked is refused and does not disturb '
-        'the live session; the refused candidate is not retained', () async {
-      final Uint8List first = _candidate(6);
-      final Uint8List reference = Uint8List.fromList(first);
-      final List<int> firstNek = await _frozenNek(reference);
-      await _unlockWith(first);
-
-      final Uint8List second = _candidate(7);
-      await expectLater(_unlockWith(second), throwsStateError);
-      // unlock() refuses before touching the candidate; the caller still owns
-      // and must dispose of it. The live session is untouched.
-      expect(ssm.requireNoteEncryptionKey(), equals(firstNek));
-      second.fillRange(0, second.length, 0);
-    });
-
-    test('a new session after a lock gets distinct NEK/TEK and nothing of the '
-        'old one', () async {
-      await _unlockWith(_candidate(8));
-      final Uint8List oldNek = ssm.requireNoteEncryptionKey();
-      final Uint8List oldTek = ssm.requireGithubTokenEncryptionKey();
+  group('one owner at a time, across real sessions', () {
+    test('after a password change and a re-lock, a new session installs '
+        'fresh key material (no restoration of the previous session)',
+        () async {
+      await _establishAndObserveMk('P4ssword-Echo!');
+      await _unlock('P4ssword-Echo!');
+      final SessionAuthorizationToken token = ssm.captureAuthorization();
+      await MasterKeyProductionService.instance.changePassword(
+        oldPassword: 'P4ssword-Echo!',
+        newPassword: 'P4ssword-Foxtrot!',
+        mnemonicWords: _mnemonic,
+        authorizationToken: token,
+      );
       ssm.lockSync();
-
-      await _unlockWith(_candidate(9));
-      expect(ssm.requireNoteEncryptionKey(), isNot(equals(oldNek)));
-      expect(ssm.requireGithubTokenEncryptionKey(), isNot(equals(oldTek)));
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isFalse);
+      MasterKeyManager.instance.resetForTesting();
+      await _unlock('P4ssword-Foxtrot!');
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isTrue);
+      expect(ssm.isAuthorizationValid(token), isFalse);
     });
 
-    test('re-unlocking with the SAME MK re-derives from a fresh candidate; '
+    test('re-unlocking the SAME account re-installs from a fresh candidate; '
         'nothing is restored from the previous session', () async {
-      final Uint8List mk1 = _candidate(10);
-      final List<int> nek1 = await _frozenNek(Uint8List.fromList(mk1));
-      await _unlockWith(mk1);
-      expect(ssm.requireNoteEncryptionKey(), equals(nek1));
+      await _establishAndObserveMk('P4ssword-Golf!');
+      await _unlock('P4ssword-Golf!');
       ssm.lockSync();
-      expect(() => ssm.requireNoteEncryptionKey(),
-          throwsA(isA<SessionAuthorizationException>()));
-
-      await _unlockWith(_candidate(10));
-      expect(ssm.requireNoteEncryptionKey(), equals(nek1));
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isFalse);
+      await _unlock('P4ssword-Golf!');
+      expect(ssm.activationDiagnostics.sessionKeysInstalled, isTrue);
     });
   });
 }

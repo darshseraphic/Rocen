@@ -6,16 +6,20 @@ void main() {
   final Directory root = Directory.current;
   final Directory sourceRoot = Directory('${root.path}/lib');
 
+  // Hoisted: used by more than one test (it was previously scoped to the
+  // first test only, which made the second test fail to compile).
+  final List<File> productionFiles = sourceRoot
+      .listSync(recursive: true)
+      .whereType<File>()
+      .where((file) => file.path.endsWith('.dart'))
+      .toList(growable: false);
+
   String readSource(String relativePath) =>
       File('${sourceRoot.path}/$relativePath').readAsStringSync();
 
-  test('production persistence is limited to explicit non-sensitive metadata or blocked protected stores', () {
-    final List<File> productionFiles = sourceRoot
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((file) => file.path.endsWith('.dart'))
-        .toList(growable: false);
-
+  test(
+      'production persistence is limited to explicit non-sensitive metadata or blocked protected stores',
+      () {
     final Set<String> allowedHiveBoxNames = <String>{
       'rocen_settings_box',
       // The clean-cutover reset is intentionally allowed to name these only so
@@ -39,7 +43,8 @@ void main() {
     }
 
     expect(readSource('core/database.dart'), isNot(contains('hive_flutter')));
-    expect(readSource('features/bookmarks.dart'), isNot(contains('hive_flutter')));
+    expect(
+        readSource('features/bookmarks.dart'), isNot(contains('hive_flutter')));
     expect(
       readSource('core/database.dart'),
       contains('protectedApplicationPersistenceAvailable = false'),
@@ -49,16 +54,19 @@ void main() {
   test('sensitive values are not written to production persistent stores', () {
     final List<RegExp> sensitivePersistencePatterns = <RegExp>[
       RegExp(
-        r'''(?s)(?:Hive\.box\([^;]*?\)|settingsBox|box)\s*\.\s*(?:put|add|putAll)\s*\([^;]*,\s*[^;]*(?:\btoken\b|\baccessToken\b|\bgithub[_-]?token\b)[^;]*;''',
+        r'''(?:Hive\.box\([^;]*?\)|settingsBox|box)\s*\.\s*(?:put|add|putAll)\s*\([^;]*,\s*[^;]*(?:\btoken\b|\baccessToken\b|\bgithub[_-]?token\b)[^;]*;''',
         caseSensitive: false,
+        dotAll: true,
       ),
       RegExp(
-        r'''(?s)(?:Hive\.box\([^;]*?\)|settingsBox|box)\s*\.\s*(?:put|add|putAll)\s*\([^;]*,\s*[^;]*(?:\bnote\.content\b|\bnoteContent\b|\bCaptureItem\b|\bnoteBody\b)[^;]*;''',
+        r'''(?:Hive\.box\([^;]*?\)|settingsBox|box)\s*\.\s*(?:put|add|putAll)\s*\([^;]*,\s*[^;]*(?:\bnote\.content\b|\bnoteContent\b|\bCaptureItem\b|\bnoteBody\b)[^;]*;''',
         caseSensitive: false,
+        dotAll: true,
       ),
       RegExp(
-        r'''(?s)(?:Hive\.box\([^;]*?\)|settingsBox|box)\s*\.\s*(?:put|add|putAll)\s*\([^;]*,\s*[^;]*(?:\bTodoItem\b|\btodos?\b|\btodoText\b)[^;]*;''',
+        r'''(?:Hive\.box\([^;]*?\)|settingsBox|box)\s*\.\s*(?:put|add|putAll)\s*\([^;]*,\s*[^;]*(?:\bTodoItem\b|\btodos?\b|\btodoText\b)[^;]*;''',
         caseSensitive: false,
+        dotAll: true,
       ),
     ];
 

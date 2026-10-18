@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/master_key_manager.dart';
+import 'package:rocen/core/master_key_manager.dart';
 
 /// Stage 5 ownership model: MasterKeyManager is an authority/state/lease
 /// CONTROLLER. It never holds Master Key bytes. These tests pin down both the

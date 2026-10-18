@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Rocen/core/domain_key_derivation.dart';
-import 'package:Rocen/core/master_key_manager.dart';
+import 'package:rocen/core/domain_key_derivation.dart';
+import 'package:rocen/core/master_key_manager.dart';
 
 Uint8List _masterKey(int seed) =>
     Uint8List.fromList(List<int>.generate(32, (i) => (seed + i * 17) & 0xFF));
